@@ -1,0 +1,171 @@
+.showcase {
+  min-height: 100vh;
+}
+
+.showcase__masthead {
+  height: var(--gw-header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gw-space-4);
+  padding: 0 var(--gw-header-inline-padding);
+  background: var(--gw-color-step-bg);
+  border-bottom: var(--gw-border-width) solid var(--gw-color-line);
+}
+
+.showcase__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--gw-space-3);
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-text-sm);
+  font-weight: var(--gw-weight-semibold);
+  letter-spacing: var(--gw-tracking-brand);
+  text-transform: uppercase;
+}
+
+.showcase__brand-mark {
+  width: var(--gw-brand-mark-width);
+  height: var(--gw-brand-mark-height);
+  border: var(--gw-border-width) solid var(--gw-color-accent);
+  clip-path: polygon(0 50%, 20% 0, 80% 0, 100% 50%, 80% 100%, 20% 100%);
+  box-shadow: var(--gw-shadow-brand);
+}
+
+.showcase__content {
+  width: min(var(--gw-showcase-max-width), calc(100% - var(--gw-showcase-gutter)));
+  margin: 0 auto;
+  padding: var(--gw-space-12) 0 var(--gw-showcase-bottom-space);
+}
+
+.showcase__intro {
+  max-width: var(--gw-showcase-intro-width);
+  margin-bottom: var(--gw-space-8);
+}
+
+.showcase__kicker {
+  margin: 0 0 var(--gw-space-3);
+  color: var(--gw-color-accent);
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-text-xs);
+  font-weight: var(--gw-weight-semibold);
+  letter-spacing: var(--gw-tracking-kicker);
+  text-transform: uppercase;
+}
+
+.showcase__intro h1 {
+  margin: 0;
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-text-title);
+  font-weight: var(--gw-weight-semibold);
+  letter-spacing: var(--gw-tracking-title);
+  line-height: var(--gw-leading-title);
+}
+
+.showcase__intro > p:last-child {
+  max-width: var(--gw-showcase-copy-width);
+  margin: var(--gw-space-4) 0 0;
+  color: var(--gw-color-muted);
+}
+
+.showcase__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gw-space-wall);
+  align-items: start;
+}
+
+.showcase__stack {
+  display: grid;
+  gap: var(--gw-space-4);
+}
+
+.showcase__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gw-space-2);
+}
+
+.showcase__status-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gw-space-5) var(--gw-space-4);
+  padding: var(--gw-space-2) 0;
+}
+
+.showcase__panel-copy {
+  margin: 0;
+  color: var(--gw-color-muted);
+}
+
+.showcase__geometry-panel {
+  grid-column: 1 / -1;
+}
+
+.showcase__geometry {
+  display: grid;
+  grid-template-columns: var(--gw-wall-left) minmax(0, 1fr) var(--gw-wall-right);
+  gap: var(--gw-space-wall);
+  min-height: var(--gw-geometry-height);
+}
+
+.showcase__geometry span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gw-space-2);
+  overflow: hidden;
+  color: var(--gw-color-muted);
+  background: var(--gw-color-step-bg);
+  border: var(--gw-border-width) solid var(--gw-color-line);
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-text-xs);
+  text-align: center;
+}
+
+.showcase__caption {
+  margin: var(--gw-space-3) 0 0;
+  color: var(--gw-color-footer);
+  font-size: var(--gw-text-sm);
+}
+
+.showcase__scope-list {
+  display: grid;
+  gap: var(--gw-space-3);
+  margin: 0;
+  padding-left: var(--gw-space-5);
+  color: var(--gw-color-muted);
+}
+
+.showcase__scope-list li::marker {
+  color: var(--gw-color-accent);
+}
+
+@media (max-width: 1199px) {
+  .showcase__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .showcase__content {
+    width: min(calc(100% - var(--gw-showcase-gutter-mobile)), var(--gw-showcase-mobile-max-width));
+    padding: var(--gw-space-8) 0 var(--gw-space-12);
+  }
+
+  .showcase__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .showcase__row .gw-button {
+    flex: 1 1 100%;
+  }
+
+  .showcase__masthead {
+    padding: 0 var(--gw-space-4);
+  }
+
+  .showcase__geometry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

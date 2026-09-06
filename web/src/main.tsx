@@ -1,5 +1,7 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
+import { PrimitiveShowcase } from "./showcase/PrimitiveShowcase"
+import "./styles/tokens.css"
 
 if (import.meta.env.DEV && import.meta.env.VITE_DISABLE_REACT_DEVTOOLS !== "1") {
   void Promise.all([import("react-grab"), import("react-scan")])
@@ -11,4 +13,8 @@ if (root === null) {
   throw new Error("The application root is missing.")
 }
 
-createRoot(root).render(<StrictMode />)
+createRoot(root).render(
+  <StrictMode>
+    {window.location.pathname === "/showcase" ? <PrimitiveShowcase /> : null}
+  </StrictMode>,
+)

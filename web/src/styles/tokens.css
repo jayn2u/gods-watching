@@ -1,0 +1,164 @@
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/fonts/dm-sans-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-latin.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: dark;
+  --gw-color-accent: #9bdcff;
+  --gw-color-page: #03070c;
+  --gw-color-page-top: #050b12;
+  --gw-color-page-glow: #12324d;
+  --gw-color-text: #eaf5ff;
+  --gw-color-panel-start: rgba(13, 29, 44, 0.96);
+  --gw-color-panel-end: rgba(6, 14, 23, 0.98);
+  --gw-color-line: #21384b;
+  --gw-color-muted: #8daabd;
+  --gw-color-step-bg: #07101a;
+  --gw-color-step-muted: #587288;
+  --gw-color-input-border: #31516a;
+  --gw-color-input-bg: #040b12;
+  --gw-color-primary-text: #03101a;
+  --gw-color-secondary-border: #44637a;
+  --gw-color-secondary-bg: #08131e;
+  --gw-color-secondary-text: #dceeff;
+  --gw-color-notice-border: #ff9ca6;
+  --gw-color-notice-bg: #24131a;
+  --gw-color-progress-muted: #526e82;
+  --gw-color-progress-done: #a6c6d8;
+  --gw-color-footer: #6f899b;
+  --gw-color-shadow: rgba(0, 0, 0, 0.53);
+  --gw-color-overlay: rgba(3, 7, 12, 0.74);
+
+  --gw-font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --gw-font-display: "Space Grotesk", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --gw-text-xs: 0.6875rem;
+  --gw-text-sm: 0.75rem;
+  --gw-text-md: 0.875rem;
+  --gw-text-lg: 1rem;
+  --gw-text-title: clamp(1.75rem, 4vw, 2.25rem);
+  --gw-weight-medium: 500;
+  --gw-weight-semibold: 600;
+  --gw-leading-flat: 1;
+  --gw-leading-dialog: 1.2;
+  --gw-leading-compact: 1.25;
+  --gw-leading-small: 1.4;
+  --gw-leading-body: 1.5;
+  --gw-leading-title: 1.05;
+  --gw-tracking-title: -0.025em;
+  --gw-tracking-button: 0.035em;
+  --gw-tracking-label: 0.08em;
+  --gw-tracking-brand: 0.09em;
+  --gw-tracking-kicker: 0.11em;
+
+  --gw-space-1: 0.25rem;
+  --gw-space-2: 0.5rem;
+  --gw-space-wall: 0.625rem;
+  --gw-space-3: 0.75rem;
+  --gw-space-4: 1rem;
+  --gw-space-5: 1.25rem;
+  --gw-space-6: 1.5rem;
+  --gw-space-8: 2rem;
+  --gw-space-12: 3rem;
+
+  --gw-border-width: 1px;
+  --gw-radius-control: 2px;
+  --gw-header-height: 54px;
+  --gw-header-inline-padding: 18px;
+  --gw-wall-left: 232px;
+  --gw-wall-right: 268px;
+  --gw-control-height: 36px;
+  --gw-control-height-touch: 44px;
+  --gw-input-height: 40px;
+  --gw-button-padding-block: 0.5rem;
+  --gw-button-padding-inline: 0.875rem;
+  --gw-input-padding-block: 0.625rem;
+  --gw-input-padding-inline: 0.75rem;
+  --gw-press-offset: 1px;
+  --gw-spinner-size: 0.875rem;
+  --gw-status-dot-size: 0.4375rem;
+  --gw-status-ring-size: 3px;
+  --gw-dialog-max-width: 440px;
+  --gw-dialog-gutter: 32px;
+  --gw-dialog-enter-offset: 4px;
+  --gw-dialog-marker-width: 2rem;
+  --gw-dialog-marker-height: 2px;
+  --gw-dialog-title-size: 1.25rem;
+  --gw-showcase-max-width: 1180px;
+  --gw-showcase-gutter: 40px;
+  --gw-showcase-gutter-mobile: 32px;
+  --gw-showcase-bottom-space: 4.5rem;
+  --gw-showcase-mobile-max-width: 560px;
+  --gw-showcase-intro-width: 680px;
+  --gw-showcase-copy-width: 590px;
+  --gw-brand-mark-width: 18px;
+  --gw-brand-mark-height: 12px;
+  --gw-geometry-height: 72px;
+  --gw-focus-ring: 2px solid var(--gw-color-accent);
+  --gw-focus-offset: 2px;
+  --gw-shadow-panel: 0 16px 44px var(--gw-color-shadow);
+  --gw-shadow-brand: inset 0 0 8px color-mix(in srgb, var(--gw-color-accent) 30%, transparent);
+  --gw-shadow-status: 0 0 0 var(--gw-status-ring-size)
+    color-mix(in srgb, currentColor 14%, transparent);
+  --gw-duration-fast: 120ms;
+  --gw-duration-dialog: 160ms;
+  --gw-duration-spinner: 700ms;
+  --gw-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --gw-control-disabled-opacity: 0.46;
+  --gw-control-hover-brightness: 1.08;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 20rem;
+  min-height: 100%;
+  background: var(--gw-color-page);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--gw-color-text);
+  background:
+    radial-gradient(circle at 18% -10%, var(--gw-color-page-glow) 0, transparent 34%),
+    linear-gradient(180deg, var(--gw-color-page-top), var(--gw-color-page) 70%);
+  font-family: var(--gw-font-body);
+  font-size: var(--gw-text-md);
+  line-height: var(--gw-leading-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: var(--gw-focus-ring);
+  outline-offset: var(--gw-focus-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto;
+    animation-duration: 0s;
+    animation-iteration-count: 1;
+    transition-duration: 0s;
+  }
+}

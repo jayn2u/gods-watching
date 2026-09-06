@@ -41,21 +41,27 @@ function configuredEvidenceRoot(): string {
 
 const baseURL = configuredBaseURL()
 const evidenceRoot = configuredEvidenceRoot()
+const showcaseOrigin = "http://127.0.0.1:4175"
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: "harness.spec.ts",
+  testMatch: "*.spec.ts",
   fullyParallel: true,
   workers: 2,
   projects: [{ name: "chromium" }],
   forbidOnly: Boolean(process.env["CI"]),
   outputDir: join(evidenceRoot, "playwright-output"),
   reporter: [["line"], ["json", { outputFile: join(evidenceRoot, "playwright-results.json") }]],
+  webServer: {
+    command: "VITE_DISABLE_REACT_DEVTOOLS=1 pnpm exec vite --host 127.0.0.1 --port 4175",
+    url: showcaseOrigin,
+    reuseExistingServer: false,
+  },
   use: {
     browserName: "chromium",
     headless: true,
     screenshot: "off",
     trace: "off",
-    ...(baseURL === undefined ? {} : { baseURL }),
+    baseURL: baseURL ?? showcaseOrigin,
   },
 })
