@@ -15,6 +15,7 @@ from gods_watching.verification import (
     RunResult,
     ScenarioContextProtocol,
     ScenarioReport,
+    UnavailableScenario,
     build_registry,
     execute_scenario,
     parse_scenario_name,
@@ -110,13 +111,19 @@ def test_evidence_is_written_when_scenario_is_unknown(tmp_path: Path) -> None:
 
 
 def test_nonzero_when_supported_scenario_is_not_implemented(tmp_path: Path) -> None:
-    # Given: a plan-registered scenario whose owning task has not landed
+    # Given: an explicitly unavailable definition isolated from the production plan
+    scenario = "unavailable-contract"
+    definition = UnavailableScenario(name=parse_scenario_name(scenario), owner_task=999)
     evidence = tmp_path / "unavailable"
-    # When: the real CLI dispatches that supported name
-    completed = _cli("model-assets", evidence)
+    # When: the harness dispatches that registered definition
+    result = execute_scenario(
+        scenario=scenario,
+        evidence_dir=evidence,
+        repository_root=REPOSITORY_ROOT,
+        additional=(definition,),
+    )
     # Then: it fails explicitly instead of claiming a skipped pass
-    result = RunResult.model_validate_json((evidence / "result.json").read_text())
-    assert completed.returncode != 0
+    assert result.exit_code != 0
     assert result.error is not None
     assert result.error.code == "scenario_unavailable"
 
