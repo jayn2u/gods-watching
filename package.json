@@ -1,0 +1,15 @@
+{
+  "name": "gods-watching",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "pnpm": "11.24.0"
+  },
+  "scripts": {
+    "build": "pnpm --dir web build",
+    "lint": "pnpm --dir web lint",
+    "test": "pnpm --dir web test --run",
+    "typecheck": "pnpm --dir web typecheck"
+  }
+}

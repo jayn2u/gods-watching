@@ -1,0 +1,26 @@
+[project]
+name = "gods-watching-inference"
+version = "0.1.0"
+description = "Pinned Triton Python backend inference environment"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy==2.2.6",
+    "pillow==11.3.0",
+    "safetensors==0.6.2",
+    "supervision==0.26.1",
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "transformers==4.56.1",
+    "tritonclient[grpc]==2.61.0",
+    "ultralytics==8.3.199",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
