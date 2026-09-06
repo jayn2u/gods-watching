@@ -9,10 +9,12 @@
   },
   "scripts": {
     "build": "tsc -b && vite build",
+    "browser:prepare": "node ./scripts/prepare-playwright.mjs",
     "dev": "vite",
+    "e2e:harness": "node ./scripts/run-browser-harness.mjs",
     "lint": "biome check .",
     "react:doctor": "react-doctor",
-    "test": "vitest --passWithNoTests",
+    "test": "vitest --passWithNoTests --exclude '**/e2e/**'",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
+    "@playwright/test": "1.63.0",
     "@types/node": "26.4.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
