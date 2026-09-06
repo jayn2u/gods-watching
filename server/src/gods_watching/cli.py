@@ -6,6 +6,8 @@ from typing import Annotated, NoReturn
 import typer
 from typer.models import OptionInfo
 
+from gods_watching.verification import EvidencePathError, execute_scenario
+
 app = typer.Typer(
     name="gods-watching",
     help="Operate and verify the Gods Watching research server.",
@@ -62,7 +64,19 @@ def verify(
     ],
 ) -> None:
     """Execute an isolated verification scenario."""
-    _unimplemented(f"verify --scenario {scenario} --evidence {evidence}")
+    repository_root = Path(__file__).resolve().parents[3]
+    try:
+        result = execute_scenario(
+            scenario=scenario,
+            evidence_dir=evidence,
+            repository_root=repository_root,
+        )
+    except EvidencePathError as error:
+        typer.echo(f'{{"outcome":"failed","error":{{"code":"invalid_evidence","message":"{error}"}}}}')
+        raise typer.Exit(code=2) from error
+    typer.echo(result.model_dump_json())
+    if result.exit_code != 0:
+        raise typer.Exit(code=result.exit_code)
 
 
 @credentials_app.command("set")
