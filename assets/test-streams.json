@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "prepared_inputs_redistributable": false,
+  "streams": [
+    {
+      "stream_id": "camera-1",
+      "prepared_path": "runtime/assets/fixtures/business-plaza.mp4",
+      "source_page": "https://www.pexels.com/video/people-walking-in-city-14084677/",
+      "direct_url": "https://videos.pexels.com/video-files/14084677/14084677-hd_1920_1080_60fps.mp4",
+      "author": "Boyan Minchev",
+      "license_name": "Pexels License",
+      "license_url": "https://www.pexels.com/license/",
+      "sha256": "32491dea7b180787a71b1069ea5481d5d945fb970073017a9277d5a4842f4d76",
+      "duration_seconds": 37.673333,
+      "fps": "60000/1001",
+      "width": 1920,
+      "height": 1080,
+      "codec": "h264",
+      "scene": "Wide daytime London business plaza with pedestrians moving between glass towers",
+      "adjustments": ["No transcode; selected public 1920x1080 H.264 variant retained byte-for-byte"],
+      "visual_inspection": "One-second and four-second frame samples show pedestrians across the full 37.67-second plaza scene",
+      "continuous_person_intervals": [],
+      "replaces": {
+        "source_page": "https://www.pexels.com/video/people-walking-on-a-street-in-a-city-19329330/",
+        "reason": "Resolved direct candidate probed as 1280x720 and 5.055 seconds, below the required 1920x1080 fixture format"
+      }
+    },
+    {
+      "stream_id": "camera-2",
+      "prepared_path": "runtime/assets/fixtures/crosswalk.mp4",
+      "source_page": "https://www.pexels.com/video/people-walking-on-the-pedestrian-7963126/",
+      "direct_url": "https://videos.pexels.com/video-files/7963126/7963126-hd_1920_1080_30fps.mp4",
+      "author": "Felicity Tai",
+      "license_name": "Pexels License",
+      "license_url": "https://www.pexels.com/license/",
+      "sha256": "67fbb4d21d9b7b25389d16830a156c7a76a1669cddb1f8da3fad38d18ee13671",
+      "duration_seconds": 10.026667,
+      "fps": "30000/1001",
+      "width": 1920,
+      "height": 1080,
+      "codec": "h264",
+      "scene": "Close daylight view following three pedestrians across a tree-lined city crosswalk",
+      "adjustments": ["No transcode; selected public 1920x1080 H.264 variant retained byte-for-byte"],
+      "visual_inspection": "Two-second frame samples show three fully visible foreground pedestrians throughout the clip",
+      "continuous_person_intervals": [],
+      "replaces": {
+        "source_page": "https://www.pexels.com/video/urban-street-scene-with-pedestrians-crossing-30298598/",
+        "reason": "The planned page remained Cloudflare-blocked and bounded public CDN variant probes exposed no downloadable 1920x1080 file"
+      }
+    },
+    {
+      "stream_id": "camera-3",
+      "prepared_path": "runtime/assets/fixtures/night-market.mp4",
+      "source_page": "https://www.pexels.com/video/people-walking-at-a-street-during-nighttime-4122942/",
+      "direct_url": "https://videos.pexels.com/video-files/4122942/4122942-hd_1920_1080_24fps.mp4",
+      "author": "Shrijana Shrestha",
+      "license_name": "Pexels License",
+      "license_url": "https://www.pexels.com/license/",
+      "sha256": "9600d9a938cc76543cc6b825e708bee8c0fa7221d609b5599a1cc1d5d6e65aa2",
+      "duration_seconds": 28.415,
+      "fps": "24000/1001",
+      "width": 1920,
+      "height": 1080,
+      "codec": "h264",
+      "scene": "Moving nighttime Nepal market view through a dense pedestrian crowd and colored lights",
+      "adjustments": ["No transcode; selected public 1920x1080 H.264 variant retained byte-for-byte"],
+      "visual_inspection": "Every one-second sample was inspected; the central red-shirted pedestrian remains visible from second 4 through second 27",
+      "continuous_person_intervals": [
+        {
+          "start_seconds": 4.0,
+          "end_seconds": 27.0,
+          "description": "Central red-shirted pedestrian followed continuously by the moving camera"
+        }
+      ],
+      "replaces": {
+        "source_page": "https://www.pexels.com/video/busy-urban-street-with-pedestrians-walking-36214844/",
+        "reason": "The planned page remained Cloudflare-blocked and bounded public CDN variant probes exposed no downloadable 1920x1080 file"
+      }
+    },
+    {
+      "stream_id": "camera-4",
+      "prepared_path": "runtime/assets/fixtures/barcelona-boulevard.mp4",
+      "source_page": "https://www.pexels.com/video/people-walking-1191570/",
+      "direct_url": "https://videos.pexels.com/video-files/1191570/1191570-hd_1920_1080_25fps.mp4",
+      "author": "clara blasco",
+      "license_name": "Pexels License",
+      "license_url": "https://www.pexels.com/license/",
+      "sha256": "e7218e91e60ada5e9a2ba5957f37accee49811b3e832bbfeb72c0018e4e2470b",
+      "duration_seconds": 16.126667,
+      "fps": "25/1",
+      "width": 1920,
+      "height": 1080,
+      "codec": "h264",
+      "scene": "Fixed daytime Barcelona boulevard crowded with pedestrians under trees",
+      "adjustments": ["No transcode; selected public 1920x1080 H.264 variant retained byte-for-byte"],
+      "visual_inspection": "Four-second frame samples show many full-body pedestrians throughout the fixed wide view",
+      "continuous_person_intervals": [],
+      "replaces": {
+        "source_page": "https://www.pexels.com/video/urban-street-scene-with-pedestrians-and-cars-36964518/",
+        "reason": "The planned page remained Cloudflare-blocked and bounded public CDN variant probes exposed no downloadable 1920x1080 file"
+      }
+    }
+  ]
+}
