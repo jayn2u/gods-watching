@@ -33,9 +33,7 @@ _OBSERVED_AT: Final = datetime(2026, 9, 6, 12, 30, tzinfo=UTC)
 
 
 def _rtsp(value: str) -> AnyUrl:
-    return CameraCreateRequest.model_validate(
-        {"name": "fixture", "source_url": value}
-    ).source_url
+    return CameraCreateRequest.model_validate({"name": "fixture", "source_url": value}).source_url
 
 
 def _publication(
