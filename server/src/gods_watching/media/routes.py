@@ -1,5 +1,6 @@
 """FastAPI WHEP routes awaiting task-12 operator-session integration."""
 
+from collections.abc import Awaitable
 from http import HTTPStatus
 from typing import Annotated, Protocol, final
 from uuid import UUID
@@ -23,6 +24,14 @@ class MediaSessionAuthorizer(Protocol):
         ...
 
 
+class CameraAccessChecker(Protocol):
+    """Check that a requested camera is currently live and not deleted."""
+
+    def __call__(self, camera_id: CameraId, /) -> Awaitable[bool]:
+        """Return whether WHEP may resolve this camera path."""
+        ...
+
+
 @final
 class DenyAllMediaSessionAuthorizer:
     """Keep the proxy private until task 12 injects real session authorization."""
@@ -39,9 +48,11 @@ class _WhepHandlers:
         self,
         service: WhepProxyService,
         authorizer: MediaSessionAuthorizer,
+        camera_access: CameraAccessChecker | None,
     ) -> None:
         self._service = service
         self._authorizer = authorizer
+        self._camera_access = camera_access
 
     async def create(
         self,
@@ -54,9 +65,11 @@ class _WhepHandlers:
             return Response(status_code=HTTPStatus.UNAUTHORIZED)
         if content_type != "application/sdp":
             return Response(status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
-        body = await request.body()
-        if len(body) > _MAX_WHEP_BODY_BYTES:
+        body = await _read_bounded(request)
+        if body is None:
             return Response(status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        if self._camera_access is not None and not await self._camera_access(CameraId(camera_id)):
+            return Response(status_code=HTTPStatus.NOT_FOUND)
         try:
             result = await self._service.create(CameraId(camera_id), session, body)
         except InvalidGatewayLocationError:
@@ -67,9 +80,13 @@ class _WhepHandlers:
         session = await self._authorizer.authorize(request)
         if session is None:
             return Response(status_code=HTTPStatus.UNAUTHORIZED)
-        body = await request.body()
-        if len(body) > _MAX_WHEP_BODY_BYTES:
+        if request.headers.get("content-type") != "application/trickle-ice-sdpfrag":
+            return Response(status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+        body = await _read_bounded(request)
+        if body is None:
             return Response(status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        if self._camera_access is not None and not await self._camera_access(CameraId(camera_id)):
+            return Response(status_code=HTTPStatus.NOT_FOUND)
         result = await self._service.patch(
             CameraId(camera_id), session, WhepResourceId(resource_id), body
         )
@@ -79,6 +96,8 @@ class _WhepHandlers:
         session = await self._authorizer.authorize(request)
         if session is None:
             return Response(status_code=HTTPStatus.UNAUTHORIZED)
+        if self._camera_access is not None and not await self._camera_access(CameraId(camera_id)):
+            return Response(status_code=HTTPStatus.NOT_FOUND)
         result = await self._service.delete(
             CameraId(camera_id), session, WhepResourceId(resource_id)
         )
@@ -88,9 +107,14 @@ class _WhepHandlers:
 def build_whep_router(
     service: WhepProxyService,
     authorizer: MediaSessionAuthorizer | None = None,
+    camera_access: CameraAccessChecker | None = None,
 ) -> APIRouter:
     """Build deny-by-default browser WHEP routes around the private proxy service."""
-    handlers = _WhepHandlers(service, authorizer or DenyAllMediaSessionAuthorizer())
+    handlers = _WhepHandlers(
+        service,
+        authorizer or DenyAllMediaSessionAuthorizer(),
+        camera_access,
+    )
     router = APIRouter(prefix="/api/live", tags=["live"])
     router.add_api_route("/{camera_id}/whep", handlers.create, methods=["POST"])
     router.add_api_route(
@@ -104,6 +128,25 @@ def build_whep_router(
         methods=["DELETE"],
     )
     return router
+
+
+async def _read_bounded(request: Request) -> bytes | None:
+    """Read a WHEP body while enforcing the cap for both framed and streamed input."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > _MAX_WHEP_BODY_BYTES:
+                return None
+        except ValueError:
+            return None
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_WHEP_BODY_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _response(result: ProxyResponse) -> Response:

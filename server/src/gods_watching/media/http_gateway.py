@@ -133,7 +133,9 @@ class HttpMediaControlGateway:
                 b"",
             )
         )
-        if not HTTPStatus.OK <= response < HTTPStatus.MULTIPLE_CHOICES:
+        if response != HTTPStatus.NOT_FOUND and not (
+            HTTPStatus.OK <= response < HTTPStatus.MULTIPLE_CHOICES
+        ):
             raise MediaControlRequestError(status_code=response)
 
     def _request(self, method: str, target: str, body: bytes) -> int:

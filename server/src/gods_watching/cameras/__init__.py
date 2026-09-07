@@ -17,7 +17,12 @@ from .repository import (
     CameraServiceError,
     StaleCameraVersionError,
 )
-from .service import CameraMutation, CameraService, SourceProbePort
+from .service import (
+    CameraGenerationMismatchError,
+    CameraMutation,
+    CameraService,
+    SourceProbePort,
+)
 from .source_probe import (
     ParsedRtspSource,
     ProbeFailureCode,
@@ -34,6 +39,7 @@ __all__ = [
     "CameraCancellationRequest",
     "CameraDeletedError",
     "CameraGenerationId",
+    "CameraGenerationMismatchError",
     "CameraLifecyclePlan",
     "CameraLifecyclePort",
     "CameraMutation",

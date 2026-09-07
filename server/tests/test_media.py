@@ -16,6 +16,7 @@ from gods_watching.media import (
     MediaPath,
     MediaSessionId,
     SourceGenerationCoordinator,
+    SourceGenerationId,
     WhepProxyService,
     WhepResourceId,
 )
@@ -202,6 +203,48 @@ def test_source_loss_emits_loss_then_ends_generation() -> None:
         GenerationEventKind.ENDED,
     ]
     assert {event.generation_id for event in sink.events} == {generation_id}
+
+
+def test_media_activation_baseline_publishes_started_before_return() -> None:
+    # Given: the pre-binding media adapter and an event sink
+    sink = RecordingEventSink()
+    gateway = RecordingControlGateway()
+    adapter = MediaControlAdapter(
+        gateway=gateway,
+        generations=SourceGenerationCoordinator(sink=sink),
+    )
+    camera_id = CameraId(uuid4())
+
+    # When: the legacy activation path completes
+    generation_id = anyio.run(adapter.activate, camera_id, "rtsp://fixture/legacy")
+
+    # Then: its compatibility event is available at return time
+    assert sink.events[0].kind is GenerationEventKind.STARTED
+    assert sink.events[0].generation_id == generation_id
+
+
+def test_media_activation_can_defer_started_until_binding_is_ready() -> None:
+    # Given: a source coordinator whose worker callback must receive a complete binding
+    sink = RecordingEventSink()
+    gateway = RecordingControlGateway()
+    adapter = MediaControlAdapter(
+        gateway=gateway,
+        generations=SourceGenerationCoordinator(sink=sink),
+    )
+
+    # When: the owner activates media while deferring legacy lifecycle publication
+    async def activate_without_events() -> SourceGenerationId:
+        return await adapter.activate(
+            CameraId(uuid4()),
+            "rtsp://fixture/bound",
+            publish_events=False,
+        )
+
+    generation_id = anyio.run(activate_without_events)
+
+    # Then: the source generation is returned without an unbound START race
+    assert generation_id is not None
+    assert sink.events == []
 
 
 def test_activation_cancels_old_generation_before_concurrent_replacement() -> None:

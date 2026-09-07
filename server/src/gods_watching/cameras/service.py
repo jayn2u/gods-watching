@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Protocol, override
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from gods_watching.contracts.cameras import (
     CameraTestResponse,
 )
 from gods_watching.contracts.identifiers import CameraId, CameraSessionId
+from gods_watching.contracts.pipeline import GenerationBinding
 from gods_watching.storage import Camera, CameraSession
 
 from .lifecycle import (
@@ -24,7 +25,7 @@ from .lifecycle import (
     CameraLifecyclePlan,
     CameraLifecyclePort,
 )
-from .repository import CameraRepository, StaleCameraVersionError
+from .repository import CameraRepository, CameraServiceError, StaleCameraVersionError
 from .source_probe import ParsedRtspSource, ProbeResult, RtspSourceProbe, parse_rtsp_source
 
 
@@ -34,6 +35,22 @@ class SourceProbePort(Protocol):
     async def probe(self, source: ParsedRtspSource) -> ProbeResult:
         """Decode one frame and return sanitized stream metadata."""
         ...
+
+
+class CameraGenerationMismatchError(CameraServiceError):
+    """Report a reconnect request for a session that is no longer current."""
+
+    camera_id: CameraId
+
+    def __init__(self, camera_id: CameraId) -> None:
+        """Retain the camera whose source generation is stale."""
+        self.camera_id = camera_id
+        super().__init__(camera_id)
+
+    @override
+    def __str__(self) -> str:
+        """Return a sanitized reconnect diagnostic."""
+        return "camera generation is stale"
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +222,35 @@ class CameraService:
         source = parse_rtsp_source(source_url)
         probe = self.source_probe or RtspSourceProbe()
         return (await probe.probe(source)).to_response()
+
+    async def reconnect(
+        self,
+        session: AsyncSession,
+        previous: GenerationBinding,
+    ) -> CameraActivationRequest:
+        """Commit a fresh DB session for one finite source reconnect."""
+        camera = await self.repository.get(session, previous.camera_id, for_update=True)
+        if camera.version < previous.camera_version:
+            raise StaleCameraVersionError(
+                expected=previous.camera_version,
+                actual=camera.version,
+            )
+        active = await self.repository.active_session(session, camera.id, for_update=True)
+        if (
+            active is None
+            or CameraSessionId(active.id) != previous.camera_session_id
+            or CameraGenerationId(active.generation_id) != previous.db_generation_id
+        ):
+            raise CameraGenerationMismatchError(previous.camera_id)
+        await self.repository.end_session(session, active)
+        source = parse_rtsp_source(await self.repository.source(session, camera))
+        replacement = await self.repository.start_session(
+            session,
+            camera.id,
+            cause=CameraActivationReason.RECONNECT.value,
+        )
+        await session.flush()
+        return _activation(camera, replacement, source, CameraActivationReason.RECONNECT)
 
     async def dispatch(
         self,

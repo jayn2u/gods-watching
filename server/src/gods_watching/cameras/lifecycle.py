@@ -18,6 +18,7 @@ class CameraActivationReason(StrEnum):
     CREATED = "created"
     SOURCE_EDIT = "source_edit"
     DETECTION_ENABLED = "detection_enabled"
+    RECONNECT = "reconnect"
 
 
 class CameraCancellationReason(StrEnum):

@@ -58,6 +58,8 @@ class WhepProxyService:
         self._gateway = gateway
         self._resolve_path = resolve_path
         self._resources: dict[WhepResourceId, _OwnedResource] = {}
+        self._closed_sessions: set[MediaSessionId] = set()
+        self._closed_cameras: set[CameraId] = set()
         self._lock = Lock()
 
     async def create(
@@ -68,17 +70,31 @@ class WhepProxyService:
     ) -> ProxyResponse:
         """Create an application-owned resource from a browser offer."""
         path = self._resolve_path(camera_id)
+        with self._lock:
+            if session.session_id in self._closed_sessions or camera_id in self._closed_cameras:
+                return ProxyResponse(status_code=HTTPStatus.UNAUTHORIZED, body=b"")
         response = await self._gateway.create(path, offer)
         if response.status_code != HTTPStatus.CREATED or response.location is None:
             return _sanitize(response)
         upstream_location = _parse_upstream_location(response.location, path)
         resource_id = WhepResourceId(uuid4())
         with self._lock:
-            self._resources[resource_id] = _OwnedResource(
+            resource = _OwnedResource(
                 camera_id=camera_id,
                 owner_id=session.session_id,
                 upstream_location=upstream_location,
             )
+            closing = (
+                session.session_id in self._closed_sessions or camera_id in self._closed_cameras
+            )
+            if not closing:
+                self._resources[resource_id] = resource
+        if closing:
+            deleted = await self._gateway.delete(upstream_location)
+            if not _is_success(deleted.status_code):
+                with self._lock:
+                    self._resources[resource_id] = resource
+            return ProxyResponse(status_code=HTTPStatus.UNAUTHORIZED, body=b"")
         return ProxyResponse(
             status_code=response.status_code,
             body=response.body,
@@ -120,6 +136,7 @@ class WhepProxyService:
     async def close_session(self, session_id: MediaSessionId) -> int:
         """Close every abandoned resource owned by an ending session."""
         with self._lock:
+            self._closed_sessions.add(session_id)
             selected = tuple(
                 (resource_id, resource)
                 for resource_id, resource in self._resources.items()
@@ -127,6 +144,32 @@ class WhepProxyService:
             )
             for resource_id, _resource in selected:
                 del self._resources[resource_id]
+        return await self._close_selected(selected)
+
+    async def close_camera(self, camera_id: CameraId) -> int:
+        """Close every browser resource currently attached to one camera."""
+        with self._lock:
+            self._closed_cameras.add(camera_id)
+            selected = tuple(
+                (resource_id, resource)
+                for resource_id, resource in self._resources.items()
+                if resource.camera_id == camera_id
+            )
+            for resource_id, _resource in selected:
+                del self._resources[resource_id]
+        return await self._close_selected(selected)
+
+    async def close_all(self) -> int:
+        """Close all browser resources during application shutdown."""
+        with self._lock:
+            selected = tuple(self._resources.items())
+            self._resources.clear()
+        return await self._close_selected(selected)
+
+    async def _close_selected(
+        self,
+        selected: tuple[tuple[WhepResourceId, _OwnedResource], ...],
+    ) -> int:
         closed = 0
         for resource_id, resource in selected:
             response = await self._gateway.delete(resource.upstream_location)
