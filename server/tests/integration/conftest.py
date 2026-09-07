@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import secrets
 import socket
+from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 from typing import TYPE_CHECKING, Final
@@ -21,9 +22,16 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterator
 
 _POSTGRES_IMAGE: Final = "pgvector/pgvector:0.8.1-pg17"
+
+
+@dataclass(frozen=True, slots=True)
+class _DatabaseContainer:
+    name: str
+    url: str
+    docker: str
 
 
 def _free_port() -> int:
@@ -50,8 +58,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture(scope="session")
-async def database_url() -> AsyncIterator[str]:
+async def _start_database_container() -> _DatabaseContainer:
     container_name = f"gw-task4-{uuid4().hex[:12]}"
     postgres_password = uuid4().hex
     host_port = _free_port()
@@ -73,6 +80,7 @@ async def database_url() -> AsyncIterator[str]:
         ],
         check=True,
     )
+    keep_container = False
     try:
         url = (
             f"postgresql+asyncpg://postgres:{postgres_password}"
@@ -127,18 +135,37 @@ async def database_url() -> AsyncIterator[str]:
         )
         if migration.returncode != 0:
             pytest.fail(migration.stderr.decode())
-        yield url
+        keep_container = True
+        return _DatabaseContainer(name=container_name, url=url, docker=docker)
     finally:
-        _ = await anyio.run_process([docker, "rm", "--force", container_name], check=True)
+        if not keep_container:
+            await _remove_database_container(
+                _DatabaseContainer(name=container_name, url="", docker=docker)
+            )
+
+
+async def _remove_database_container(container: _DatabaseContainer) -> None:
+    _ = await anyio.run_process(
+        [container.docker, "rm", "--force", container.name], check=True
+    )
 
 
 @pytest.fixture(scope="session")
-async def engine(database_url: str) -> AsyncIterator[AsyncEngine]:
-    database_engine = create_async_engine(database_url, pool_pre_ping=True)
+def database_url() -> Iterator[str]:
+    container = anyio.run(_start_database_container)
+    try:
+        yield container.url
+    finally:
+        anyio.run(_remove_database_container, container)
+
+
+@pytest.fixture(scope="session")
+def engine(database_url: str) -> Iterator[AsyncEngine]:
+    database_engine = create_async_engine(database_url, pool_pre_ping=True, poolclass=NullPool)
     try:
         yield database_engine
     finally:
-        await database_engine.dispose()
+        anyio.run(database_engine.dispose)
 
 
 @pytest.fixture
