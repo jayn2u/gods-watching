@@ -2,4 +2,11 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec uv run --project "$SCRIPT_DIR" python -m gods_watching.cli "$@"
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "gods-watching: uv is required to select the locked project environment" >&2
+    exit 127
+fi
+
+PYTHON_BIN=$(uv run --project "$SCRIPT_DIR" python -c 'import sys; print(sys.executable)')
+exec "$PYTHON_BIN" -m gods_watching.cli "$@"
