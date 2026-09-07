@@ -15,6 +15,7 @@ dependencies = [
     "pydantic==2.11.7",
     "pydantic-settings==2.10.1",
     "sqlalchemy[asyncio]==2.0.43",
+    "tritonclient[grpc]==2.61.0",
     "typer==0.17.4",
     "uvicorn[standard]==0.35.0",
 ]
@@ -38,6 +39,7 @@ packages = ["server/src/gods_watching"]
 
 [tool.basedpyright]
 typeCheckingMode = "all"
+stubPath = "server/typings"
 pythonVersion = "3.12"
 pythonPlatform = "All"
 include = ["server/src", "server/tests"]
@@ -68,3 +70,8 @@ minversion = "8.0"
 testpaths = ["server/tests"]
 addopts = ["-ra", "--strict-config", "--strict-markers"]
 filterwarnings = ["error"]
+
+[tool.uv]
+override-dependencies = [
+    "perf-analyzer ; sys_platform == 'never'",
+]
