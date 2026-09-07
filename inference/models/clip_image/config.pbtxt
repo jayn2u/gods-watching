@@ -1,0 +1,23 @@
+name: "clip_image"
+backend: "python"
+max_batch_size: 8
+input [
+  {
+    name: "IMAGE"
+    data_type: TYPE_STRING
+    dims: [1]
+  }
+]
+output [
+  {
+    name: "EMBEDDING"
+    data_type: TYPE_FP32
+    dims: [512]
+  }
+]
+instance_group [{ count: 1 kind: KIND_GPU gpus: [0] }]
+dynamic_batching { max_queue_delay_microseconds: 10000 }
+parameters: {
+  key: "model_revision"
+  value: { string_value: "57c216476eefef5ab752ec549e440a49ae4ae5f3" }
+}
