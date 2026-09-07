@@ -130,9 +130,9 @@ def test_nonzero_when_supported_scenario_is_not_implemented(tmp_path: Path) -> N
 
 def test_missing_dependency_prevents_runner_success(tmp_path: Path) -> None:
     # Given: a scenario that requires a command absent from PATH
-    definition = _definition("detector", dependencies=("gw-command-that-does-not-exist",))
+    definition = _definition("detector-test", dependencies=("gw-command-that-does-not-exist",))
     # When: the scenario is executed
-    result = _execute_definition("detector", tmp_path / "missing", definition)
+    result = _execute_definition("detector-test", tmp_path / "missing", definition)
     # Then: the missing dependency is a binary failure
     assert result.exit_code != 0
     assert result.error is not None
@@ -141,9 +141,9 @@ def test_missing_dependency_prevents_runner_success(tmp_path: Path) -> None:
 
 def test_nonzero_and_redacted_when_runner_assertion_fails(tmp_path: Path) -> None:
     # Given: a runner whose assertion includes credential-bearing text
-    definition = _definition("detector", runner=_assertion_runner)
+    definition = _definition("detector-test", runner=_assertion_runner)
     # When: the assertion reaches the harness boundary
-    result = _execute_definition("detector", tmp_path / "assertion", definition)
+    result = _execute_definition("detector-test", tmp_path / "assertion", definition)
     # Then: failure remains nonzero and evidence contains no credential
     evidence_text = (tmp_path / "assertion/result.json").read_text()
     assert result.exit_code != 0
@@ -154,9 +154,9 @@ def test_nonzero_and_redacted_when_runner_assertion_fails(tmp_path: Path) -> Non
 
 def test_nonzero_when_stdout_claims_pass_but_check_fails(tmp_path: Path) -> None:
     # Given: a real process that prints PASS and a failing observable check
-    definition = _definition("detector", runner=_misleading_stdout_runner)
+    definition = _definition("detector-test", runner=_misleading_stdout_runner)
     # When: the scenario completes normally
-    result = _execute_definition("detector", tmp_path / "misleading", definition)
+    result = _execute_definition("detector-test", tmp_path / "misleading", definition)
     # Then: structured assertions determine the nonzero result
     assert result.exit_code != 0
     assert result.error is not None
@@ -165,10 +165,10 @@ def test_nonzero_when_stdout_claims_pass_but_check_fails(tmp_path: Path) -> None
 
 def test_cleanup_receipt_exists_after_deadline_cancellation(tmp_path: Path) -> None:
     # Given: a task-owned child process whose scenario exceeds its deadline
-    definition = _definition("detector", runner=_hung_runner, timeout=0.05)
+    definition = _definition("detector-test", runner=_hung_runner, timeout=0.05)
     evidence = tmp_path / "cancelled"
     # When: the harness cancels the scenario
-    result = _execute_definition("detector", evidence, definition)
+    result = _execute_definition("detector-test", evidence, definition)
     # Then: cancellation fails and the registered process has a cleanup receipt
     manifest = (evidence / "resource-manifest.json").read_text()
     assert result.error is not None
@@ -182,14 +182,14 @@ def test_cleanup_receipt_exists_after_deadline_cancellation(tmp_path: Path) -> N
 
 def test_isolation_names_are_unique_for_concurrent_runs(tmp_path: Path) -> None:
     # Given: two independent evidence roots and one implemented definition
-    definition = _definition("detector")
+    definition = _definition("detector-test")
     roots = (tmp_path / "first", tmp_path / "second")
     # When: separate threads execute the scenario concurrently
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = tuple(
             pool.submit(
                 execute_scenario,
-                scenario="detector",
+                scenario="detector-test",
                 evidence_dir=root,
                 repository_root=REPOSITORY_ROOT,
                 additional=(definition,),
