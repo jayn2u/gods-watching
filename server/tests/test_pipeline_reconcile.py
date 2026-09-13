@@ -47,7 +47,6 @@ def test_unchanged_cameras_produce_an_empty_plan() -> None:
     # Then: no decoder or tracker is disturbed
     assert plan.stop == ()
     assert plan.start == ()
-    assert plan.thresholds == ()
 
 
 def test_new_detection_enabled_camera_is_started() -> None:
@@ -85,10 +84,9 @@ def test_new_session_for_a_running_camera_replaces_its_worker() -> None:
     # Then: the old worker stops before the replacement starts
     assert plan.stop == (old.camera_id,)
     assert plan.start == (edited,)
-    assert plan.thresholds == ()
 
 
-def test_threshold_only_edit_updates_the_running_worker_in_place() -> None:
+def test_threshold_edit_on_the_same_session_rebinds_the_worker() -> None:
     # Given: a threshold edit bumped the version but kept the same session
     old = _desired(threshold=0.5)
     edited = _desired(
@@ -99,13 +97,31 @@ def test_threshold_only_edit_updates_the_running_worker_in_place() -> None:
         generation_id=old.generation_id,
     )
 
-    # When: the worker reconciles
+    # When: the worker still holds a binding for the previous version
     plan = plan_reconcile({old.camera_id: edited}, {old.camera_id: _running_from(old)})
 
-    # Then: the threshold is applied without restarting decode
-    assert plan.thresholds == ((old.camera_id, 0.7),)
-    assert plan.stop == ()
-    assert plan.start == ()
+    # Then: it is replaced, because publication rejects handoffs from a stale version
+    assert plan.stop == (old.camera_id,)
+    assert plan.start == (edited,)
+
+
+def test_rename_only_version_bump_also_rebinds_the_worker() -> None:
+    # Given: a rename bumped the version without changing session or threshold
+    old = _desired()
+    renamed = _desired(
+        old.camera_id,
+        version=old.version + 1,
+        threshold=old.threshold,
+        session_id=old.session_id,
+        generation_id=old.generation_id,
+    )
+
+    # When: the worker reconciles
+    plan = plan_reconcile({old.camera_id: renamed}, {old.camera_id: _running_from(old)})
+
+    # Then: the worker is rebound to the committed version
+    assert plan.stop == (old.camera_id,)
+    assert plan.start == (renamed,)
 
 
 def test_plan_orders_cameras_deterministically() -> None:

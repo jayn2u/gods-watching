@@ -36,17 +36,15 @@ class ReconcilePlan:
 
     stop: tuple[CameraId, ...]
     start: tuple[DesiredCamera, ...]
-    thresholds: tuple[tuple[CameraId, float], ...]
 
 
 def plan_reconcile(
     desired: Mapping[CameraId, DesiredCamera],
     running: Mapping[CameraId, RunningCamera],
 ) -> ReconcilePlan:
-    """Compare committed sessions with live workers and return the minimal changes."""
+    """Compare committed sessions with live workers and return stops and starts."""
     stop: list[CameraId] = []
     start: list[DesiredCamera] = []
-    thresholds: list[tuple[CameraId, float]] = []
     for camera_id in sorted(desired.keys() | running.keys(), key=str):
         wanted = desired.get(camera_id)
         current = running.get(camera_id)
@@ -56,13 +54,17 @@ def plan_reconcile(
         if current is None:
             start.append(wanted)
             continue
-        if wanted.session_id != current.session_id or wanted.generation_id != current.generation_id:
+        # Publication fences handoffs on the exact camera version, so any committed edit
+        # (threshold or rename included) needs a worker bound to the new version.
+        if (
+            wanted.session_id != current.session_id
+            or wanted.generation_id != current.generation_id
+            or wanted.version != current.version
+            or wanted.threshold != current.threshold
+        ):
             stop.append(camera_id)
             start.append(wanted)
-            continue
-        if wanted.threshold != current.threshold:
-            thresholds.append((camera_id, wanted.threshold))
-    return ReconcilePlan(stop=tuple(stop), start=tuple(start), thresholds=tuple(thresholds))
+    return ReconcilePlan(stop=tuple(stop), start=tuple(start))
 
 
 __all__ = ["DesiredCamera", "ReconcilePlan", "RunningCamera", "plan_reconcile"]
