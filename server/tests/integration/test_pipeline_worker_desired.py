@@ -111,3 +111,37 @@ async def test_desired_cameras_follow_committed_detection_sessions(database_url:
                 )
                 _ = await session.execute(delete(Camera).where(Camera.id.in_(created)))
         await database.close()
+
+
+@pytest.mark.anyio
+async def test_undecryptable_camera_is_skipped_without_blocking_others(database_url: str) -> None:
+    # Given: one camera encrypted under a different key next to a readable camera
+    database = Database.connect(database_url)
+    service = CameraService(
+        CameraRepository(StorageRepository(CredentialCipher(Fernet.generate_key())))
+    )
+    foreign = CameraService(
+        CameraRepository(StorageRepository(CredentialCipher(Fernet.generate_key())))
+    )
+    created: list[UUID] = []
+    try:
+        async with database.transaction() as session:
+            readable = await service.create(session, _create_request("readable"))
+            unreadable = await foreign.create(session, _create_request("foreign-key"))
+        created.extend(UUID(str(mutation.camera.camera_id)) for mutation in (readable, unreadable))
+
+        # When: the worker loads desired cameras with its own key
+        async with database.transaction() as session:
+            loaded = await load_desired_cameras(session, service.repository)
+
+        # Then: the readable camera still runs and the undecryptable one is left out
+        assert CameraId(readable.camera.camera_id) in loaded
+        assert CameraId(unreadable.camera.camera_id) not in loaded
+    finally:
+        if created:
+            async with database.transaction() as session:
+                _ = await session.execute(
+                    delete(CameraSession).where(CameraSession.camera_id.in_(created))
+                )
+                _ = await session.execute(delete(Camera).where(Camera.id.in_(created)))
+        await database.close()
