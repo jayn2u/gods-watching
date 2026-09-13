@@ -17,6 +17,7 @@ _MODEL_ROOT: Final = _REPOSITORY_ROOT / "inference/models"
 _ASSET_ROOT: Final = _REPOSITORY_ROOT / "runtime/assets/models"
 _TRITON_IMAGE: Final = "gods-watching-triton:25.02"
 _POSTGRES_IMAGE: Final = "pgvector/pgvector:0.8.1-pg17"
+_DEFAULT_MODELS: Final = ("detector", "clip_image")
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,8 +29,13 @@ class Task11Resources:
     database_url: str
 
 
-async def start_triton(context: ScenarioContextProtocol, *, container: str) -> CommandResult:
-    """Start detector and image CLIP models on the admitted GPU."""
+async def start_triton(
+    context: ScenarioContextProtocol,
+    *,
+    container: str,
+    models: tuple[str, ...] = _DEFAULT_MODELS,
+) -> CommandResult:
+    """Start the selected inference models (detector and image CLIP by default) on the GPU."""
     return await run_command(
         context,
         name="task11-triton-up",
@@ -54,27 +60,25 @@ async def start_triton(context: ScenarioContextProtocol, *, container: str) -> C
             "tritonserver",
             "--model-repository=/model-repository",
             "--model-control-mode=explicit",
-            "--load-model=detector",
-            "--load-model=clip_image",
+            *(f"--load-model={model}" for model in models),
             "--strict-model-config=true",
             "--exit-on-error=true",
         ),
     )
 
 
-async def wait_triton(endpoint: str) -> bool:
-    """Wait until both production inference models report ready."""
+async def wait_triton(endpoint: str, models: tuple[str, ...] = _DEFAULT_MODELS) -> bool:
+    """Wait until every selected inference model reports ready."""
     client = InferenceServerClient(url=endpoint)
     try:
         for _attempt in range(120):
             try:
                 ready = await client.is_server_ready()
-                detector = await client.is_model_ready("detector")
-                clip_image = await client.is_model_ready("clip_image")
+                models_ready = [await client.is_model_ready(model) for model in models]
             except InferenceServerException:
                 await anyio.sleep(0.25)
                 continue
-            if ready and detector and clip_image:
+            if ready and all(models_ready):
                 return True
             await anyio.sleep(0.25)
         return False
