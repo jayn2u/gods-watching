@@ -106,6 +106,20 @@ def _fixed_clock_worker(
     return IngestWorker(replace(config, monotonic_clock=lambda: 10.0), detector, consumer)
 
 
+async def _delete_camera_rows(database: Database, camera_id: UUID) -> None:
+    async with database.transaction() as session:
+        appearance_ids = tuple(
+            await session.scalars(select(Appearance.id).where(Appearance.camera_id == camera_id))
+        )
+        if appearance_ids:
+            _ = await session.execute(
+                delete(CropGarbage).where(CropGarbage.appearance_id.in_(appearance_ids))
+            )
+        _ = await session.execute(delete(Appearance).where(Appearance.camera_id == camera_id))
+        _ = await session.execute(delete(CameraSession).where(CameraSession.camera_id == camera_id))
+        _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+
+
 @pytest.mark.anyio
 async def test_pipeline_worker_follows_camera_edits_and_publishes_on_the_current_version(
     database_url: str, tmp_path: Path
@@ -204,21 +218,5 @@ async def test_pipeline_worker_follows_camera_edits_and_publishes_on_the_current
         assert ended.ended_at is not None
     finally:
         if camera_id is not None:
-            async with database.transaction() as session:
-                appearance_ids = tuple(
-                    await session.scalars(
-                        select(Appearance.id).where(Appearance.camera_id == camera_id)
-                    )
-                )
-                if appearance_ids:
-                    _ = await session.execute(
-                        delete(CropGarbage).where(CropGarbage.appearance_id.in_(appearance_ids))
-                    )
-                _ = await session.execute(
-                    delete(Appearance).where(Appearance.camera_id == camera_id)
-                )
-                _ = await session.execute(
-                    delete(CameraSession).where(CameraSession.camera_id == camera_id)
-                )
-                _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+            await _delete_camera_rows(database, camera_id)
         await database.close()
