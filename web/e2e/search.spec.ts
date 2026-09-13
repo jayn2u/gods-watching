@@ -102,11 +102,16 @@ test.describe("person search against the real API", () => {
     const query = page.getByLabel("Describe a person")
     await query.fill(TEXT_QUERY)
     await page.getByLabel(first).check()
+    const firstRequest = page.waitForRequest(
+      (request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/search",
+    )
     await page.getByRole("button", { name: "Search", exact: true }).click()
+    const firstBody = (await firstRequest).postData()
     await page.getByLabel(first).uncheck()
     await page.getByLabel(second).check()
+    // Request bodies carry camera ids, so the later search is the one whose body differs.
     const latest = page.waitForResponse(
-      (response) => isSearch(response) && (response.request().postData() ?? "").includes(second),
+      (response) => isSearch(response) && response.request().postData() !== firstBody,
     )
     await page.locator("form.search-form").evaluate((form) => {
       if (!(form instanceof HTMLFormElement)) {
@@ -129,11 +134,12 @@ test.describe("person search against the real API", () => {
     test.setTimeout(300_000)
     await signIn(page)
 
+    // The API caches text embeddings per query, so the outage needs a query not searched yet.
     const query = page.getByLabel("Describe a person")
-    await query.fill(TEXT_QUERY)
+    await query.fill(`a person carrying an umbrella ${Date.now()}`)
     await page.getByRole("button", { name: "Search", exact: true }).click()
     const alert = page.locator(".search-state[role='alert']")
-    await expect(alert).toContainText("inference_unavailable")
+    await expect(alert).toContainText("inference_unavailable", { timeout: 60_000 })
     await expect(page.getByRole("button", { name: "Retry search" })).toBeVisible()
 
     writeFileSync(outageMarker ?? "", "outage observed\n")
