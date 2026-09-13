@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
 from time import monotonic
-from typing import Protocol, override
+from typing import TYPE_CHECKING, Protocol, override
 
 import anyio
 
@@ -32,6 +32,9 @@ from .decoder import (
 )
 from .models import DecodedFrame, IngestStats, IngestStatsSnapshot, LatestFrameSlot
 from .scheduler import FairRoundRobinScheduler
+
+if TYPE_CHECKING:
+    from anyio.abc import TaskGroup
 
 _MIN_THRESHOLD = 0.1
 _MAX_THRESHOLD = 0.95
@@ -475,6 +478,7 @@ class IngestCoordinator:
         """Create an empty coordinator with a five-fps fair scheduler by default."""
         self._scheduler: FairRoundRobinScheduler = scheduler or FairRoundRobinScheduler()
         self._workers: dict[CameraId, IngestWorker] = {}
+        self._decoder_group: TaskGroup | None = None
 
     @property
     def workers(self) -> tuple[IngestWorker, ...]:
@@ -487,11 +491,13 @@ class IngestCoordinator:
         return self._scheduler.peak_in_flight_count
 
     def add(self, worker: IngestWorker) -> None:
-        """Register one worker before the coordinator run loop starts."""
+        """Register one worker, starting its decoder if the run loop is already active."""
         if worker.camera_id in self._workers:
             raise WorkerConfigurationError(detail="camera worker is already registered")
         self._workers[worker.camera_id] = worker
         self._scheduler.register(worker.camera_id)
+        if self._decoder_group is not None:
+            self._decoder_group.start_soon(worker.run_decoder)
 
     async def remove(self, camera_id: CameraId) -> tuple[PipelineHandoff, ...]:
         """Stop and unregister one camera worker, if present."""
@@ -507,9 +513,11 @@ class IngestCoordinator:
             async with anyio.create_task_group() as task_group:
                 for worker in self._workers.values():
                     task_group.start_soon(worker.run_decoder)
+                self._decoder_group = task_group
                 try:
                     await self._scheduler.run(self._dispatch, stop_event=stop_event)
                 finally:
+                    self._decoder_group = None
                     task_group.cancel_scope.cancel()
         finally:
             for worker in tuple(self._workers.values()):

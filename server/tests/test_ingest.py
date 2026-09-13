@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import TYPE_CHECKING, override
 from uuid import uuid4
 
 import anyio
@@ -17,9 +18,15 @@ from gods_watching.contracts.pipeline import (
     RgbCrop,
 )
 from gods_watching.inference.detector import Detection, DetectorRequest, DetectorResult
+from gods_watching.ingest.decoder import (
+    DecoderConfiguration,
+    DecoderStatusSink,
+    PyAvRtspDecoder,
+)
 from gods_watching.ingest.models import DecodedFrame, LatestFrameSlot
 from gods_watching.ingest.scheduler import FairRoundRobinScheduler
 from gods_watching.ingest.worker import (
+    IngestCoordinator,
     IngestWorker,
     IngestWorkerConfiguration,
     PipelineHandoffConsumer,
@@ -342,3 +349,140 @@ def _new_worker(
         detector,
         consume,
     )
+
+
+class _ParkedDecoder(PyAvRtspDecoder):
+    """Stand in for RTSP decode by parking until the worker stops the decoder."""
+
+    def __init__(self, binding: GenerationBinding) -> None:
+        super().__init__(
+            DecoderConfiguration(
+                source_url="rtsp://camera/test",
+                source_generation_id=binding.source_generation_id,
+                slot=LatestFrameSlot(),
+            )
+        )
+        self.started: anyio.Event = anyio.Event()
+        self.finished: anyio.Event = anyio.Event()
+        self._parked: anyio.Event = anyio.Event()
+
+    @override
+    def stop(self) -> None:
+        super().stop()
+        self._parked.set()
+
+    @override
+    async def run_forever(self, *, status_sink: DecoderStatusSink | None = None) -> None:
+        del status_sink
+        self.started.set()
+        try:
+            await self._parked.wait()
+        finally:
+            self.finished.set()
+
+
+async def _discard(handoff: PipelineHandoff) -> None:
+    del handoff
+
+
+def _new_parked_worker(binding: GenerationBinding, decoder: _ParkedDecoder) -> IngestWorker:
+    return IngestWorker(
+        IngestWorkerConfiguration(generation=binding, source_url="rtsp://camera/test"),
+        _SequenceDetector(()),
+        _discard,
+        decoder=decoder,
+    )
+
+
+def test_coordinator_starts_decoder_for_camera_added_while_running() -> None:
+    async def exercise() -> None:
+        # Given: a running coordinator that already decodes one camera
+        coordinator = IngestCoordinator()
+        first_binding = _new_binding()
+        second_binding = _new_binding()
+        first_decoder = _ParkedDecoder(first_binding)
+        second_decoder = _ParkedDecoder(second_binding)
+        coordinator.add(_new_parked_worker(first_binding, first_decoder))
+        stop = anyio.Event()
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(partial(coordinator.run, stop_event=stop))
+            with anyio.fail_after(2.0):
+                await first_decoder.started.wait()
+
+            # When: the worker process adds a second camera without restarting the loop
+            coordinator.add(_new_parked_worker(second_binding, second_decoder))
+
+            # Then: the new camera decodes and both decoders stop with the coordinator
+            with anyio.fail_after(2.0):
+                await second_decoder.started.wait()
+            stop.set()
+        assert first_decoder.finished.is_set()
+        assert second_decoder.finished.is_set()
+
+    anyio.run(exercise)
+
+
+def test_coordinator_remove_stops_only_that_decoder_while_running() -> None:
+    async def exercise() -> None:
+        # Given: a running coordinator decoding two cameras
+        coordinator = IngestCoordinator()
+        first_binding = _new_binding()
+        second_binding = _new_binding()
+        first_decoder = _ParkedDecoder(first_binding)
+        second_decoder = _ParkedDecoder(second_binding)
+        coordinator.add(_new_parked_worker(first_binding, first_decoder))
+        coordinator.add(_new_parked_worker(second_binding, second_decoder))
+        stop = anyio.Event()
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(partial(coordinator.run, stop_event=stop))
+            with anyio.fail_after(2.0):
+                await first_decoder.started.wait()
+                await second_decoder.started.wait()
+
+            # When: one camera is disabled or deleted
+            _ = await coordinator.remove(first_binding.camera_id)
+
+            # Then: only its decoder stops and the other camera keeps decoding
+            with anyio.fail_after(2.0):
+                await first_decoder.finished.wait()
+            assert not second_decoder.finished.is_set()
+            assert [worker.camera_id for worker in coordinator.workers] == [
+                second_binding.camera_id
+            ]
+            stop.set()
+
+    anyio.run(exercise)
+
+
+def test_coordinator_restarts_camera_with_a_new_generation_while_running() -> None:
+    async def exercise() -> None:
+        # Given: a running coordinator decoding one camera generation
+        coordinator = IngestCoordinator()
+        old_binding = _new_binding()
+        new_binding = GenerationBinding(
+            camera_id=old_binding.camera_id,
+            camera_session_id=CameraSessionId(uuid4()),
+            db_generation_id=CameraGenerationId(uuid4()),
+            source_generation_id=SourceGenerationId(uuid4()),
+            camera_version=old_binding.camera_version + 1,
+        )
+        old_decoder = _ParkedDecoder(old_binding)
+        new_decoder = _ParkedDecoder(new_binding)
+        coordinator.add(_new_parked_worker(old_binding, old_decoder))
+        stop = anyio.Event()
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(partial(coordinator.run, stop_event=stop))
+            with anyio.fail_after(2.0):
+                await old_decoder.started.wait()
+
+            # When: a source edit replaces the camera's generation
+            _ = await coordinator.remove(old_binding.camera_id)
+            coordinator.add(_new_parked_worker(new_binding, new_decoder))
+
+            # Then: the old decoder stops and the replacement decodes
+            with anyio.fail_after(2.0):
+                await old_decoder.finished.wait()
+                await new_decoder.started.wait()
+            stop.set()
+
+    anyio.run(exercise)
