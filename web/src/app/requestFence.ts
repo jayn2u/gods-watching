@@ -1,6 +1,13 @@
+import { isAbortError } from "./client"
+
 export type RequestToken = Readonly<{
   generation: number
   signal: AbortSignal
+}>
+
+export type FencedRequestHandlers<T> = Readonly<{
+  onResponse: (response: T) => void
+  onError: (error: unknown) => void
 }>
 
 /** Owns one latest-wins request and its cancellation signal per feature surface. */
@@ -29,4 +36,29 @@ export class RequestFence {
   dispose(): void {
     this.cancel()
   }
+}
+
+/**
+ * Starts a latest-wins request on the fence. A result that settles after the
+ * fence was cancelled or restarted is discarded, even when the response body
+ * was already read before the abort.
+ */
+export function startFencedRequest<T>(
+  fence: RequestFence,
+  request: (signal: AbortSignal) => Promise<T>,
+  handlers: FencedRequestHandlers<T>,
+): Promise<void> {
+  const { generation, signal } = fence.start()
+  return request(signal).then(
+    (response) => {
+      if (fence.isCurrent(generation)) {
+        handlers.onResponse(response)
+      }
+    },
+    (error: unknown) => {
+      if (fence.isCurrent(generation) && !isAbortError(error)) {
+        handlers.onError(error)
+      }
+    },
+  )
 }

@@ -12,8 +12,7 @@ import {
   type WallSlotIds,
 } from "./client"
 import { AppShell, type CameraState } from "./layout/AppShell"
-import { RequestFence } from "./requestFence"
-import { startSessionCheck } from "./sessionCheck"
+import { RequestFence, startFencedRequest } from "./requestFence"
 import "./app.css"
 
 type SessionState =
@@ -95,7 +94,7 @@ export function App() {
   const sessionFence = useRef(new RequestFence())
   const logoutRequest = useRef<AbortController | null>(null)
   const activityRequest = useRef<AbortController | null>(null)
-  const cameraRequest = useRef<AbortController | null>(null)
+  const cameraFence = useRef(new RequestFence())
   const wallSlotRequest = useRef<AbortController | null>(null)
   const settingsRequest = useRef<AbortController | null>(null)
   const settingsGeneration = useRef(0)
@@ -103,7 +102,7 @@ export function App() {
 
   const checkSession = useCallback(() => {
     setSession({ kind: "loading" })
-    void startSessionCheck(sessionFence.current, (signal) => apiClient.getSession(signal), {
+    void startFencedRequest(sessionFence.current, (signal) => apiClient.getSession(signal), {
       onResponse: (response) => {
         setSession(
           response.authenticated
@@ -187,8 +186,7 @@ export function App() {
     logoutRequest.current = null
     activityRequest.current?.abort()
     activityRequest.current = null
-    cameraRequest.current?.abort()
-    cameraRequest.current = null
+    cameraFence.current.cancel()
     settingsRequest.current?.abort()
     settingsRequest.current = null
     wallSlotRequest.current?.abort()
@@ -199,32 +197,22 @@ export function App() {
   }, [])
 
   const loadCameras = useCallback((): void => {
-    cameraRequest.current?.abort()
     if (!authenticated) {
+      cameraFence.current.cancel()
       setCameras({ kind: "loading" })
       return
     }
-    const controller = new AbortController()
-    cameraRequest.current = controller
     setCameras({ kind: "loading" })
-    void apiClient
-      .listCameras(controller.signal)
-      .then((response) => setCameras({ kind: "ready", cameras: response }))
-      .catch((error: unknown) => {
-        if (isAbortError(error)) {
-          return
-        }
+    void startFencedRequest(cameraFence.current, (signal) => apiClient.listCameras(signal), {
+      onResponse: (response) => setCameras({ kind: "ready", cameras: response }),
+      onError: (error) => {
         if (error instanceof HttpError && error.status === 401) {
           onSessionExpired()
           return
         }
         setCameras({ kind: "error", message: cameraErrorMessage(error) })
-      })
-      .finally(() => {
-        if (cameraRequest.current === controller) {
-          cameraRequest.current = null
-        }
-      })
+      },
+    })
   }, [authenticated, onSessionExpired])
 
   const refreshCameras = loadCameras
@@ -329,11 +317,9 @@ export function App() {
   )
 
   useEffect(() => {
+    const fence = cameraFence.current
     loadCameras()
-    return () => {
-      cameraRequest.current?.abort()
-      cameraRequest.current = null
-    }
+    return () => fence.cancel()
   }, [loadCameras])
 
   const onSettingsSaved = useCallback((response: SettingsResponse): void => {

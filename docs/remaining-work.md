@@ -48,7 +48,7 @@ plan can be closed.
     back-state preservation, stale-response fencing, and recoverable error
     states against the real API; fix gaps found by that run.
 - [ ] **Task 17: camera and retention settings UI acceptance**
-  - Fence camera-load callbacks by request ownership so an older response
+  - [x] Fence camera-load callbacks by request ownership so an older response
     cannot replace a newer refresh or post-expiry reset.
   - Run the prepared real browser/API scenario; no runtime acceptance scenario
     was started at this checkpoint.
