@@ -6,7 +6,7 @@ import secrets
 import shutil
 import subprocess
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -18,6 +18,7 @@ from .context import (
     ResourceLedger,
     ScenarioContext,
     ScenarioContextConfig,
+    VerificationInterruptedError,
     allocate_loopback_port,
 )
 from .errors import EvidencePathError, InvalidScenarioNameError
@@ -116,13 +117,23 @@ async def _invoke(
         return None, ErrorRecord(code="runner_error", message=redact(str(error)))
 
 
+def _raise_if_interrupted(reader: Callable[[], int | None] | None) -> None:
+    if reader is None:
+        return
+    signum = reader()
+    if signum is not None:
+        raise VerificationInterruptedError(signum)
+
+
 async def _execute(
     *,
     scenario: str,
     evidence_dir: Path,
     repository_root: Path,
     additional: Iterable[ScenarioDefinition],
+    interrupt_reader: Callable[[], int | None] | None,
 ) -> RunResult:
+    _raise_if_interrupted(interrupt_reader)
     started_at = datetime.now(UTC)
     started_monotonic = time.monotonic()
     run_id = RunId(secrets.token_hex(12))
@@ -130,25 +141,27 @@ async def _execute(
     port = allocate_loopback_port()
     ledger = ResourceLedger(evidence_dir / "resource-manifest.json")
     runtime_root = evidence_dir / "runtime"
-    ledger.append(
-        kind="directory", name="runtime-root", state="registered", detail=str(runtime_root)
-    )
-    runtime_root.mkdir()
-    ledger.append(kind="directory", name="runtime-root", state="started")
-    context = ScenarioContext(
-        ScenarioContextConfig(
-            run_id=run_id,
-            run_root=evidence_dir,
-            runtime_root=runtime_root,
-            compose_project=compose_project,
-            allocated_port=port,
-        ),
-        ledger=ledger,
-    )
-    registry = build_registry(additional)
-    report: ScenarioReport | None = None
-    error: ErrorRecord | None = None
     try:
+        ledger.append(
+            kind="directory", name="runtime-root", state="registered", detail=str(runtime_root)
+        )
+        runtime_root.mkdir()
+        ledger.append(kind="directory", name="runtime-root", state="started")
+        context = ScenarioContext(
+            ScenarioContextConfig(
+                run_id=run_id,
+                run_root=evidence_dir,
+                runtime_root=runtime_root,
+                compose_project=compose_project,
+                allocated_port=port,
+                interrupt_reader=interrupt_reader,
+            ),
+            ledger=ledger,
+        )
+        _raise_if_interrupted(interrupt_reader)
+        registry = build_registry(additional)
+        report: ScenarioReport | None = None
+        error: ErrorRecord | None = None
         try:
             parsed_name = parse_scenario_name(scenario)
         except InvalidScenarioNameError as invalid:
@@ -156,9 +169,7 @@ async def _execute(
         else:
             definition = registry.get(parsed_name)
             if definition is None:
-                error = ErrorRecord(
-                    code="unknown_scenario", message="scenario is not registered"
-                )
+                error = ErrorRecord(code="unknown_scenario", message="scenario is not registered")
             elif definition.owner_task is not None:
                 error = ErrorRecord(
                     code="scenario_unavailable",
@@ -167,7 +178,8 @@ async def _execute(
             else:
                 report, error = await _invoke(definition, context)
     finally:
-        shutil.rmtree(runtime_root)
+        if runtime_root.exists():
+            shutil.rmtree(runtime_root)
         ledger.append(kind="directory", name="runtime-root", state="cleaned")
 
     checks = () if report is None else report.checks
@@ -216,8 +228,10 @@ def execute_scenario(
     evidence_dir: Path,
     repository_root: Path,
     additional: Iterable[ScenarioDefinition] = (),
+    interrupt_reader: Callable[[], int | None] | None = None,
 ) -> RunResult:
     """Validate the boundary, execute the scenario, and return its persisted result."""
+    _raise_if_interrupted(interrupt_reader)
     prepared = _prepare_evidence(evidence_dir)
     operation = partial(
         _execute,
@@ -225,5 +239,6 @@ def execute_scenario(
         evidence_dir=prepared,
         repository_root=repository_root.resolve(),
         additional=additional,
+        interrupt_reader=interrupt_reader,
     )
     return anyio.run(operation)

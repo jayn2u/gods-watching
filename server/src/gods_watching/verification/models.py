@@ -1,7 +1,7 @@
 """Typed public contracts for verification scenario authors."""
 
 from collections.abc import Awaitable, Callable, Sequence
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -53,11 +53,17 @@ class ScenarioContextProtocol(Protocol):
     compose_project: str
     allocated_port: int
 
-    def process(
-        self, *, name: str, command: Sequence[str]
-    ) -> AbstractAsyncContextManager[Process]:
+    def process(self, *, name: str, command: Sequence[str]) -> AbstractAsyncContextManager[Process]:
         """Own one subprocess until its asynchronous context exits."""
         ...
+
+    def suppress_interruptions(self) -> AbstractContextManager[None]:
+        """Block terminal signals until owned cleanup commands finish."""
+        ...
+
+    def interrupt_cleanup(  # noqa: D102
+        self, operation: Callable[[], Awaitable[None]]
+    ) -> AbstractContextManager[None]: ...
 
 
 ScenarioRunner = Callable[["ScenarioContextProtocol"], Awaitable[ScenarioReport]]

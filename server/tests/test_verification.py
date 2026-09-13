@@ -251,11 +251,51 @@ def test_registry_contains_every_plan_scenario() -> None:
     # Given: the run-local default registry
     registry = build_registry()
     # When: its supported names are read
-    names = set(registry.names())
+    registered_names = registry.names()
+    names = set(registered_names)
+    expected_names = {
+        "appearance",
+        "appearance-stale",
+        "camera-auth",
+        "camera-auth-denied",
+        "camera-auth-live-boundaries",
+        "clip",
+        "clip-errors",
+        "corrupt-fixture",
+        "corrupt-model-assets",
+        "detector",
+        "detector-errors",
+        "faults",
+        "fixture-inputs",
+        "full",
+        "harness-self-check",
+        "ingest",
+        "ingest-outage",
+        "load",
+        "media",
+        "media-denied",
+        "model-assets",
+        "offline",
+        "offline-missing-assets",
+        "overload",
+        "packaging",
+        "restart",
+        "retention",
+        "retention-crash",
+        "retrieval-negative",
+        "retrieval-quality",
+        "search",
+        "search-errors",
+        "service-outages",
+        "status",
+    }
     # Then: representative names from every owning wave are registered
     assert {"model-assets", "fixture-inputs", "full", "faults", "search"} <= names
     assert "harness-self-check" in names
-    assert len(names) == 33
+    assert "camera-auth-live-boundaries" in names
+    assert names == expected_names
+    assert len(registered_names) == len(names)
+    assert len(names) == 34
 
 
 def test_evidence_happy_self_check_uses_real_owned_process(tmp_path: Path) -> None:
