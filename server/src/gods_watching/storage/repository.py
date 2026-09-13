@@ -153,9 +153,7 @@ class StorageRepository:
                 attempted_version=publication.representative_version,
                 committed_version=existing.representative_version,
             )
-        session.add(
-            CropGarbage(object_key=existing.crop_object_key, byte_size=existing.byte_size)
-        )
+        self._enqueue_crop_garbage(session, existing)
         self._replace_appearance(existing, publication)
         await session.flush()
         return existing
@@ -167,12 +165,33 @@ class StorageRepository:
         if appearance is None:
             raise AppearanceNotFoundError(appearance_id=appearance_id)
         if appearance.tombstoned_at is None:
-            session.add(
-                CropGarbage(object_key=appearance.crop_object_key, byte_size=appearance.byte_size)
-            )
+            self._enqueue_crop_garbage(session, appearance)
             appearance.tombstoned_at = datetime.now(UTC)
             appearance.embedding = None
             await session.flush()
+
+    async def finalize_tombstoned_appearance(
+        self,
+        session: AsyncSession,
+        *,
+        appearance_id: UUID,
+    ) -> bool:
+        """Delete one tombstoned appearance after its crop outbox drains."""
+        appearance = await session.scalar(
+            select(Appearance).where(Appearance.id == appearance_id).with_for_update()
+        )
+        if appearance is None or appearance.tombstoned_at is None:
+            return False
+        pending = await session.scalar(
+            select(CropGarbage.id)
+            .where(CropGarbage.appearance_id == appearance_id)
+            .limit(1)
+            .with_for_update()
+        )
+        if pending is not None:
+            return False
+        await session.delete(appearance)
+        return True
 
     async def application_relation_sizes(self, session: AsyncSession) -> Mapping[str, int]:
         """Report physical table and index bytes used by application relations."""
@@ -183,6 +202,7 @@ class StorageRepository:
             "crop_gc",
             "sessions",
             "settings",
+            "operator_credentials",
         )
         sizes: dict[str, int] = {}
         for relation_name in relation_names:
@@ -195,6 +215,16 @@ class StorageRepository:
                 raise AssertionError
             sizes[relation_name] = relation_size
         return sizes
+
+    @staticmethod
+    def _enqueue_crop_garbage(session: AsyncSession, appearance: Appearance) -> None:
+        session.add(
+            CropGarbage(
+                appearance_id=appearance.id,
+                object_key=appearance.crop_object_key,
+                byte_size=appearance.byte_size,
+            )
+        )
 
     @staticmethod
     def _new_appearance(publication: AppearancePublication) -> Appearance:

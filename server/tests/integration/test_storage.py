@@ -261,7 +261,9 @@ async def test_tombstone_removes_vector_and_enqueues_crop_gc(session: AsyncSessi
     assert appearance is not None
     assert appearance.tombstoned_at is not None
     assert appearance.embedding is None
-    assert await session.scalar(select(func.count()).select_from(CropGarbage)) == 1
+    garbage = await session.scalar(select(CropGarbage))
+    assert garbage is not None
+    assert garbage.appearance_id == appearance_id
 
 
 @pytest.mark.anyio

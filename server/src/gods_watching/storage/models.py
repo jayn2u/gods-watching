@@ -126,11 +126,15 @@ class CropGarbage(Base):
     """Record retryable crop deletion work transactionally."""
 
     __tablename__: str = "crop_gc"
-    __table_args__: tuple[CheckConstraint, ...] = (
+    __table_args__: tuple[CheckConstraint | Index, ...] = (
         CheckConstraint("attempts >= 0", name="ck_crop_gc_attempts"),
+        Index("ix_crop_gc_appearance_order", "appearance_id", "enqueued_at", "id"),
     )
 
     id: Mapped[UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    appearance_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("appearances.id", ondelete="RESTRICT")
+    )
     object_key: Mapped[str] = mapped_column(String(80), unique=True)
     byte_size: Mapped[int] = mapped_column(BigInteger)
     enqueued_at: Mapped[datetime] = mapped_column(
