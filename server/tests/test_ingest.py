@@ -486,3 +486,47 @@ def test_coordinator_restarts_camera_with_a_new_generation_while_running() -> No
             stop.set()
 
     anyio.run(exercise)
+
+
+class _FailingDecoder(_ParkedDecoder):
+    """Fail after starting, like a reconnect whose session the API already replaced."""
+
+    @override
+    async def run_forever(self, *, status_sink: DecoderStatusSink | None = None) -> None:
+        del status_sink
+        self.started.set()
+        try:
+            detail = "camera generation was replaced during reconnect"
+            raise RuntimeError(detail)
+        finally:
+            self.finished.set()
+
+
+def test_one_decoder_failure_does_not_stop_other_cameras() -> None:
+    async def exercise() -> None:
+        # Given: a running coordinator decoding a healthy camera
+        coordinator = IngestCoordinator()
+        healthy_binding = _new_binding()
+        failing_binding = _new_binding()
+        healthy_decoder = _ParkedDecoder(healthy_binding)
+        failing_decoder = _FailingDecoder(failing_binding)
+        coordinator.add(_new_parked_worker(healthy_binding, healthy_decoder))
+        stop = anyio.Event()
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(partial(coordinator.run, stop_event=stop))
+            with anyio.fail_after(2.0):
+                await healthy_decoder.started.wait()
+
+            # When: another camera's decoder raises while the coordinator runs
+            coordinator.add(_new_parked_worker(failing_binding, failing_decoder))
+            with anyio.fail_after(2.0):
+                await failing_decoder.finished.wait()
+            await anyio.sleep(0.05)
+
+            # Then: the healthy camera keeps decoding and the failure is reported
+            assert not healthy_decoder.finished.is_set()
+            assert coordinator.failed_cameras == (failing_binding.camera_id,)
+            stop.set()
+        assert healthy_decoder.finished.is_set()
+
+    anyio.run(exercise)
