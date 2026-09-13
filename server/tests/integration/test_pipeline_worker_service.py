@@ -38,7 +38,7 @@ from gods_watching.tracking import DetectorInputReference
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from gods_watching.contracts.pipeline import GenerationBinding
+    from gods_watching.contracts.pipeline import GenerationBinding, PipelineHandoff
     from gods_watching.ingest.worker import (
         DetectorPort,
         IngestWorkerConfiguration,
@@ -61,6 +61,21 @@ class _ClipTransport:
     async def embed_text(self, text: str) -> tuple[float, ...]:
         del text
         return (1.0,) + (0.0,) * 511
+
+
+@final
+class _CountingConsumer:
+    """Count END handoffs per track while delegating to real publication."""
+
+    def __init__(self, delegate: AppearanceHandoffConsumer) -> None:
+        self._delegate = delegate
+        self.end_counts: dict[str, int] = {}
+
+    async def __call__(self, handoff: PipelineHandoff) -> None:
+        if str(handoff.lifecycle.kind) == "end":
+            key = str(handoff.lifecycle.track_key)
+            self.end_counts[key] = self.end_counts.get(key, 0) + 1
+        await self._delegate(handoff)
 
 
 @final
@@ -108,12 +123,13 @@ async def test_pipeline_worker_follows_camera_edits_and_publishes_on_the_current
         model_revision="57c216476eefef5ab752ec549e440a49ae4ae5f3",
         writer_budget=_Budget(),
     )
+    counting = _CountingConsumer(AppearanceHandoffConsumer(publisher))
     coordinator = IngestCoordinator()
     pipeline = PipelineWorker(
         database=database,
         cameras=cameras,
         coordinator=coordinator,
-        consumer=AppearanceHandoffConsumer(publisher),
+        consumer=counting,
         detector=_Detector(),
         worker_factory=_fixed_clock_worker,
     )
@@ -175,7 +191,10 @@ async def test_pipeline_worker_follows_camera_edits_and_publishes_on_the_current
             )
         _ = await pipeline.reconcile_once()
 
-        # Then: the camera no longer runs and its open track was ended durably
+        # Then: the camera no longer runs, its open track ended durably, and each
+        # END reached publication exactly once
+        assert counting.end_counts
+        assert set(counting.end_counts.values()) == {1}
         assert all(w.camera_id != CameraId(camera_id) for w in coordinator.workers)
         async with database.transaction() as session:
             ended = await session.scalar(

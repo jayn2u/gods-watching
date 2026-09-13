@@ -87,8 +87,9 @@ class PipelineWorker:
         await self._coordinator.run(stop_event=stop_event)
 
     async def _stop(self, camera_id: CameraId) -> None:
-        for handoff in await self._coordinator.remove(camera_id):
-            await self._consumer(handoff)
+        # The worker already delivered its terminal handoffs to the consumer while closing;
+        # the returned tuple is only a record, so forwarding it would publish END twice.
+        _ = await self._coordinator.remove(camera_id)
 
     def _new_worker(self, camera: DesiredCamera) -> IngestWorker:
         binding = GenerationBinding(
