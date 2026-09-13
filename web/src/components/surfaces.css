@@ -1,0 +1,181 @@
+.gw-panel {
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--gw-color-panel-start), var(--gw-color-panel-end));
+  border: var(--gw-border-width) solid var(--gw-color-line);
+  border-radius: var(--gw-radius-control);
+  box-shadow: var(--gw-shadow-panel);
+}
+
+.gw-panel--quiet {
+  background: var(--gw-color-secondary-bg);
+  box-shadow: none;
+}
+
+.gw-panel__header {
+  min-height: var(--gw-header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gw-space-4);
+  padding: 0 var(--gw-space-4);
+  border-bottom: var(--gw-border-width) solid var(--gw-color-line);
+}
+
+.gw-panel__eyebrow {
+  margin: 0;
+  color: var(--gw-color-muted);
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-text-xs);
+  font-weight: var(--gw-weight-semibold);
+  letter-spacing: var(--gw-tracking-label);
+  line-height: var(--gw-leading-compact);
+  text-transform: uppercase;
+}
+
+.gw-panel__title {
+  margin: var(--gw-space-1) 0 0;
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-text-lg);
+  font-weight: var(--gw-weight-semibold);
+  line-height: var(--gw-leading-compact);
+}
+
+.gw-panel__actions {
+  flex: none;
+}
+
+.gw-panel__body {
+  padding: var(--gw-space-4);
+}
+
+.gw-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gw-space-2);
+  color: var(--gw-color-muted);
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-text-xs);
+  font-weight: var(--gw-weight-semibold);
+  letter-spacing: var(--gw-tracking-label);
+  line-height: var(--gw-leading-flat);
+  text-transform: uppercase;
+}
+
+.gw-status__dot {
+  width: var(--gw-status-dot-size);
+  height: var(--gw-status-dot-size);
+  background: var(--gw-color-progress-muted);
+  border-radius: 50%;
+  box-shadow: var(--gw-shadow-status);
+}
+
+.gw-status--live {
+  color: var(--gw-color-accent);
+}
+
+.gw-status--live .gw-status__dot {
+  background: var(--gw-color-accent);
+}
+
+.gw-status--warning {
+  color: var(--gw-color-progress-done);
+}
+
+.gw-status--warning .gw-status__dot {
+  background: var(--gw-color-progress-done);
+}
+
+.gw-status--offline {
+  color: var(--gw-color-notice-border);
+}
+
+.gw-status--offline .gw-status__dot {
+  background: var(--gw-color-notice-border);
+}
+
+.gw-dialog {
+  width: min(var(--gw-dialog-max-width), calc(100vw - var(--gw-dialog-gutter)));
+  max-width: none;
+  padding: 0;
+  color: var(--gw-color-text);
+  background: transparent;
+  border: 0;
+  opacity: 0;
+  transform: translateY(var(--gw-dialog-enter-offset));
+  transition:
+    display var(--gw-duration-dialog) allow-discrete,
+    overlay var(--gw-duration-dialog) allow-discrete,
+    opacity var(--gw-duration-dialog) var(--gw-ease-out),
+    transform var(--gw-duration-dialog) var(--gw-ease-out);
+}
+
+.gw-dialog[open] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.gw-dialog::backdrop {
+  background: var(--gw-color-overlay);
+}
+
+.gw-dialog__surface {
+  padding: var(--gw-space-6);
+  background: linear-gradient(180deg, var(--gw-color-panel-start), var(--gw-color-panel-end));
+  border: var(--gw-border-width) solid var(--gw-color-line);
+  border-radius: var(--gw-radius-control);
+  box-shadow: var(--gw-shadow-panel);
+}
+
+.gw-dialog__marker {
+  width: var(--gw-dialog-marker-width);
+  height: var(--gw-dialog-marker-height);
+  margin-bottom: var(--gw-space-4);
+  background: var(--gw-color-notice-border);
+}
+
+.gw-dialog__title {
+  margin: 0;
+  font-family: var(--gw-font-display);
+  font-size: var(--gw-dialog-title-size);
+  line-height: var(--gw-leading-dialog);
+}
+
+.gw-dialog__description,
+.gw-dialog__content {
+  color: var(--gw-color-muted);
+}
+
+.gw-dialog__description {
+  margin: var(--gw-space-3) 0 0;
+}
+
+.gw-dialog__content {
+  margin-top: var(--gw-space-4);
+  padding: var(--gw-space-3);
+  background: var(--gw-color-step-bg);
+  border-left: var(--gw-focus-offset) solid var(--gw-color-notice-border);
+  font-size: var(--gw-text-sm);
+}
+
+.gw-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--gw-space-2);
+  margin-top: var(--gw-space-6);
+}
+
+@media (max-width: 767px) {
+  .gw-dialog__actions {
+    flex-direction: column-reverse;
+  }
+
+  .gw-dialog__actions .gw-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gw-dialog {
+    transition-duration: 0s;
+  }
+}

@@ -1,0 +1,16 @@
+FROM nvcr.io/nvidia/tritonserver:25.02-py3@sha256:718b85ffcef8af9e412b9b9dfb391ca97a051a402072db19c77bac4250fbd23a
+
+ENV UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/gods-watching-inference \
+    PATH=/opt/gods-watching-inference/bin:$PATH
+
+RUN python3 -m pip install --no-cache-dir uv==0.8.15
+
+COPY inference/pyproject.toml inference/uv.lock /opt/inference/
+RUN cd /opt/inference && uv sync --locked --no-dev
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libgl1 libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -c "import sys, torch, torchvision; assert sys.version_info[:2] == (3, 12); assert torch.__version__ == '2.7.1+cu128'; assert torchvision.__version__ == '0.22.1+cu128'"

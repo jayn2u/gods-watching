@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      POSTGRES_DB: gods_watching
+      POSTGRES_USER: gods_watching
+      POSTGRES_PASSWORD: ${GW_POSTGRES_PASSWORD:?set GW_POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U gods_watching -d gods_watching"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - ../runtime/postgres:/var/lib/postgresql/data

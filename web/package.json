@@ -1,0 +1,38 @@
+{
+  "name": "@gods-watching/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "pnpm": "11.24.0"
+  },
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "browser:prepare": "node ./scripts/prepare-playwright.mjs",
+    "dev": "vite",
+    "e2e:harness": "node ./scripts/run-browser-harness.mjs",
+    "lint": "biome check .",
+    "react:doctor": "react-doctor",
+    "test": "vitest --passWithNoTests --exclude '**/e2e/**'",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.12",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.4.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "5.2.0",
+    "react-doctor": "0.9.13",
+    "react-grab": "0.2.0",
+    "react-scan": "0.5.7",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vitest": "5.0.0"
+  }
+}

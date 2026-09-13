@@ -1,0 +1,55 @@
+name: "detector"
+backend: "python"
+max_batch_size: 4
+
+input [
+  {
+    name: "IMAGE"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  },
+  {
+    name: "CONFIDENCE"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+  }
+]
+
+output [
+  {
+    name: "BOXES"
+    data_type: TYPE_FP32
+    dims: [ 300, 6 ]
+  },
+  {
+    name: "COUNT"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 1, 2, 4 ]
+  max_queue_delay_microseconds: 10000
+}
+
+parameters {
+  key: "weights_path"
+  value: { string_value: "/models/yolo/yolo11s.pt" }
+}
+parameters {
+  key: "model_id"
+  value: { string_value: "ultralytics/yolo11s" }
+}
+parameters {
+  key: "model_revision"
+  value: { string_value: "v8.3.0" }
+}

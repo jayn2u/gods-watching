@@ -1,0 +1,51 @@
+logLevel: info
+logDestinations: [stdout]
+
+authMethod: internal
+authInternalUsers:
+  - user: __GW_MEDIA_READER_USER__
+    pass: sha256:__GW_MEDIA_READER_PASS_SHA256__
+    permissions:
+      - action: read
+        path: ~^(camera|test-publisher)/[a-z0-9-]+$
+  - user: __GW_TEST_PUBLISHER_USER__
+    pass: sha256:__GW_TEST_PUBLISHER_PASS_SHA256__
+    permissions:
+      - action: publish
+        path: ~^test-publisher/[a-z0-9-]+$
+  - user: __GW_MEDIA_CONTROL_USER__
+    pass: sha256:__GW_MEDIA_CONTROL_PASS_SHA256__
+    permissions:
+      - action: api
+
+api: yes
+apiAddress: :9997
+metrics: no
+pprof: no
+playback: no
+
+rtsp: yes
+rtspTransports: [tcp]
+rtspAddress: :8554
+rtspAuthMethods: [basic]
+rtmp: no
+hls: no
+srt: no
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: no
+webrtcAllowOrigin: ""
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ""
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: []
+webrtcICEServers2: []
+
+pathDefaults:
+  source: publisher
+  record: no
+  overridePublisher: no
+
+paths:
+  all_others:
