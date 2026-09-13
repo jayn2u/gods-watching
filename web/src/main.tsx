@@ -1,5 +1,6 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
+import { App } from "./app/App"
 import { PrimitiveShowcase } from "./showcase/PrimitiveShowcase"
 import "./styles/tokens.css"
 
@@ -15,6 +16,6 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    {window.location.pathname === "/showcase" ? <PrimitiveShowcase /> : null}
+    {window.location.pathname === "/showcase" ? <PrimitiveShowcase /> : <App />}
   </StrictMode>,
 )

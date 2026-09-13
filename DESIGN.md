@@ -4,6 +4,8 @@
 
 This system is extracted from the attached **Gods Watching** reference (`R4` in the project plan). The visual contract is a dense, operational NVR surface: near-black navy depth, thin blue-gray rules, crisp cyan action color, compact geometry, and restrained motion. The memorable material is the panel gradient from a blue-black illuminated top edge into an almost-black base over the page's upper-left cyan glow.
 
+Task 15a provenance: the reference source is `Gods Watching.html`, SHA-256 `de9fc947259ff077a34bfae7070be073d6ae345f2a75d1e72618d756e0bfa0e2`. Authenticated shell and login measurements were captured at 375, 768, 1280, and 1440 CSS pixels before token repair. The values below were promoted from the existing rendered CSS/reference geometry without rounding or visual redesign; `web/src/styles/tokens.css` is the authoritative implementation.
+
 The reference is visual guidance only. Its bundled demo, inline implementation, placeholder video, fake data, and mock callbacks are not reusable product code.
 
 ## 2. Color and material tokens
@@ -30,6 +32,8 @@ Self-hosted WOFF2 files are required so the interface works offline.
 - Showcase title: responsive 28–36px/1.05. Product screen headings remain compact and follow the reference.
 - Labels may use uppercase with `.08em` tracking; sentence content stays mixed case.
 
+The login and shell retain these measured reference type values through named tokens: auth heading 2.5rem, panel title 1.2rem at 1.2 leading, copy .85rem, labels .72rem, hints .833333rem, kicker .68rem at 1.2 leading, footer .74rem, controls 1rem, shell tag .58rem, and shell/nav/meta/action expressions preserved as `--gw-text-shell-*`. Shell/auth tight tracking is −.02em, tag tracking is .18em, and nav tracking is .03em. Reference font weights 400 and 700 are named `--gw-weight-regular` and `--gw-weight-bold`.
+
 ## 4. Geometry and responsive layout
 
 - Product header: exactly `54px` high with `0 18px` padding.
@@ -39,6 +43,8 @@ Self-hosted WOFF2 files are required so the interface works offline.
 - At 768–1199px the product shell stacks the right rail below the main wall; camera navigation becomes a horizontal/contained region.
 - At 375–767px every operation remains in DOM order, controls become full-width where needed, dialog margins are 16px, and no horizontal scrolling is permitted.
 - The isolated primitive showcase uses one column at 375px, two at 768px, and a three-column specimen grid at 1280/1440px.
+
+Reference-specific shell tokens preserve the measured header flex geometry and responsive rail heights: `--gw-shell-header-gap` (22px), brand width/gap/name bounds (162.125px, 9px, 121.4375px, 74.390625px), tag width (31.6875px), nav width (305.609375px), nav button bases/minima (84.296875px/55.46875px, 125.75px/75.203125px, 87.5625px), action/meta widths (338px/253px), status gap (7px), action width and padding (73px, 7px 11px), tablet widths (221.578125px and 55.03125px), and rail/mobile heights (176px, 460px, 230px, 190px, 150px). The 220px desktop wall-slot minimum, 28ch empty-copy measure, and 720px deferred-panel cap are also named there. Fractional values are intentional reference measurements and must not be replaced with rounded scale values.
 
 ## 5. Reusable primitives and states
 

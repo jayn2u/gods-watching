@@ -2,8 +2,8 @@ import { type InputHTMLAttributes, useId } from "react"
 import "./primitives.css"
 
 type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "id"> & {
-  error?: string
-  hint?: string
+  error?: string | undefined
+  hint?: string | undefined
   label: string
 }
 
