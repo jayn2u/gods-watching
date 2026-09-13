@@ -35,7 +35,7 @@ plan can be closed.
 ## Browser application
 
 - [ ] **Task 15: live wall integration acceptance**
-  - Fence session-check callbacks by request ownership so a late initial
+  - [x] Fence session-check callbacks by request ownership so a late initial
     response cannot overwrite a successful login or explicit expiry state.
   - Repeat real Chromium QA against four 1080p H.264 RTSP sources. The stopped
     checkpoint reached the browser harness but failed a harness strict-mode
@@ -48,7 +48,7 @@ plan can be closed.
     back-state preservation, stale-response fencing, and recoverable error
     states against the real API; fix gaps found by that run.
 - [ ] **Task 17: camera and retention settings UI acceptance**
-  - Fence camera-load callbacks by request ownership so an older response
+  - [x] Fence camera-load callbacks by request ownership so an older response
     cannot replace a newer refresh or post-expiry reset.
   - Run the prepared real browser/API scenario; no runtime acceptance scenario
     was started at this checkpoint.

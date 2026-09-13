@@ -6,10 +6,10 @@ import {
   type SearchResponse,
 } from "../../app/client"
 import type { CameraState } from "../../app/layout/AppShell"
+import { RequestFence } from "../../app/requestFence"
 import { Button } from "../../components/Button"
 import { Panel } from "../../components/Panel"
 import { Status } from "../../components/Status"
-import { RequestFence } from "./requestFence"
 import { SearchDetail } from "./SearchDetail"
 import { SearchForm } from "./SearchForm"
 import { SearchResults } from "./SearchResults"
