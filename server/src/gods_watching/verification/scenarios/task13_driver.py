@@ -248,9 +248,17 @@ async def _update_settings(database: Database, patch: SettingsPatchRequest) -> N
 async def _age_eviction(
     database: Database, crop_root: Path, published: list[_VisibleRow]
 ) -> tuple[int, int, bool]:
-    ended = [row for row in published if row.ended_at is not None][:_AGE_BACKDATE_COUNT]
-    if not ended:
-        raise Task13ExecutionError(detail="no ended appearances were available to age out")
+    del published
+
+    async def has_ended() -> bool:
+        return any(row.ended_at is not None for row in await _visible(database))
+
+    # Only ended tracks are aged: live publication may rewrite an active row's timestamps.
+    if not await _wait_until(has_ended, _PUBLISH_TIMEOUT_SECONDS):
+        raise Task13ExecutionError(detail="no appearance track ended before the age deadline")
+    ended = [row for row in await _visible(database) if row.ended_at is not None][
+        :_AGE_BACKDATE_COUNT
+    ]
     ids = [row.appearance_id for row in ended]
     keys = [row.crop_object_key for row in ended]
     old = datetime.now(UTC) - timedelta(days=_BACKDATE_DAYS)
