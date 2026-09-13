@@ -21,16 +21,27 @@ plan can be closed.
     Triton CLIP on `98894d2` (2026-09-13): active-before-exit visibility,
     version-consistent JPEG/vector, stale generation/version rejection, border
     upgrade, old-crop GC, orphan and temp recovery, and exact cleanup.
-- [ ] **Task 13: retention integration**
-  - Complete age/quota eviction, reservation and suppression integration on
-    the final appearance pipeline.
-  - Exercise crash boundaries, storage-full recovery, physical accounting,
-    unrelated-path protection, and restart reconciliation.
-- [ ] **Task 14: search API integration**
-  - Bind the completed search service and HTTP routes to final appearance and
-    retention behavior.
-  - Verify text, filtered browse, image similarity, expired seed/crop behavior,
-    inference outage handling, stable ranking, and authorization.
+- [x] **Task 13: retention integration**
+  - Ingest, appearance publication, and retention run in a separate
+    `gods-watching worker` process that follows the API's committed camera
+    sessions (`server/src/gods_watching/pipeline_worker/`); the API hands
+    detector effects to it through `CommittedStateDetector`.
+  - Real `retention` (8 checks) and `retention-crash` (6 checks) pass on
+    `b2d9f22` against the real worker: age and oldest-first quota eviction,
+    suppressed active victims, managed bytes within budget, no broken search
+    references, untouched unrelated paths and symlinks, graceful SIGTERM, and
+    SIGKILL restart with orphan/temp reconciliation, GC replay, and resumed
+    publishing.
+  - The run found and fixed publisher startup cleanup deleting a crop-named
+    symlink. Storage-full recovery beyond the quota budget stays with Task 22.
+- [x] **Task 14: search API integration**
+  - Real `search` (7 checks) and `search-errors` (5 checks) pass on `b2d9f22`
+    over appearances published by the real worker with Triton CLIP text
+    search: 401/403 authorization, camera and time filtered browse, ranked and
+    repeatable text and similar search excluding the seed, private JPEG crops,
+    422 invalid input, 404 for a seed and crop expired by real retention, and
+    text 503 while browse and similar keep answering during an inference
+    outage.
 
 ## Browser application
 
@@ -43,10 +54,14 @@ plan can be closed.
   - Verify rising `framesDecoded`, slot replacement and persistence, source
     loss, logout/expiry teardown, activity cadence, keyboard use, and
     fullscreen behavior.
-- [ ] **Task 16: person search UI acceptance**
-  - Verify the implemented text search, filters, detail, Find similar,
-    back-state preservation, stale-response fencing, and recoverable error
-    states against the real API; fix gaps found by that run.
+- [x] **Task 16: person search UI acceptance**
+  - `web/e2e/search.spec.ts` runs against the built web app and real API on
+    one origin through the `search-ui` scenario, which passes (4 checks) on
+    `b2d9f22`: text search with a camera filter, detail, Find similar, back
+    with query and filters preserved, latest-of-two rapid searches, and an
+    inference outage shown with Retry that recovers once Triton returns.
+  - The UI renders API errors as `code: message`; operator wording is left to
+    Task 23.
 - [ ] **Task 17: camera and retention settings UI acceptance**
   - Fence camera-load callbacks by request ownership so an older response
     cannot replace a newer refresh or post-expiry reset.
