@@ -61,7 +61,7 @@ test.describe("person search against the real API", () => {
     await query.fill(TEXT_QUERY)
     await page.getByLabel(camera).check()
     const searchResponse = page.waitForResponse((response) => isSearch(response, TEXT_QUERY))
-    await page.getByRole("button", { name: "Search" }).click()
+    await page.getByRole("button", { name: "Search", exact: true }).click()
     const response = await searchResponse
     expect(response.status()).toBe(200)
     const body = (await response.json()) as { results: Array<{ camera_name: string }> }
@@ -102,7 +102,7 @@ test.describe("person search against the real API", () => {
     const query = page.getByLabel("Describe a person")
     await query.fill(TEXT_QUERY)
     await page.getByLabel(first).check()
-    await page.getByRole("button", { name: "Search" }).click()
+    await page.getByRole("button", { name: "Search", exact: true }).click()
     await page.getByLabel(first).uncheck()
     await page.getByLabel(second).check()
     const latest = page.waitForResponse(
@@ -131,7 +131,7 @@ test.describe("person search against the real API", () => {
 
     const query = page.getByLabel("Describe a person")
     await query.fill(TEXT_QUERY)
-    await page.getByRole("button", { name: "Search" }).click()
+    await page.getByRole("button", { name: "Search", exact: true }).click()
     const alert = page.locator(".search-state[role='alert']")
     await expect(alert).toContainText("inference_unavailable")
     await expect(page.getByRole("button", { name: "Retry search" })).toBeVisible()
