@@ -28,6 +28,7 @@ from gods_watching.storage import (
     StaleAppearanceVersionError,
     StorageRepository,
 )
+from gods_watching.storage.managed_files import ManagedFileKind, safe_scan, safe_unlink
 from gods_watching.tracking.models import LifecycleKind
 
 from .budget import (
@@ -340,17 +341,16 @@ class AppearancePublisher:
             referenced = appearance_keys | garbage_keys
             removed_jpegs = 0
             removed_temps = 0
-            for path in self.crop_store.root.rglob("*"):
-                if not path.is_file():
-                    continue
-                relative = path.relative_to(self.crop_store.root).as_posix()
-                if path.suffix == ".jpg":
-                    if relative not in referenced:
-                        path.unlink(missing_ok=True)
-                        removed_jpegs += 1
-                elif path.suffix == ".tmp":
-                    path.unlink(missing_ok=True)
-                    removed_temps += 1
+            # Only generated objects are eligible: symlinks and operator files under the
+            # crop root are never followed or removed.
+            for managed in safe_scan(self.crop_store.root):
+                if managed.kind is ManagedFileKind.TEMPORARY:
+                    if safe_unlink(self.crop_store.root, managed.object_key):
+                        removed_temps += 1
+                elif managed.object_key not in referenced and safe_unlink(
+                    self.crop_store.root, managed.object_key
+                ):
+                    removed_jpegs += 1
             return ReconciliationReport(
                 removed_jpegs=removed_jpegs,
                 removed_temps=removed_temps,

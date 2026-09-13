@@ -214,3 +214,47 @@ async def test_consumer_start_reconciles_interrupted_crop_write(
         assert await consumer.start() == report
     finally:
         await database.close()
+
+
+@pytest.mark.anyio
+async def test_consumer_start_leaves_unmanaged_paths_under_the_crop_root(
+    database_url: str, tmp_path: Path
+) -> None:
+    # Given: generated orphans next to operator files and a crop-named symlink to outside data
+    database = Database.connect(database_url)
+    crop_store = CropObjectStore(tmp_path / "crops")
+    orphan = crop_store.write(b"interrupted-publication")
+    generated_temp = crop_store.root / orphan.object_key.rsplit("/", 1)[0] / f".{uuid4()}.tmp"
+    _ = generated_temp.write_bytes(b"interrupted-write")
+    outside = tmp_path / "outside.jpg"
+    _ = outside.write_bytes(b"outside-data")
+    link_parent = crop_store.root / "00" / "00"
+    link_parent.mkdir(parents=True)
+    link = link_parent / "00000000-0000-4000-8000-000000000000.jpg"
+    link.symlink_to(outside)
+    operator_jpeg = crop_store.root / "notes.jpg"
+    _ = operator_jpeg.write_bytes(b"operator-file")
+    operator_temp = link_parent / "partial.tmp"
+    _ = operator_temp.write_bytes(b"operator-temp")
+    publisher = AppearancePublisher(
+        database=database,
+        storage=StorageRepository(CredentialCipher(Fernet.generate_key())),
+        crop_store=crop_store,
+        clip=ClipAdapter(_ClipTransport()),
+        model_id="synthetic/clip",
+        model_revision="pipeline-fixture",
+        writer_budget=_Budget(),
+    )
+    try:
+        # When: the consumer performs startup recovery
+        _ = await AppearanceHandoffConsumer(publisher).start()
+
+        # Then: only generated objects are removed; unmanaged paths and link targets remain
+        assert not (crop_store.root / orphan.object_key).exists()
+        assert not generated_temp.exists()
+        assert link.is_symlink()
+        assert outside.read_bytes() == b"outside-data"
+        assert operator_jpeg.read_bytes() == b"operator-file"
+        assert operator_temp.read_bytes() == b"operator-temp"
+    finally:
+        await database.close()

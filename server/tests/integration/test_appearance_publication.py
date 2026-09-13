@@ -296,7 +296,7 @@ async def test_publisher_commits_crop_and_vector_atomically(  # noqa: PLR0915
             assert absent is None
 
         orphan = store.write(b"orphan")
-        temporary = store.root / "aa" / "bb" / ".orphan.tmp"
+        temporary = store.root / "aa" / "bb" / f".{uuid4()}.tmp"
         _ = temporary.parent.mkdir(parents=True, exist_ok=True)
         _ = temporary.write_bytes(b"partial")
         reconciliation = await publisher.reconcile_orphans()
