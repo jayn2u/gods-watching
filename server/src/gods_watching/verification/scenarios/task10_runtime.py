@@ -21,6 +21,7 @@ _TRITON_IMAGE: Final = "gods-watching-triton:25.02"
 _FIXTURE_STREAM_COUNT: Final = 4
 _FIXTURE_READY_TIMEOUT_SECONDS: Final = 20.0
 _FIXTURE_PROBE_TIMEOUT_SECONDS: Final = 2.0
+_FIXTURE_PROCESS_CLEANUP_GRACE_SECONDS: Final = 2.0
 _FIXTURE_RETRY_DELAY_SECONDS: Final = 0.25
 _FIXTURE_MAX_RETRY_DELAY_SECONDS: Final = 2.0
 
@@ -159,28 +160,30 @@ async def fixture_ip(context: ScenarioContextProtocol, *, project: str) -> Comma
 
 async def wait_fixture_streams(context: ScenarioContextProtocol, *, rtsp_host: str) -> bool:
     """Wait until all finite publishers expose decodable H.264 RTSP streams."""
-    pending = set(range(1, _FIXTURE_STREAM_COUNT + 1))
     deadline = anyio.current_time() + _FIXTURE_READY_TIMEOUT_SECONDS
     retry_delay = _FIXTURE_RETRY_DELAY_SECONDS
-    while pending and anyio.current_time() < deadline:
-        for camera_index in tuple(sorted(pending)):
+    probe_reservation = _FIXTURE_PROBE_TIMEOUT_SECONDS + _FIXTURE_PROCESS_CLEANUP_GRACE_SECONDS
+    while anyio.current_time() < deadline:
+        sweep_succeeded = True
+        for camera_index in range(1, _FIXTURE_STREAM_COUNT + 1):
+            if deadline - anyio.current_time() <= probe_reservation:
+                return False
             result = await _probe_fixture_stream(
                 context, camera_index=camera_index, rtsp_host=rtsp_host
             )
-            if result is not None and _is_h264_probe(result):
-                pending.remove(camera_index)
-            if not pending:
-                return True
-            if anyio.current_time() >= deadline:
-                break
-        if pending:
-            remaining = deadline - anyio.current_time()
-            await anyio.sleep(min(retry_delay, max(0.0, remaining)))
-            retry_delay = min(
-                retry_delay * 2.0,
-                _FIXTURE_MAX_RETRY_DELAY_SECONDS,
-            )
-    return not pending
+            if result is None or not _is_h264_probe(result):
+                sweep_succeeded = False
+        if sweep_succeeded:
+            return True
+        remaining = deadline - anyio.current_time()
+        if remaining <= probe_reservation:
+            return False
+        await anyio.sleep(min(retry_delay, remaining - probe_reservation))
+        retry_delay = min(
+            retry_delay * 2.0,
+            _FIXTURE_MAX_RETRY_DELAY_SECONDS,
+        )
+    return False
 
 
 async def _probe_fixture_stream(

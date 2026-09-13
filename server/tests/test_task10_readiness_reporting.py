@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
 
+import anyio
 import pytest
 
 from gods_watching.verification import (
@@ -79,7 +80,10 @@ async def test_fixture_readiness_retries_failed_streams_and_requires_h264(
             CommandResult(return_code=1, stdout="", stderr="no stream\n"),
             CommandResult(return_code=0, stdout="h264\n", stderr=""),
         ],
-        3: [CommandResult(return_code=0, stdout="h264\n", stderr="")],
+        3: [
+            CommandResult(return_code=0, stdout="h264\n", stderr=""),
+            CommandResult(return_code=0, stdout="h264\n", stderr=""),
+        ],
         4: [
             CommandResult(return_code=0, stdout="", stderr=""),
             CommandResult(return_code=0, stdout="h264\n", stderr=""),
@@ -110,7 +114,92 @@ async def test_fixture_readiness_retries_failed_streams_and_requires_h264(
         "task10-fixture-probe-4",
         "task10-fixture-probe-1",
         "task10-fixture-probe-2",
+        "task10-fixture-probe-3",
         "task10-fixture-probe-4",
     ]
     assert all(call[1] == "ffprobe" for call in calls)
     assert all("-rtsp_transport" in call and "tcp" in call for call in calls)
+
+
+@pytest.mark.anyio
+async def test_fixture_readiness_restarts_the_sweep_after_a_stale_camera(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = 0.0
+    responses = {
+        1: [
+            CommandResult(return_code=0, stdout="h264\n", stderr=""),
+            CommandResult(return_code=1, stdout="", stderr="unavailable\n"),
+        ],
+        2: [
+            CommandResult(return_code=1, stdout="", stderr="unavailable\n"),
+            CommandResult(return_code=0, stdout="h264\n", stderr=""),
+        ],
+        3: [CommandResult(return_code=0, stdout="h264\n", stderr="")] * 2,
+        4: [CommandResult(return_code=0, stdout="h264\n", stderr="")] * 2,
+    }
+    calls: list[int] = []
+    sleep_count = 0
+
+    def fake_current_time() -> float:
+        return clock
+
+    async def fake_sleep(seconds: float) -> None:
+        nonlocal clock, sleep_count
+        del seconds
+        sleep_count += 1
+        clock += 12.0 if sleep_count == 1 else 20.0
+
+    async def fake_run_command(
+        context: ScenarioContextProtocol, *, name: str, command: tuple[str, ...]
+    ) -> CommandResult:
+        nonlocal clock
+        del context, command
+        camera_index = int(name.rsplit("-", maxsplit=1)[-1])
+        calls.append(camera_index)
+        clock += 0.5
+        values = responses[camera_index]
+        return values.pop(0) if values else CommandResult(1, "", "unavailable\n")
+
+    monkeypatch.setattr(anyio, "current_time", fake_current_time)
+    monkeypatch.setattr(anyio, "sleep", fake_sleep)
+    monkeypatch.setattr(task10_runtime, "run_command", fake_run_command)
+
+    ready = await task10_runtime.wait_fixture_streams(
+        cast("ScenarioContextProtocol", object()), rtsp_host="172.22.0.2"
+    )
+
+    assert ready is False
+    assert calls[:8] == [1, 2, 3, 4, 1, 2, 3, 4]
+    assert calls.count(1) == 2
+
+
+@pytest.mark.anyio
+async def test_fixture_readiness_reserves_probe_cleanup_before_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = 0.0
+    calls: list[int] = []
+
+    def fake_current_time() -> float:
+        return clock
+
+    async def fake_probe(
+        context: ScenarioContextProtocol, *, camera_index: int, rtsp_host: str
+    ) -> CommandResult | None:
+        nonlocal clock
+        del context, rtsp_host
+        calls.append(camera_index)
+        clock += 2.0 + 2.0
+        return None
+
+    monkeypatch.setattr(anyio, "current_time", fake_current_time)
+    monkeypatch.setattr(task10_runtime, "_probe_fixture_stream", fake_probe)
+
+    ready = await task10_runtime.wait_fixture_streams(
+        cast("ScenarioContextProtocol", object()), rtsp_host="172.22.0.2"
+    )
+
+    assert ready is False
+    assert calls == [1, 2, 3, 4]
+    assert clock <= 20.0

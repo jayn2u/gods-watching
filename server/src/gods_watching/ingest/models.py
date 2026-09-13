@@ -64,6 +64,7 @@ class LatestFrameSlot:
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
     _frame: DecodedFrame | None = field(default=None, init=False, repr=False)
     _dropped_frames: int = field(default=0, init=False, repr=False)
+    _peak_occupancy: int = field(default=0, init=False, repr=False)
 
     def put(self, frame: DecodedFrame) -> None:
         """Replace the current frame and count an overwrite when one was pending."""
@@ -71,6 +72,7 @@ class LatestFrameSlot:
             if self._frame is not None:
                 self._dropped_frames += 1
             self._frame = frame
+            self._peak_occupancy = 1
 
     def take_latest(self) -> DecodedFrame | None:
         """Take and clear the newest frame without retaining a decoder backlog."""
@@ -89,6 +91,18 @@ class LatestFrameSlot:
         """Return the number of decoded frames overwritten before sampling."""
         with self._lock:
             return self._dropped_frames
+
+    @property
+    def occupancy(self) -> int:
+        """Return the current number of retained frames."""
+        with self._lock:
+            return int(self._frame is not None)
+
+    @property
+    def peak_occupancy(self) -> int:
+        """Return the largest observed number of retained frames."""
+        with self._lock:
+            return self._peak_occupancy
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +123,15 @@ class IngestStatsSnapshot:
     sanitized_errors: int
     last_sanitized_error: str | None
     identity_switch_observations: int
+    stale_generation_results: int = 0
+    scheduler_dispatches: int = 0
+    dispatch_detector_requested: int = 0
+    dispatch_no_frame: int = 0
+    dispatch_detection_disabled: int = 0
+    dispatch_generation_fenced: int = 0
+    dispatch_closed: int = 0
+    dispatch_outcomes: int = 0
+    peak_detector_requests: int = 0
 
 
 @dataclass(slots=True)
@@ -126,6 +149,14 @@ class IngestStats:
     sanitized_errors: int = 0
     last_sanitized_error: str | None = None
     identity_switch_observations: int = 0
+    stale_generation_results: int = 0
+    scheduler_dispatches: int = 0
+    dispatch_detector_requested: int = 0
+    dispatch_no_frame: int = 0
+    dispatch_detection_disabled: int = 0
+    dispatch_generation_fenced: int = 0
+    dispatch_closed: int = 0
+    peak_detector_requests: int = 0
     _ingress_times: deque[float] = field(default_factory=deque, init=False, repr=False)
     _last_ingress_monotonic: float | None = field(default=None, init=False, repr=False)
 
@@ -146,6 +177,29 @@ class IngestStats:
         """Record one detector request entering the camera's single-flight slot."""
         self.detector_requests += 1
         self.pending_detector_requests = 1
+        self.peak_detector_requests = max(
+            self.peak_detector_requests, self.pending_detector_requests
+        )
+
+    def record_dispatch(self) -> None:
+        """Record one scheduler invocation awaiting an outcome."""
+        self.scheduler_dispatches += 1
+
+    def record_dispatch_outcome(self, outcome: str) -> None:
+        """Record exactly one bounded outcome for a scheduler invocation."""
+        match outcome:
+            case "detector_requested":
+                self.dispatch_detector_requested += 1
+            case "no_frame":
+                self.dispatch_no_frame += 1
+            case "detection_disabled":
+                self.dispatch_detection_disabled += 1
+            case "generation_fenced":
+                self.dispatch_generation_fenced += 1
+            case "closed":
+                self.dispatch_closed += 1
+            case unreachable:
+                raise DecoderInputError(detail=f"unknown dispatch outcome: {unreachable}")
 
     def record_detector_result(self) -> None:
         """Record one detector response and release the pending slot."""
@@ -161,6 +215,8 @@ class IngestStats:
     def record_error(self, detail: str) -> None:
         """Record one sanitized operational error without retaining source credentials."""
         self.sanitized_errors += 1
+        if detail == "detector result crossed the active generation":
+            self.stale_generation_results += 1
         self.last_sanitized_error = detail[:200]
         self.pending_detector_requests = 0
 
@@ -206,4 +262,19 @@ class IngestStats:
             sanitized_errors=self.sanitized_errors,
             last_sanitized_error=self.last_sanitized_error,
             identity_switch_observations=self.identity_switch_observations,
+            stale_generation_results=self.stale_generation_results,
+            scheduler_dispatches=self.scheduler_dispatches,
+            dispatch_detector_requested=self.dispatch_detector_requested,
+            dispatch_no_frame=self.dispatch_no_frame,
+            dispatch_detection_disabled=self.dispatch_detection_disabled,
+            dispatch_generation_fenced=self.dispatch_generation_fenced,
+            dispatch_closed=self.dispatch_closed,
+            dispatch_outcomes=(
+                self.dispatch_detector_requested
+                + self.dispatch_no_frame
+                + self.dispatch_detection_disabled
+                + self.dispatch_generation_fenced
+                + self.dispatch_closed
+            ),
+            peak_detector_requests=self.peak_detector_requests,
         )

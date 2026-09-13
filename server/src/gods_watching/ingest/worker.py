@@ -184,16 +184,21 @@ class IngestWorker:
 
     async def sample_once(self) -> tuple[PipelineHandoff, ...]:
         """Sample the newest frame and deliver ordered lifecycle handoffs."""
-        if self._closed:
-            return ()
-        frame = self._take_detector_frame()
+        self._stats.record_dispatch()
+        frame = self._take_dispatch_frame()
         if frame is None:
             return ()
         generation = self._generation
         tracking = self._tracking
         self._stats.record_sampled()
         self._remember_frame(frame)
+        detector_requests_before = self._stats.detector_requests
         result = await self._request_detection(frame, generation=generation, tracking=tracking)
+        self._stats.record_dispatch_outcome(
+            "detector_requested"
+            if self._stats.detector_requests > detector_requests_before
+            else "generation_fenced"
+        )
         if result is None:
             return ()
         if self._closed or self._generation != generation or self._tracking is not tracking:
@@ -219,6 +224,20 @@ class IngestWorker:
             self._stats.record_error("tracking update failed")
             return ()
         return await self._deliver(lifecycles, generation=generation)
+
+    def _take_dispatch_frame(self) -> DecodedFrame | None:
+        if self._closed:
+            self._stats.record_dispatch_outcome("closed")
+            return None
+        frame = self._slot.take_latest()
+        if frame is None:
+            self._stats.record_dispatch_outcome("no_frame")
+            return None
+        self._last_dimensions = (frame.width, frame.height)
+        if not self._detection_enabled:
+            self._stats.record_dispatch_outcome("detection_disabled")
+            return None
+        return frame
 
     def _crop_eligible_result(self, frame: DecodedFrame, result: DetectorResult) -> DetectorResult:
         eligible = tuple(
@@ -251,15 +270,6 @@ class IngestWorker:
         except (CropExtractionError, TypeError, ValueError):
             return False
         return True
-
-    def _take_detector_frame(self) -> DecodedFrame | None:
-        frame = self._slot.take_latest()
-        if frame is None:
-            return None
-        self._last_dimensions = (frame.width, frame.height)
-        if not self._detection_enabled:
-            return None
-        return frame
 
     async def _request_detection(
         self,
@@ -470,6 +480,11 @@ class IngestCoordinator:
     def workers(self) -> tuple[IngestWorker, ...]:
         """Return a stable snapshot of active camera workers."""
         return tuple(self._workers.values())
+
+    @property
+    def peak_in_flight_count(self) -> int:
+        """Return the observed global detector-request high-water mark."""
+        return self._scheduler.peak_in_flight_count
 
     def add(self, worker: IngestWorker) -> None:
         """Register one worker before the coordinator run loop starts."""

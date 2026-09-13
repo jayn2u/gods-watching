@@ -120,6 +120,41 @@ def test_latest_frame_slot_replaces_old_frame_and_counts_one_drop() -> None:
     assert slot.take_latest() == second
     assert slot.take_latest() is None
     assert slot.dropped_frames == 1
+    assert slot.peak_occupancy == 1
+    assert slot.occupancy == 0
+
+
+def test_worker_accounts_for_every_dispatch_and_detector_high_water() -> None:
+    # Given: a worker with one empty, one disabled, and one enabled dispatch
+    binding = _new_binding()
+    detector = _ImmediateDetector()
+
+    async def consume(handoff: PipelineHandoff) -> None:
+        del handoff
+
+    worker = _new_worker(binding, detector, consume)
+
+    async def exercise() -> None:
+        assert await worker.sample_once() == ()
+        worker.receive(_new_frame(binding, seconds=1.0, reference="disabled"))
+        _ = await worker.set_detection_enabled(False)
+        assert await worker.sample_once() == ()
+        _ = await worker.set_detection_enabled(True)
+        worker.receive(_new_frame(binding, seconds=1.2, reference="enabled"))
+        _ = await worker.sample_once()
+
+    anyio.run(exercise)
+
+    stats = worker.stats
+    assert stats.scheduler_dispatches == 3
+    assert stats.dispatch_no_frame == 1
+    assert stats.dispatch_detection_disabled == 1
+    assert stats.dispatch_detector_requested == 1
+    assert stats.dispatch_generation_fenced == 0
+    assert stats.dispatch_closed == 0
+    assert stats.dispatch_outcomes == stats.scheduler_dispatches
+    assert stats.peak_detector_requests == 1
+    assert stats.pending_detector_requests == 0
 
 
 def test_round_robin_scheduler_skips_inflight_camera_and_rotates() -> None:
@@ -132,11 +167,11 @@ def test_round_robin_scheduler_skips_inflight_camera_and_rotates() -> None:
     # When: dispatch time advances through four fair slots while camera zero is busy
     selected: list[CameraId] = []
     selected.append(_required_camera(scheduler.next_due(now_monotonic=0.0)))
-    scheduler.mark_dispatched(selected[-1], now_monotonic=0.0)
+    _ = scheduler.mark_dispatched(selected[-1], now_monotonic=0.0)
     selected.append(_required_camera(scheduler.next_due(now_monotonic=0.2)))
-    scheduler.mark_dispatched(selected[-1], now_monotonic=0.2)
+    _ = scheduler.mark_dispatched(selected[-1], now_monotonic=0.2)
     selected.append(_required_camera(scheduler.next_due(now_monotonic=0.4)))
-    scheduler.mark_dispatched(selected[-1], now_monotonic=0.4)
+    _ = scheduler.mark_dispatched(selected[-1], now_monotonic=0.4)
     scheduler.complete(selected[1])
     selected.append(_required_camera(scheduler.next_due(now_monotonic=0.6)))
 
