@@ -3,19 +3,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from gods_watching.media import MediaSessionId
 
 if TYPE_CHECKING:
+    from types import TracebackType
+
+    from gods_watching.api.appearance_routes import AppearanceLookupProvider
+    from gods_watching.api.search_routes import SearchServiceProvider
     from gods_watching.auth import AuthService, SessionRevocation, SessionRevocationHook
     from gods_watching.cameras.service import CameraService
+    from gods_watching.inference.clip import ClipTransport
     from gods_watching.media import WhepProxyService
     from gods_watching.settings.service import SettingsService
     from gods_watching.storage import Database
 
     from .app_settings import ApiSettings
     from .camera_runtime import CameraRuntimePort
+
+
+class ClipTransportLifecycle(Protocol):
+    """Own one prepared CLIP transport for the application lifetime."""
+
+    async def __aenter__(self) -> ClipTransport:
+        """Open the transport before request handling begins."""
+        ...
+
+    async def __aexit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the transport after all application resources are released."""
+        ...
 
 
 class _RevocationChain:
@@ -41,6 +63,9 @@ class ApiDependencies:
     whep: WhepProxyService
     camera_runtime: CameraRuntimePort
     config: ApiSettings
+    search: SearchServiceProvider
+    appearance: AppearanceLookupProvider
+    clip_lifecycle: ClipTransportLifecycle
 
     def with_whep_revocation(self) -> ApiDependencies:
         """Return dependencies whose auth events close this app's WHEP resources."""

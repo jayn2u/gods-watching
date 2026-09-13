@@ -60,6 +60,17 @@ def test_forwarded_ip_is_trusted_only_from_configured_gateway() -> None:
     assert untrusted == "10.0.0.9"
 
 
+def test_forwarded_ip_uses_first_nonempty_client_element_and_canonicalizes_it() -> None:
+    # Given
+    forwarded = " , 2001:0db8:0000:0000:0000:0000:0000:0007, 192.0.2.9"
+
+    # When
+    client_ip = canonical_client_ip("10.0.0.2", forwarded, "10.0.0.2")
+
+    # Then
+    assert client_ip == "2001:db8::7"
+
+
 def test_origin_policy_requires_exact_same_origin() -> None:
     # Then
     assert is_same_origin("https://console.example.test", "https://console.example.test")

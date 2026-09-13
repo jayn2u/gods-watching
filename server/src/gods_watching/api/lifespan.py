@@ -28,18 +28,19 @@ def build_lifespan(
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         del app
-        startup_revocations = await dependencies.auth.cleanup_expired()
-        startup_closed = await reconcile_revoked_sessions(dependencies)
-        del startup_revocations, startup_closed
-        async with anyio.create_task_group() as task_group:
-            task_group.start_soon(dependencies.auth.cleanup_loop)
-            task_group.start_soon(_reconcile_loop, dependencies)
-            try:
-                yield
-            finally:
-                task_group.cancel_scope.cancel()
-        _ = await dependencies.whep.close_all()
-        await dependencies.database.close()
+        async with dependencies.clip_lifecycle:
+            startup_revocations = await dependencies.auth.cleanup_expired()
+            startup_closed = await reconcile_revoked_sessions(dependencies)
+            del startup_revocations, startup_closed
+            async with anyio.create_task_group() as task_group:
+                task_group.start_soon(dependencies.auth.cleanup_loop)
+                task_group.start_soon(_reconcile_loop, dependencies)
+                try:
+                    yield
+                finally:
+                    task_group.cancel_scope.cancel()
+            _ = await dependencies.whep.close_all()
+            await dependencies.database.close()
 
     return _lifespan
 

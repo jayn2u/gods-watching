@@ -1,9 +1,8 @@
 """HTTP session login, status, activity, and logout routes."""
 
-from __future__ import annotations
-
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -24,19 +23,15 @@ from gods_watching.auth import (
 from gods_watching.auth.policy import MutationOriginError
 from gods_watching.contracts.session import LoginRequest, SessionResponse
 
+from .app_settings import ApiSettings
 from .sessionguard import (
+    AuthCapability,
     AuthenticatedRequest,
     clear_session_cookie,
     parse_session_cookie,
     request_peer_ip,
     require_session,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from .app_settings import ApiSettings
-    from .sessionguard import AuthCapability
 
 
 @dataclass(slots=True)

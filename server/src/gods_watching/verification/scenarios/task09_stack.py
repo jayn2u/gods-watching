@@ -1,9 +1,11 @@
 """Launch the private media stack and real Chromium verification."""
 
 import json
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from subprocess import PIPE
 from typing import Literal
 from uuid import uuid4
 
@@ -24,6 +26,18 @@ from .task09_runtime import (
     prepare_runtime,
     wait_for_gateway,
 )
+
+type CleanupValue = (
+    str
+    | int
+    | float
+    | bool
+    | None
+    | list[CleanupValue]
+    | tuple[CleanupValue, ...]
+    | dict[str, CleanupValue]
+)
+type CleanupResult = dict[str, CleanupValue]
 
 
 class BrowserVerificationError(RuntimeError):
@@ -105,21 +119,129 @@ async def _media_gateway(context: ScenarioContextProtocol) -> AsyncIterator[None
             yield
     finally:
         with anyio.CancelScope(shield=True):
-            _ = await anyio.run_process(
-                (
-                    "/usr/bin/docker",
-                    "container",
-                    "stop",
-                    "--timeout",
-                    "2",
-                    container_name,
-                ),
-                check=False,
+            await cleanup_media_gateway(
+                context,
+                container_name,
+                receipt_name="task-9-gateway-cleanup.json",
             )
-            _ = await anyio.run_process(
-                ("/usr/bin/docker", "container", "remove", container_name),
-                check=False,
+
+
+async def cleanup_media_gateway(
+    context: ScenarioContextProtocol, container_name: str, *, receipt_name: str
+) -> None:
+    """Stop, remove, and prove absence of the exact owned gateway container."""
+    commands = (
+        (
+            "stop",
+            (
+                "/usr/bin/docker",
+                "container",
+                "stop",
+                "--timeout",
+                "1",
+                container_name,
+            ),
+        ),
+        (
+            "remove-force",
+            ("/usr/bin/docker", "container", "remove", "--force", container_name),
+        ),
+        (
+            "inspect",
+            ("/usr/bin/docker", "container", "inspect", container_name),
+        ),
+    )
+    receipt: list[CleanupResult] = []
+    receipt_path = context.run_root / receipt_name
+    cleanup_scope: anyio.CancelScope | None = None
+    try:
+        with anyio.move_on_after(2.5, shield=True) as cleanup_scope:
+            inspect_command = commands[-1][1]
+            wait_started = time.monotonic()
+            probe: CleanupResult | None = None
+            with anyio.move_on_after(1.0, shield=True) as create_scope:
+                while True:
+                    probe = await _run_docker_cleanup("wait-for-create", inspect_command)
+                    if probe["returncode"] == 0:
+                        break
+                    await anyio.sleep(0.05)
+            wait_result = {
+                **({} if probe is None else probe),
+                "operation": "wait-for-create",
+                "timed_out": create_scope.cancel_called,
+                "duration_seconds": time.monotonic() - wait_started,
+            }
+            receipt.append(wait_result)
+            for operation, command in commands:
+                started = time.monotonic()
+                result: CleanupResult = {}
+                with anyio.CancelScope(shield=True):
+                    result = await (
+                        _run_docker_remove_cleanup(command)
+                        if operation == "remove-force"
+                        else _run_docker_cleanup(operation, command)
+                    )
+                result["duration_seconds"] = time.monotonic() - started
+                receipt.append(result)
+    finally:
+        deadline_exceeded = cleanup_scope is not None and cleanup_scope.cancel_called
+        completed = len(receipt) == len(commands) + 1
+        _ = receipt_path.write_text(
+            json.dumps(
+                {
+                    "container_name": container_name,
+                    "operations": receipt,
+                    "timed_out": not completed,
+                    "deadline_exceeded": deadline_exceeded,
+                },
+                indent=2,
+                sort_keys=True,
             )
+            + "\n",
+            encoding="utf-8",
+        )
+
+
+async def _run_docker_cleanup(operation: str, command: tuple[str, ...]) -> CleanupResult:
+    try:
+        completed = await anyio.run_process(command, stdout=PIPE, stderr=PIPE, check=False)
+    except OSError as error:
+        return {
+            "command": list(command),
+            "operation": operation,
+            "returncode": None,
+            "stderr": str(error),
+        }
+    return {
+        "command": list(command),
+        "operation": operation,
+        "returncode": completed.returncode,
+        "stderr": completed.stderr.decode(errors="replace").strip(),
+        "stdout": completed.stdout.decode(errors="replace").strip(),
+    }
+
+
+async def _run_docker_remove_cleanup(command: tuple[str, ...]) -> CleanupResult:
+    attempts: list[CleanupResult] = []
+    with anyio.move_on_after(1.0, shield=True) as retry_scope:
+        while True:
+            result = await _run_docker_cleanup("remove-force", command)
+            attempts.append(result)
+            if not _removal_is_in_progress(result):
+                break
+            await anyio.sleep(0.05)
+    result = dict(attempts[-1])
+    result["attempts"] = tuple(attempts)
+    result["retry_timed_out"] = retry_scope.cancel_called
+    return result
+
+
+def _removal_is_in_progress(result: CleanupResult) -> bool:
+    return (
+        result.get("returncode") == 1
+        and "removal of container" in str(result.get("stderr", ""))
+        and "already in progress" in str(result.get("stderr", ""))
+    )
 
 
 async def _capture_gateway_logs(context: ScenarioContextProtocol) -> None:

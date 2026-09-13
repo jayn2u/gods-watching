@@ -43,7 +43,7 @@ def canonical_client_ip(
     gateway = _parse_ip(trusted_gateway)
     if gateway is None or peer != gateway:
         return ClientIp(peer.compressed)
-    forwarded = forwarded_for.split(",", 1)[0].strip()
+    forwarded = next((entry.strip() for entry in forwarded_for.split(",") if entry.strip()), "")
     forwarded_ip = _parse_ip(forwarded)
     if forwarded_ip is None:
         return ClientIp(peer.compressed)

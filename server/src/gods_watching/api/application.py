@@ -10,9 +10,11 @@ from sqlalchemy import select
 from gods_watching.media import build_whep_router
 from gods_watching.storage import Camera
 
+from .appearance_routes import build_appearance_router
 from .camera_routes import AuthenticatedRequest as CameraAuthenticatedRequest
 from .camera_routes import build_camera_router
 from .lifespan import build_lifespan
+from .search_routes import build_search_router
 from .session_routes import build_session_router
 from .sessionguard import AuthenticatedRequest, require_session
 from .settings_routes import build_settings_router
@@ -61,6 +63,20 @@ def _build_api_router(dependencies: ApiDependencies) -> APIRouter:
         build_settings_router(
             database=dependencies.database,
             settings=dependencies.settings,
+            require_session=require_camera_session,
+        )
+    )
+    router.include_router(
+        build_search_router(
+            database=dependencies.database,
+            search=dependencies.search,
+            require_session=require_camera_session,
+        )
+    )
+    router.include_router(
+        build_appearance_router(
+            database=dependencies.database,
+            lookup=dependencies.appearance,
             require_session=require_camera_session,
         )
     )
