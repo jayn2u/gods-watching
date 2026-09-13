@@ -12,6 +12,8 @@ import {
   type WallSlotIds,
 } from "./client"
 import { AppShell, type CameraState } from "./layout/AppShell"
+import { RequestFence } from "./requestFence"
+import { startSessionCheck } from "./sessionCheck"
 import "./app.css"
 
 type SessionState =
@@ -90,7 +92,7 @@ export function App() {
   const [cameras, setCameras] = useState<CameraState>({ kind: "loading" })
   const [settings, setSettings] = useState<WallSettingsState>({ kind: "loading" })
   const [savingWallSlots, setSavingWallSlots] = useState(false)
-  const sessionRequest = useRef<AbortController | null>(null)
+  const sessionFence = useRef(new RequestFence())
   const logoutRequest = useRef<AbortController | null>(null)
   const activityRequest = useRef<AbortController | null>(null)
   const cameraRequest = useRef<AbortController | null>(null)
@@ -100,39 +102,25 @@ export function App() {
   const lastActivityAt = useRef(0)
 
   const checkSession = useCallback(() => {
-    sessionRequest.current?.abort()
-    const controller = new AbortController()
-    sessionRequest.current = controller
     setSession({ kind: "loading" })
-
-    void apiClient
-      .getSession(controller.signal)
-      .then((response) => {
-        if (response.authenticated) {
-          setSession({ kind: "authenticated", session: response })
-          return
-        }
-        setSession({ kind: "anonymous" })
-      })
-      .catch((error: unknown) => {
-        if (isAbortError(error)) {
-          return
-        }
+    void startSessionCheck(sessionFence.current, (signal) => apiClient.getSession(signal), {
+      onResponse: (response) => {
+        setSession(
+          response.authenticated
+            ? { kind: "authenticated", session: response }
+            : { kind: "anonymous" },
+        )
+      },
+      onError: (error) => {
         setSession({ kind: "anonymous", notice: sessionErrorMessage(error, "check") })
-      })
-      .finally(() => {
-        if (sessionRequest.current === controller) {
-          sessionRequest.current = null
-        }
-      })
+      },
+    })
   }, [])
 
   useEffect(() => {
+    const fence = sessionFence.current
     checkSession()
-    return () => {
-      sessionRequest.current?.abort()
-      sessionRequest.current = null
-    }
+    return () => fence.cancel()
   }, [checkSession])
 
   const login = useCallback(async (password: string): Promise<LoginOutcome> => {
@@ -142,6 +130,7 @@ export function App() {
       if (!response.authenticated) {
         return { ok: false, message: "Authentication was not accepted. Try again." }
       }
+      sessionFence.current.cancel()
       setSession({ kind: "authenticated", session: response })
       return { ok: true }
     } catch (error: unknown) {
@@ -162,12 +151,14 @@ export function App() {
     logoutRequest.current = controller
     try {
       await apiClient.logout(controller.signal)
+      sessionFence.current.cancel()
       setSession({ kind: "anonymous" })
     } catch (error: unknown) {
       if (isAbortError(error)) {
         return
       }
       if (error instanceof HttpError && error.status === 401) {
+        sessionFence.current.cancel()
         setSession({ kind: "anonymous" })
         return
       }
@@ -191,8 +182,7 @@ export function App() {
   const authenticated = session.kind === "authenticated"
 
   const onSessionExpired = useCallback((): void => {
-    sessionRequest.current?.abort()
-    sessionRequest.current = null
+    sessionFence.current.cancel()
     logoutRequest.current?.abort()
     logoutRequest.current = null
     activityRequest.current?.abort()
