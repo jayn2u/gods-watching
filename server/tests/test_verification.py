@@ -286,6 +286,7 @@ def test_registry_contains_every_plan_scenario() -> None:
         "retrieval-quality",
         "search",
         "search-errors",
+        "search-ui",
         "service-outages",
         "status",
     }
@@ -295,7 +296,7 @@ def test_registry_contains_every_plan_scenario() -> None:
     assert "camera-auth-live-boundaries" in names
     assert names == expected_names
     assert len(registered_names) == len(names)
-    assert len(names) == 34
+    assert len(names) == 35
 
 
 def test_evidence_happy_self_check_uses_real_owned_process(tmp_path: Path) -> None:
