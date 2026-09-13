@@ -7,20 +7,20 @@ plan can be closed.
 
 ## Immediate verification and integration
 
-- [ ] **Task 10: ingest final GPU verification**
-  - Run fresh `ingest` and `ingest-outage` scenarios after the deadline-aware
-    scheduler repair.
-  - Confirm the configured 5 Hz sampling cadence with an accurate startup
-    boundary, bounded in-flight work, generation fencing, reconnect behavior,
-    identity observations, and exact cleanup on the current source hashes.
-    Task 21 retains the sustained 4.8 fps/camera detector-throughput gate.
-- [ ] **Task 11: appearance publication integration**
-  - Preserve the corrected focused appearance result (`18 passed`) and run both
-    real `appearance` and `appearance-stale` scenarios with RTSP,
-    PostgreSQL, and Triton CLIP.
-  - Verify active-before-exit search visibility, version-consistent JPEG/vector
-    publication, stale-generation rejection, crash recovery, crop GC, and
-    orphan reconciliation.
+- [x] **Task 10: ingest final GPU verification**
+  - Fresh `ingest` and `ingest-outage` scenarios passed all 15 checks with real
+    evidence on `98894d2` (2026-09-13), including bounded in-flight work,
+    generation fencing, reconnect, identity observation, and exact cleanup.
+  - Cadence note: 20 s `ingest` dispatch turns were `[100, 95, 100, 99]`
+    against 100 expected at 5 Hz. The encoded check enforces the 3.5 fps
+    functional floor; the lagging camera (4.75 fps) stays tracked by the
+    Task 21 sustained 4.8 fps/camera gate.
+- [x] **Task 11: appearance publication integration**
+  - Focused appearance suite: `18 passed`. Real `appearance` (4 checks) and
+    `appearance-stale` (6 checks) scenarios passed with RTSP, PostgreSQL, and
+    Triton CLIP on `98894d2` (2026-09-13): active-before-exit visibility,
+    version-consistent JPEG/vector, stale generation/version rejection, border
+    upgrade, old-crop GC, orphan and temp recovery, and exact cleanup.
 - [ ] **Task 13: retention integration**
   - Complete age/quota eviction, reservation and suppression integration on
     the final appearance pipeline.
