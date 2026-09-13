@@ -25,6 +25,7 @@ from gods_watching.api.camera_routes import (
 from gods_watching.api.camera_runtime import (
     CameraRuntime,
     CameraRuntimePort,
+    CommittedStateDetector,
     StaleRuntimeEffectError,
     ThresholdHandoff,
 )
@@ -647,3 +648,28 @@ async def test_detection_reenable_binds_source_before_detector_activation() -> N
     assert binding.camera_version == 2
     assert media.activations == [(cameras.camera_id, cameras.source)]
     assert detector.activations[0].reason is CameraActivationReason.DETECTION_ENABLED
+
+
+@pytest.mark.anyio
+async def test_committed_state_detector_accepts_effects_owned_by_the_pipeline_worker() -> None:
+    # Given: detection runs in the separate pipeline worker that follows committed sessions
+    camera_id = CameraId(uuid4())
+    activation = _activation(camera_id, 1, "rtsp://fixture:8554/live")
+    runtime = CameraRuntime(detector=CommittedStateDetector(), media=_RecordingMedia())
+    await runtime.mark_committed(camera_id, activation.version)
+
+    # When: the API applies activation, threshold, and cancellation effects after commit
+    await runtime.activate(activation)
+    handoff = await runtime.apply_threshold(camera_id, activation.version, 0.7)
+    await runtime.cancel(
+        CameraCancellationRequest(
+            camera_id=camera_id,
+            version=activation.version,
+            session_id=activation.session_id,
+            generation_id=activation.generation_id,
+            reason=CameraCancellationReason.DETECTION_DISABLED,
+        )
+    )
+
+    # Then: none is reported as a pending effect, because the worker reads the commit itself
+    assert handoff is ThresholdHandoff.APPLIED

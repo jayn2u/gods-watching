@@ -193,6 +193,30 @@ class BoundCameraRuntimePort(Protocol):
         ...
 
 
+@final
+class CommittedStateDetector(CameraDetectorPort):
+    """Accept detector effects that the separate pipeline worker reads from the commit.
+
+    The pipeline worker polls committed camera sessions, versions, and thresholds, so the
+    API has no in-process detector to call; these effects are complete once committed.
+    """
+
+    @override
+    async def activate(self, request: CameraActivationRequest) -> None:
+        """Leave activation to the worker's next reconcile of the committed session."""
+        del request
+
+    @override
+    async def cancel(self, request: CameraCancellationRequest) -> None:
+        """Leave cancellation to the worker's next reconcile of the ended session."""
+        del request
+
+    @override
+    async def apply_threshold(self, camera_id: CameraId, threshold: float) -> None:
+        """Leave the threshold to the worker, which rebinds on the committed version."""
+        del camera_id, threshold
+
+
 class _CameraClosePort(Protocol):
     async def __call__(self, camera_id: CameraId) -> None: ...
 
@@ -546,6 +570,7 @@ __all__ = [
     "CameraReconnectFactory",
     "CameraRuntime",
     "CameraRuntimePort",
+    "CommittedStateDetector",
     "RuntimeEffectError",
     "RuntimeUnavailableError",
     "StaleRuntimeEffectError",

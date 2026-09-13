@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
 from time import monotonic
-from typing import Protocol, override
+from typing import TYPE_CHECKING, Protocol, override
 
 import anyio
 
@@ -32,6 +32,9 @@ from .decoder import (
 )
 from .models import DecodedFrame, IngestStats, IngestStatsSnapshot, LatestFrameSlot
 from .scheduler import FairRoundRobinScheduler
+
+if TYPE_CHECKING:
+    from anyio.abc import TaskGroup
 
 _MIN_THRESHOLD = 0.1
 _MAX_THRESHOLD = 0.95
@@ -475,6 +478,8 @@ class IngestCoordinator:
         """Create an empty coordinator with a five-fps fair scheduler by default."""
         self._scheduler: FairRoundRobinScheduler = scheduler or FairRoundRobinScheduler()
         self._workers: dict[CameraId, IngestWorker] = {}
+        self._failed: dict[CameraId, None] = {}
+        self._decoder_group: TaskGroup | None = None
 
     @property
     def workers(self) -> tuple[IngestWorker, ...]:
@@ -482,34 +487,54 @@ class IngestCoordinator:
         return tuple(self._workers.values())
 
     @property
+    def failed_cameras(self) -> tuple[CameraId, ...]:
+        """Return registered cameras whose decoder stopped with an error, in failure order."""
+        return tuple(self._failed)
+
+    @property
     def peak_in_flight_count(self) -> int:
         """Return the observed global detector-request high-water mark."""
         return self._scheduler.peak_in_flight_count
 
     def add(self, worker: IngestWorker) -> None:
-        """Register one worker before the coordinator run loop starts."""
+        """Register one worker, starting its decoder if the run loop is already active."""
         if worker.camera_id in self._workers:
             raise WorkerConfigurationError(detail="camera worker is already registered")
         self._workers[worker.camera_id] = worker
+        _ = self._failed.pop(worker.camera_id, None)
         self._scheduler.register(worker.camera_id)
+        if self._decoder_group is not None:
+            self._decoder_group.start_soon(self._run_decoder, worker)
 
     async def remove(self, camera_id: CameraId) -> tuple[PipelineHandoff, ...]:
         """Stop and unregister one camera worker, if present."""
+        _ = self._failed.pop(camera_id, None)
         worker = self._workers.pop(camera_id, None)
         if worker is None:
             return ()
         self._scheduler.unregister(camera_id)
         return await worker.close(reason=ResetReason.SOURCE_GENERATION_CHANGED)
 
+    async def _run_decoder(self, worker: IngestWorker) -> None:
+        # One camera's decode or reconnect failure must not cancel every other camera's
+        # decoder, so the failure is recorded for status and replacement instead.
+        try:
+            await worker.run_decoder()
+        except Exception:  # noqa: BLE001 - per-camera isolation boundary
+            if self._workers.get(worker.camera_id) is worker:
+                self._failed[worker.camera_id] = None
+
     async def run(self, *, stop_event: anyio.Event) -> None:
         """Drain decoders and dispatch one bounded detector sample per fair turn."""
         try:
             async with anyio.create_task_group() as task_group:
                 for worker in self._workers.values():
-                    task_group.start_soon(worker.run_decoder)
+                    task_group.start_soon(self._run_decoder, worker)
+                self._decoder_group = task_group
                 try:
                     await self._scheduler.run(self._dispatch, stop_event=stop_event)
                 finally:
+                    self._decoder_group = None
                     task_group.cancel_scope.cancel()
         finally:
             for worker in tuple(self._workers.values()):

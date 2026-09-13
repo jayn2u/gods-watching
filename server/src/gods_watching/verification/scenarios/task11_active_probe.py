@@ -1,5 +1,6 @@
 """Drive real RTSP ingest through detector, CLIP, storage, and search."""
 
+from collections.abc import Sequence
 from io import BytesIO
 from math import sqrt
 from typing import Final
@@ -16,8 +17,9 @@ from gods_watching.appearances import (
     ConservativeWriterBudget,
 )
 from gods_watching.cameras.lifecycle import CameraGenerationId
+from gods_watching.contracts.appearances import AppearanceResponse
 from gods_watching.contracts.cameras import CameraCreateRequest
-from gods_watching.contracts.identifiers import CameraId, CameraSessionId
+from gods_watching.contracts.identifiers import AppearanceId, CameraId, CameraSessionId
 from gods_watching.contracts.pipeline import GenerationBinding
 from gods_watching.contracts.search import BrowseSearchRequest
 from gods_watching.inference.clip import ClipAdapter, TritonClipTransport
@@ -38,6 +40,19 @@ from .task11_models import ActivePublicationEvidence
 
 _MODEL_ID: Final = "openai/clip-vit-base-patch32"
 _MODEL_REVISION: Final = "57c216476eefef5ab752ec549e440a49ae4ae5f3"
+
+
+def unique_track_results(
+    results: Sequence[AppearanceResponse], appearance_id: AppearanceId
+) -> bool:
+    """Require one appearance per track and exactly one row for the observed appearance.
+
+    Several people may start tracks in the same frame, so the count of results for a
+    camera is timing-dependent; duplicate appearances for one track are the defect.
+    """
+    tracks = [(result.session_id, result.track_id) for result in results]
+    observed = sum(1 for result in results if result.appearance_id == appearance_id)
+    return len(tracks) == len(set(tracks)) and observed == 1
 
 
 async def run_active_probe(  # noqa: PLR0915
@@ -66,7 +81,7 @@ async def run_active_probe(  # noqa: PLR0915
     stop_event = anyio.Event()
     active_row: Appearance | None = None
     active_crop = b""
-    result_count = 0
+    unique_result = False
     active_track_count = 0
     try:
         async with TritonClipTransport(triton_url) as clip_transport:
@@ -110,9 +125,11 @@ async def run_active_probe(  # noqa: PLR0915
                                         limit=10,
                                     ),
                                 )
-                                result_count = len(response.results)
                                 if response.results:
                                     appearance_id = UUID(str(response.results[0].appearance_id))
+                                    unique_result = unique_track_results(
+                                        response.results, AppearanceId(appearance_id)
+                                    )
                                     active_row = await session.get(Appearance, appearance_id)
                                     payload = await AppearanceLookupService(
                                         SearchRepository(), crop_store
@@ -136,7 +153,7 @@ async def run_active_probe(  # noqa: PLR0915
     return ActivePublicationEvidence(
         appearance_id=str(active_row.id),
         active_before_exit=active_row.ended_at is None and active_track_count > 0,
-        unique_result=result_count == 1,
+        unique_result=unique_result,
         representative_version=active_row.representative_version,
         jpeg_rgb=jpeg_rgb,
         crop_dimensions=crop_dimensions,

@@ -27,10 +27,14 @@ elif _startup_signal_name == "TERM":
 from pathlib import Path  # noqa: E402
 from typing import Annotated, NoReturn  # noqa: E402
 
+import anyio  # noqa: E402
 import typer  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 from typer.models import OptionInfo  # noqa: E402
 
 from gods_watching.auth.credentials_command import credentials_app  # noqa: E402
+from gods_watching.pipeline_worker.app import run_pipeline_worker  # noqa: E402
+from gods_watching.pipeline_worker.settings import PipelineWorkerSettings  # noqa: E402
 from gods_watching.verification import (  # noqa: E402
     EvidencePathError,
     RunResult,
@@ -79,6 +83,38 @@ def status() -> None:
 def doctor() -> None:
     """Check local runtime prerequisites."""
     _unimplemented("doctor")
+
+
+@app.command()
+def worker() -> None:
+    """Run the pipeline worker: RTSP ingest, appearance publication, and retention."""
+    try:
+        settings = PipelineWorkerSettings()  # pyright: ignore[reportCallIssue]
+    except ValidationError as error:
+        invalid = sorted({f"GW_{str(item['loc'][0]).upper()}" for item in error.errors()})
+        typer.echo(f"worker configuration is invalid: {', '.join(invalid)}", err=True)
+        raise typer.Exit(code=2) from error
+    startup_signum = _take_startup_signal()
+    if startup_signum:
+        raise typer.Exit(code=128 + startup_signum)
+    _restore_startup_signal_handlers()
+    lock_path = Path(__file__).resolve().parents[3] / "assets/models.lock.json"
+    anyio.run(_serve_worker, settings, lock_path)
+
+
+async def _serve_worker(settings: PipelineWorkerSettings, lock_path: Path) -> None:
+    stop_event = anyio.Event()
+    async with anyio.create_task_group() as task_group:
+
+        async def stop_on_signal() -> None:
+            with anyio.open_signal_receiver(*_INTERRUPTION_SIGNALS) as signals:
+                async for _signum in signals:
+                    stop_event.set()
+                    return
+
+        task_group.start_soon(stop_on_signal)
+        await run_pipeline_worker(settings, lock_path=lock_path, stop_event=stop_event)
+        task_group.cancel_scope.cancel()
 
 
 def _execute_with_signal_handlers(

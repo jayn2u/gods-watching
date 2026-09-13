@@ -7,30 +7,41 @@ plan can be closed.
 
 ## Immediate verification and integration
 
-- [ ] **Task 10: ingest final GPU verification**
-  - Run fresh `ingest` and `ingest-outage` scenarios after the deadline-aware
-    scheduler repair.
-  - Confirm the configured 5 Hz sampling cadence with an accurate startup
-    boundary, bounded in-flight work, generation fencing, reconnect behavior,
-    identity observations, and exact cleanup on the current source hashes.
-    Task 21 retains the sustained 4.8 fps/camera detector-throughput gate.
-- [ ] **Task 11: appearance publication integration**
-  - Preserve the corrected focused appearance result (`18 passed`) and run both
-    real `appearance` and `appearance-stale` scenarios with RTSP,
-    PostgreSQL, and Triton CLIP.
-  - Verify active-before-exit search visibility, version-consistent JPEG/vector
-    publication, stale-generation rejection, crash recovery, crop GC, and
-    orphan reconciliation.
-- [ ] **Task 13: retention integration**
-  - Complete age/quota eviction, reservation and suppression integration on
-    the final appearance pipeline.
-  - Exercise crash boundaries, storage-full recovery, physical accounting,
-    unrelated-path protection, and restart reconciliation.
-- [ ] **Task 14: search API integration**
-  - Bind the completed search service and HTTP routes to final appearance and
-    retention behavior.
-  - Verify text, filtered browse, image similarity, expired seed/crop behavior,
-    inference outage handling, stable ranking, and authorization.
+- [x] **Task 10: ingest final GPU verification**
+  - Fresh `ingest` and `ingest-outage` scenarios passed all 15 checks with real
+    evidence on `98894d2` (2026-09-13), including bounded in-flight work,
+    generation fencing, reconnect, identity observation, and exact cleanup.
+  - Cadence note: 20 s `ingest` dispatch turns were `[100, 95, 100, 99]`
+    against 100 expected at 5 Hz. The encoded check enforces the 3.5 fps
+    functional floor; the lagging camera (4.75 fps) stays tracked by the
+    Task 21 sustained 4.8 fps/camera gate.
+- [x] **Task 11: appearance publication integration**
+  - Focused appearance suite: `18 passed`. Real `appearance` (4 checks) and
+    `appearance-stale` (6 checks) scenarios passed with RTSP, PostgreSQL, and
+    Triton CLIP on `98894d2` (2026-09-13): active-before-exit visibility,
+    version-consistent JPEG/vector, stale generation/version rejection, border
+    upgrade, old-crop GC, orphan and temp recovery, and exact cleanup.
+- [x] **Task 13: retention integration**
+  - Ingest, appearance publication, and retention run in a separate
+    `gods-watching worker` process that follows the API's committed camera
+    sessions (`server/src/gods_watching/pipeline_worker/`); the API hands
+    detector effects to it through `CommittedStateDetector`.
+  - Real `retention` (8 checks) and `retention-crash` (6 checks) pass on
+    `b2d9f22` against the real worker: age and oldest-first quota eviction,
+    suppressed active victims, managed bytes within budget, no broken search
+    references, untouched unrelated paths and symlinks, graceful SIGTERM, and
+    SIGKILL restart with orphan/temp reconciliation, GC replay, and resumed
+    publishing.
+  - The run found and fixed publisher startup cleanup deleting a crop-named
+    symlink. Storage-full recovery beyond the quota budget stays with Task 22.
+- [x] **Task 14: search API integration**
+  - Real `search` (7 checks) and `search-errors` (5 checks) pass on `b2d9f22`
+    over appearances published by the real worker with Triton CLIP text
+    search: 401/403 authorization, camera and time filtered browse, ranked and
+    repeatable text and similar search excluding the seed, private JPEG crops,
+    422 invalid input, 404 for a seed and crop expired by real retention, and
+    text 503 while browse and similar keep answering during an inference
+    outage.
 
 ## Browser application
 
@@ -43,10 +54,14 @@ plan can be closed.
   - Verify rising `framesDecoded`, slot replacement and persistence, source
     loss, logout/expiry teardown, activity cadence, keyboard use, and
     fullscreen behavior.
-- [ ] **Task 16: person search UI acceptance**
-  - Verify the implemented text search, filters, detail, Find similar,
-    back-state preservation, stale-response fencing, and recoverable error
-    states against the real API; fix gaps found by that run.
+- [x] **Task 16: person search UI acceptance**
+  - `web/e2e/search.spec.ts` runs against the built web app and real API on
+    one origin through the `search-ui` scenario, which passes (4 checks) on
+    `b2d9f22`: text search with a camera filter, detail, Find similar, back
+    with query and filters preserved, latest-of-two rapid searches, and an
+    inference outage shown with Retry that recovers once Triton returns.
+  - The UI renders API errors as `code: message`; operator wording is left to
+    Task 23.
 - [ ] **Task 17: camera and retention settings UI acceptance**
   - [x] Fence camera-load callbacks by request ownership so an older response
     cannot replace a newer refresh or post-expiry reset.

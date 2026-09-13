@@ -162,7 +162,7 @@ async def run_stale_probe(  # noqa: PLR0915
         )
 
     orphan = crop_store.write(b"interrupted-publication")
-    temporary = crop_store.root / "ff" / "ff" / ".interrupted.tmp"
+    temporary = crop_store.root / "ff" / "ff" / f".{uuid4()}.tmp"
     _ = temporary.parent.mkdir(parents=True, exist_ok=True)
     _ = temporary.write_bytes(b"partial")
     recovery = AppearanceHandoffConsumer(
