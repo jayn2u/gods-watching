@@ -15,8 +15,11 @@ if TYPE_CHECKING:
 
 Password = NewType("Password", str)
 
-_PASSWORD_MIN_LENGTH: Final = 12
+DEFAULT_OPERATOR_USERNAME: Final = "admin"
+
+_PASSWORD_MIN_LENGTH: Final = 4
 _PASSWORD_MAX_LENGTH: Final = 128
+_USERNAME_MAX_LENGTH: Final = 64
 _SECRET_FILE_MODE: Final = 0o600
 _PASSWORD_HASHER = PasswordHasher(
     time_cost=3,
@@ -42,7 +45,7 @@ class PasswordPolicyError(Exception):
 class PasswordPolicyReason(StrEnum):
     """Classify a password policy rejection without carrying the password."""
 
-    LENGTH = "length must be between 12 and 128 characters"
+    LENGTH = "length must be between 4 and 128 characters"
     LINE_BREAK = "line breaks are not allowed"
 
 
@@ -77,6 +80,23 @@ def parse_password(raw: str) -> Password:
     if "\r" in raw or "\n" in raw:
         raise PasswordPolicyError(PasswordPolicyReason.LINE_BREAK)
     return Password(raw)
+
+
+def normalize_username(raw: str) -> str:
+    """Normalize an operator identifier for case-insensitive comparison."""
+    candidate = raw.strip()
+    if not candidate or len(candidate) > _USERNAME_MAX_LENGTH:
+        return ""
+    return candidate.casefold()
+
+
+def verify_username(candidate: str, expected: str) -> bool:
+    """Compare an operator identifier against the configured one in constant time."""
+    configured = normalize_username(expected)
+    supplied = normalize_username(candidate)
+    if not configured or not supplied:
+        return False
+    return secrets.compare_digest(supplied, configured)
 
 
 def hash_password(password: Password) -> str:

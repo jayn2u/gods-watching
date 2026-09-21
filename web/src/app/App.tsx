@@ -122,10 +122,10 @@ export function App() {
     return () => fence.cancel()
   }, [checkSession])
 
-  const login = useCallback(async (password: string): Promise<LoginOutcome> => {
+  const login = useCallback(async (username: string, password: string): Promise<LoginOutcome> => {
     const controller = new AbortController()
     try {
-      const response = await apiClient.login(password, controller.signal)
+      const response = await apiClient.login(username, password, controller.signal)
       if (!response.authenticated) {
         return { ok: false, message: "Authentication was not accepted. Try again." }
       }

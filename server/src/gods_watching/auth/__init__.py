@@ -3,6 +3,7 @@
 from gods_watching.contracts.identifiers import LoginSessionId
 
 from .passwords import (
+    DEFAULT_OPERATOR_USERNAME,
     Password,
     PasswordPolicyError,
     SecretFileError,
@@ -11,6 +12,7 @@ from .passwords import (
     parse_password,
     read_password_file,
     verify_password,
+    verify_username,
 )
 from .policy import (
     ClientIpError,
@@ -59,6 +61,7 @@ from .types import (
 __all__ = [
     "ABSOLUTE_TIMEOUT",
     "CLEANUP_INTERVAL_SECONDS",
+    "DEFAULT_OPERATOR_USERNAME",
     "IDLE_TIMEOUT",
     "AuthService",
     "Authenticated",
@@ -101,4 +104,5 @@ __all__ = [
     "read_password_file",
     "require_same_origin",
     "verify_password",
+    "verify_username",
 ]

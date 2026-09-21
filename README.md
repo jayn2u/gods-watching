@@ -24,7 +24,20 @@ GPU 기반 RTSP 인물 검색 서버입니다. 브라우저에서 실시간 카�
 
 첫 실행은 애플리케이션과 Triton 이미지를 빌드하고 모델을 내려받기 때문에 시간이 걸립니다. 모든 서비스가 준비되면 <http://localhost:8080>으로 접속합니다.
 
-최초 운영자 비밀번호는 `.env`의 `GW_OPERATOR_PASSWORD`에만 기록되며 데이터베이스가 처음 만들어질 때 설정됩니다. `./gods-watching doctor`는 파일 권한, 필수 값, placeholder 사용 여부를 확인하지만 비밀 값은 출력하지 않습니다.
+운영자 로그인 정보는 `.env`의 `GW_OPERATOR_USERNAME`과 `GW_OPERATOR_PASSWORD`가 단일 기준입니다. API는 시작할 때마다 `.env`의 비밀번호를 데이터베이스 credential에 반영하므로, 두 값을 `admin`으로 두면 `admin`/`admin`으로 로그인합니다. 아이디는 앞뒤 공백을 제거하고 대소문자를 구분하지 않으며, 비밀번호는 4~128자만 허용합니다. `.env` 값을 바꾸면 다음 시작 때 기존 세션이 모두 해지되고, `credentials set`으로 바꾼 비밀번호도 `.env` 값으로 되돌아갑니다. `./gods-watching doctor`는 파일 권한, 필수 값, placeholder 사용 여부를 확인하지만 비밀 값은 출력하지 않습니다.
+
+`admin`/`admin`은 로컬 확인용 기본값입니다. LAN에 공개할 때는 `.env`의 두 값을 먼저 교체하십시오.
+
+## 공개 포트 바꾸기
+
+`8080/tcp`가 이미 사용 중이면 `.env`의 `GW_PUBLIC_PORT`를 바꿉니다. TLS overlay의 HTTPS 포트는 `GW_PUBLIC_TLS_PORT`입니다.
+
+```dotenv
+GW_PUBLIC_PORT=9080
+GW_PUBLIC_ORIGIN=http://localhost:9080
+```
+
+`GW_PUBLIC_ORIGIN`의 포트를 함께 바꾸지 않으면 브라우저의 로그인 요청이 same-origin 검사에서 403으로 거부됩니다. `./gods-watching doctor`가 두 값의 불일치와 사용할 수 없는 포트 번호를 미리 잡아냅니다. 변경 후에는 `./gods-watching up`으로 gateway를 다시 만들어야 새 포트가 적용됩니다.
 
 ## LAN TLS
 
@@ -35,7 +48,7 @@ COMPOSE_FILE=compose.yaml:compose.tls.yaml
 GW_PUBLIC_ORIGIN=https://192.0.2.10:8443
 ```
 
-TLS overlay는 Caddy의 내부 CA와 인증서를 named volume에 유지하고 `8080/tcp`를 `8443/tcp` HTTPS로 redirect합니다. 시작 후 CA 인증서를 내보내 각 운영자 브라우저 또는 OS trust store에 한 번 설치합니다.
+TLS overlay는 Caddy의 내부 CA와 인증서를 named volume에 유지하고 `GW_PUBLIC_PORT`를 `GW_PUBLIC_TLS_PORT` HTTPS로 redirect합니다. 시작 후 CA 인증서를 내보내 각 운영자 브라우저 또는 OS trust store에 한 번 설치합니다.
 
 ```bash
 mkdir -p runtime
@@ -94,4 +107,4 @@ docker compose down
 - `postgres`: pgvector가 설치된 PostgreSQL 17
 - `migrate`: 시작할 때 Alembic migration을 적용하고 종료하는 one-shot 서비스
 
-기본 공개 포트는 HTTP `8080/tcp`와 WebRTC media `8189/udp`입니다. TLS overlay에서는 HTTPS `8443/tcp`도 공개하며 `8080/tcp`는 redirect 전용입니다. PostgreSQL, Triton, MediaMTX 제어·WHEP 포트는 Compose 네트워크 내부에만 존재합니다.
+기본 공개 포트는 HTTP `8080/tcp`(`GW_PUBLIC_PORT`)와 WebRTC media `8189/udp`입니다. TLS overlay에서는 HTTPS `8443/tcp`(`GW_PUBLIC_TLS_PORT`)도 공개하며 HTTP 포트는 redirect 전용입니다. PostgreSQL, Triton, MediaMTX 제어·WHEP 포트는 Compose 네트워크 내부에만 존재합니다.

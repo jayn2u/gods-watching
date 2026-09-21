@@ -112,6 +112,62 @@ def test_doctor_rejects_permissive_credential_file(fake_runtime: Path) -> None:
     assert "correct-horse-battery-staple" not in result.stdout
 
 
+@pytest.mark.parametrize(
+    "override",
+    ["GW_PUBLIC_PORT=not-a-port", "GW_PUBLIC_PORT=70000", "GW_PUBLIC_PORT=8443"],
+)
+def test_doctor_rejects_unusable_published_port(fake_runtime: Path, override: str) -> None:
+    # Given: an environment file whose published port cannot be bound as configured
+    environment_path = fake_runtime.parent / ".env"
+    _ = environment_path.write_text(
+        _VALID_ENVIRONMENT + _LINE_BREAK.join((override, "")), encoding="utf-8"
+    )
+    _ = environment_path.chmod(0o600)
+
+    # When: the operator runs the preflight doctor
+    result = _RUNNER.invoke(app, ["doctor"])
+
+    # Then: readiness fails before Compose attempts the bind
+    assert result.exit_code == 1
+    assert _BOOLEAN_REPORT.validate_json(result.stdout)["credentials"] is False
+
+
+def test_doctor_rejects_an_origin_that_names_another_port(fake_runtime: Path) -> None:
+    # Given: a moved published port that the browser-facing origin still ignores
+    environment_path = fake_runtime.parent / ".env"
+    _ = environment_path.write_text(
+        _VALID_ENVIRONMENT
+        + _LINE_BREAK.join(("GW_PUBLIC_PORT=9080", "GW_PUBLIC_ORIGIN=http://localhost:8080", "")),
+        encoding="utf-8",
+    )
+    _ = environment_path.chmod(0o600)
+
+    # When: the operator runs the preflight doctor
+    result = _RUNNER.invoke(app, ["doctor"])
+
+    # Then: the mismatch is reported before it becomes a same-origin login failure
+    assert result.exit_code == 1
+    assert _BOOLEAN_REPORT.validate_json(result.stdout)["credentials"] is False
+
+
+def test_doctor_accepts_a_custom_published_port(fake_runtime: Path) -> None:
+    # Given: an environment file that moves the console off the default port
+    environment_path = fake_runtime.parent / ".env"
+    _ = environment_path.write_text(
+        _VALID_ENVIRONMENT
+        + _LINE_BREAK.join(("GW_PUBLIC_PORT=9080", "GW_PUBLIC_ORIGIN=http://localhost:9080", "")),
+        encoding="utf-8",
+    )
+    _ = environment_path.chmod(0o600)
+
+    # When: the operator runs the preflight doctor
+    result = _RUNNER.invoke(app, ["doctor"])
+
+    # Then: the override is accepted
+    assert result.exit_code == 0
+    assert _BOOLEAN_REPORT.validate_json(result.stdout)["credentials"] is True
+
+
 def test_lifecycle_command_preserves_compose_failure_code(
     fake_runtime: Path,
     monkeypatch: pytest.MonkeyPatch,

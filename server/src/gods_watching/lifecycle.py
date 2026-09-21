@@ -10,6 +10,7 @@ from enum import StrEnum
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 from typing import Final, override
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
 
@@ -17,7 +18,12 @@ _REPOSITORY_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _ENV_PATH: Path = _REPOSITORY_ROOT / ".env"
 _ENV_MODE: Final = 0o600
 _MODE_MASK: Final = 0o777
-_MIN_OPERATOR_PASSWORD_LENGTH: Final = 12
+_MIN_OPERATOR_PASSWORD_LENGTH: Final = 4
+_DEFAULT_OPERATOR_USERNAME: Final = "admin"
+_DEFAULT_PUBLIC_PORT: Final = 8080
+_DEFAULT_PUBLIC_TLS_PORT: Final = 8443
+_MIN_TCP_PORT: Final = 1
+_MAX_TCP_PORT: Final = 65535
 _MIN_POSTGRES_PASSWORD_LENGTH: Final = 20
 _MIN_MEDIA_PASSWORD_LENGTH: Final = 20
 
@@ -96,9 +102,12 @@ def _prepare_environment() -> None:
         f"GW_MEDIA_CONTROL_PASSWORD={secrets.token_urlsafe(24)}",
         f"GW_MEDIA_READER_PASSWORD={secrets.token_urlsafe(24)}",
         f"GW_OPERATOR_PASSWORD={secrets.token_urlsafe(24)}",
+        f"GW_OPERATOR_USERNAME={_DEFAULT_OPERATOR_USERNAME}",
         f"GW_POSTGRES_PASSWORD={secrets.token_urlsafe(24)}",
         "GW_PUBLIC_HOST=127.0.0.1",
-        "GW_PUBLIC_ORIGIN=http://localhost:8080",
+        f"GW_PUBLIC_ORIGIN=http://localhost:{_DEFAULT_PUBLIC_PORT}",
+        f"GW_PUBLIC_PORT={_DEFAULT_PUBLIC_PORT}",
+        f"GW_PUBLIC_TLS_PORT={_DEFAULT_PUBLIC_TLS_PORT}",
         "GW_SECURE_COOKIE=false",
     )
     try:
@@ -146,6 +155,42 @@ def _append_missing_media_credentials() -> None:
             flock(environment_file.fileno(), LOCK_UN)
 
 
+def _ports_valid(values: Mapping[str, str]) -> bool:
+    """Return whether the optional published-port overrides are usable TCP ports."""
+    defaults = {
+        "GW_PUBLIC_PORT": _DEFAULT_PUBLIC_PORT,
+        "GW_PUBLIC_TLS_PORT": _DEFAULT_PUBLIC_TLS_PORT,
+    }
+    ports: list[int] = []
+    for key, fallback in defaults.items():
+        raw = values.get(key, str(fallback)).strip()
+        if not raw.isdigit():
+            return False
+        ports.append(int(raw))
+    return all(_MIN_TCP_PORT <= port <= _MAX_TCP_PORT for port in ports) and len(set(ports)) == len(
+        ports
+    )
+
+
+def _origin_matches_published_port(values: Mapping[str, str]) -> bool:
+    """Return whether the browser-facing origin names the port the gateway publishes."""
+    origin = values.get("GW_PUBLIC_ORIGIN", "").strip()
+    if not origin:
+        return True
+    parsed = urlsplit(origin)
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme == "http":
+        expected = int(values.get("GW_PUBLIC_PORT", str(_DEFAULT_PUBLIC_PORT)))
+        return (port or 80) == expected
+    if parsed.scheme == "https":
+        expected = int(values.get("GW_PUBLIC_TLS_PORT", str(_DEFAULT_PUBLIC_TLS_PORT)))
+        return (port or 443) == expected
+    return False
+
+
 def _environment_ready() -> bool:
     try:
         metadata = _ENV_PATH.stat()
@@ -160,12 +205,16 @@ def _environment_ready() -> bool:
         media_control_password = values["GW_MEDIA_CONTROL_PASSWORD"]
         media_reader_password = values["GW_MEDIA_READER_PASSWORD"]
         operator_password = values["GW_OPERATOR_PASSWORD"]
+        operator_username = values.get("GW_OPERATOR_USERNAME", _DEFAULT_OPERATOR_USERNAME)
         postgres_password = values["GW_POSTGRES_PASSWORD"]
+        ports_valid = _ports_valid(values) and _origin_matches_published_port(values)
         _ = Fernet(camera_key.encode("ascii"))
     except (FileNotFoundError, KeyError, OSError, UnicodeError, ValueError):
         return False
     return (
-        len(media_control_password) >= _MIN_MEDIA_PASSWORD_LENGTH
+        ports_valid
+        and len(operator_username.strip()) > 0
+        and len(media_control_password) >= _MIN_MEDIA_PASSWORD_LENGTH
         and len(media_reader_password) >= _MIN_MEDIA_PASSWORD_LENGTH
         and len(operator_password) >= _MIN_OPERATOR_PASSWORD_LENGTH
         and len(postgres_password) >= _MIN_POSTGRES_PASSWORD_LENGTH

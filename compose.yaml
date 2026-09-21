@@ -10,7 +10,8 @@ x-application-environment: &application-environment
   GW_MEDIA_READER_USER: reader
   GW_MEDIA_WHEP_HOST: media-gateway
   GW_OPERATOR_PASSWORD: ${GW_OPERATOR_PASSWORD:?run ./gods-watching prepare first}
-  GW_PUBLIC_ORIGIN: ${GW_PUBLIC_ORIGIN:-http://localhost:8080}
+  GW_OPERATOR_USERNAME: ${GW_OPERATOR_USERNAME:-admin}
+  GW_PUBLIC_ORIGIN: ${GW_PUBLIC_ORIGIN:-http://localhost:${GW_PUBLIC_PORT:-8080}}
   GW_SECURE_COOKIE: ${GW_SECURE_COOKIE:-false}
   GW_TRUSTED_GATEWAY: 172.31.250.2
   GW_TRITON_GRPC_URL: triton:8001
@@ -136,8 +137,10 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    environment:
+      GW_PUBLIC_PORT: ${GW_PUBLIC_PORT:-8080}
     ports:
-      - "${GW_BIND_HOST:-0.0.0.0}:8080:8080"
+      - "${GW_BIND_HOST:-0.0.0.0}:${GW_PUBLIC_PORT:-8080}:${GW_PUBLIC_PORT:-8080}"
     read_only: true
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]

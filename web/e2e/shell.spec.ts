@@ -76,10 +76,12 @@ test.describe("shell and session states", () => {
     })
 
     await page.goto("/")
-    await page.getByLabel("Operator ID").fill("operator")
+    await page.getByLabel("Operator ID").fill("admin")
     await page.getByLabel("Password").fill("a-password-longer-than-twelve")
     await page.getByRole("button", { name: "Sign in" }).click()
-    expect(loginBody).toBe(JSON.stringify({ password: "a-password-longer-than-twelve" }))
+    expect(loginBody).toBe(
+      JSON.stringify({ username: "admin", password: "a-password-longer-than-twelve" }),
+    )
 
     await expect(page.getByRole("button", { name: "Live wall" })).toBeVisible()
     await expect(page.getByText("0 of 4 assigned")).toBeVisible()

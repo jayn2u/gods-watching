@@ -1,15 +1,17 @@
 services:
   api:
     environment:
-      GW_PUBLIC_ORIGIN: https://${GW_PUBLIC_HOST:?set the LAN host or IP}:8443
+      GW_PUBLIC_ORIGIN: https://${GW_PUBLIC_HOST:?set the LAN host or IP}:${GW_PUBLIC_TLS_PORT:-8443}
       GW_SECURE_COOKIE: "true"
 
   gateway:
     environment:
       GW_PUBLIC_HOST: ${GW_PUBLIC_HOST:?set the LAN host or IP}
+      GW_PUBLIC_PORT: ${GW_PUBLIC_PORT:-8080}
+      GW_PUBLIC_TLS_PORT: ${GW_PUBLIC_TLS_PORT:-8443}
     ports: !override
-      - "${GW_BIND_HOST:-0.0.0.0}:8080:8080"
-      - "${GW_BIND_HOST:-0.0.0.0}:8443:8443"
+      - "${GW_BIND_HOST:-0.0.0.0}:${GW_PUBLIC_PORT:-8080}:${GW_PUBLIC_PORT:-8080}"
+      - "${GW_BIND_HOST:-0.0.0.0}:${GW_PUBLIC_TLS_PORT:-8443}:${GW_PUBLIC_TLS_PORT:-8443}"
     tmpfs: !override [/config, /tmp]
     volumes: !override
       - ./deploy/Caddyfile.tls:/etc/caddy/Caddyfile:ro

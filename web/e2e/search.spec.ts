@@ -4,6 +4,7 @@ import { expect, type Page, type Response, test } from "@playwright/test"
 // Runs only inside the Task 16 real stack: the built web app and the real API share
 // one origin, and the pipeline worker has published real appearances.
 const password = process.env["GW_E2E_OPERATOR_PASSWORD"]
+const username = process.env["GW_E2E_OPERATOR_USERNAME"] ?? "admin"
 const cameraName = process.env["GW_E2E_CAMERA_NAME"]
 const otherCameraName = process.env["GW_E2E_OTHER_CAMERA_NAME"]
 const phase = process.env["GW_E2E_SEARCH_PHASE"] ?? "normal"
@@ -22,7 +23,7 @@ function isSearch(response: Response, needle?: string): boolean {
 
 async function signIn(page: Page): Promise<void> {
   await page.goto("/")
-  await page.getByLabel("Operator ID").fill("operator")
+  await page.getByLabel("Operator ID").fill(username)
   await page.getByLabel("Password").fill(password ?? "")
   await page.getByRole("button", { name: "Sign in" }).click()
   await page

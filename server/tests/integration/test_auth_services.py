@@ -148,6 +148,50 @@ async def test_db_login_stores_argon2id_hash_and_opaque_token(auth_database: Dat
 
 
 @pytest.mark.anyio
+async def test_db_login_requires_the_configured_operator_identifier(
+    auth_database: Database,
+) -> None:
+    # Given
+    clock = ControlledClock(_START)
+    service = _service(auth_database, clock)
+    _ = await service.initialize_password(_AUTH_INPUT_A)
+
+    # When
+    wrong = await service.login(
+        LoginAttempt(password=_AUTH_INPUT_A, peer_ip="203.0.113.30", username="operator")
+    )
+    right = await service.login(
+        LoginAttempt(password=_AUTH_INPUT_A, peer_ip="203.0.113.31", username="ADMIN")
+    )
+
+    # Then
+    assert isinstance(wrong, InvalidCredentials)
+    assert isinstance(right, LoginAccepted)
+
+
+@pytest.mark.anyio
+async def test_db_sync_password_adopts_the_configured_credential(
+    auth_database: Database,
+) -> None:
+    # Given
+    clock = ControlledClock(_START)
+    service = _service(auth_database, clock)
+    _ = await service.initialize_password(_AUTH_INPUT_A)
+
+    # When
+    replaced = await service.sync_password(_AUTH_INPUT_B)
+    unchanged = await service.sync_password(_AUTH_INPUT_B)
+    stale = await service.login(LoginAttempt(_AUTH_INPUT_A, "203.0.113.32"))
+    current = await service.login(LoginAttempt(_AUTH_INPUT_B, "203.0.113.33"))
+
+    # Then
+    assert replaced.changed is True
+    assert unchanged.changed is False
+    assert isinstance(stale, InvalidCredentials)
+    assert isinstance(current, LoginAccepted)
+
+
+@pytest.mark.anyio
 async def test_fifth_login_evicts_oldest_and_awaits_close_hook(auth_database: Database) -> None:
     # Given
     clock = ControlledClock(_START)
