@@ -11,6 +11,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import delete, select
 
 from gods_watching.appearances import (
+    AppearanceHandoffConsumer,
     AppearancePublisher,
     BudgetLease,
     BudgetSnapshot,
@@ -556,6 +557,7 @@ async def test_retention_suppression_uses_stable_appearance_id(  # noqa: PLR0915
             writer_budget=budget,
             monotonic_clock=lambda: 10.0,
         )
+        consumer = AppearanceHandoffConsumer(publisher)
         old = await publisher.accept_handoff(
             _handoff(
                 camera_id=camera_id,
@@ -648,11 +650,12 @@ async def test_retention_suppression_uses_stable_appearance_id(  # noqa: PLR0915
         assert clip.image_calls == 2
 
         publisher.writer_budget = budget
-        published_unrelated = await publisher.process_next()
+        published_unrelated = await consumer.drain_one()
         assert published_unrelated is not None
         assert published_unrelated.outcome.value == "published"
         assert published_unrelated.appearance_id == unrelated.appearance_id
         assert clip.image_calls == 3
+        assert consumer.stats.pending_embeddings == 0
 
         ended = await publisher.accept_handoff(
             _handoff(

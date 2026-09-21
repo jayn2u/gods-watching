@@ -76,6 +76,7 @@ const sourceFixture = {
 type FixtureBehavior =
   | "normal"
   | "stale"
+  | "response-mismatch"
   | "inference-unavailable"
   | "crop-expired"
   | "unauthorized"
@@ -236,6 +237,9 @@ async function mountSourceSearch(page: Page): Promise<void> {
             })
           }
           const query = typeof request["query"] === "string" ? request["query"] : undefined
+          if (behaviorAtStart === "response-mismatch") {
+            return waitFor(8, signal, false).then(() => ({ mode: "browse", results: [first] }))
+          }
           const isOldStaleQuery = behaviorAtStart === "stale" && query?.includes("old")
           return waitFor(isOldStaleQuery ? 120 : 15, signal, behaviorAtStart === "stale").then(() =>
             resultFor({
@@ -525,21 +529,49 @@ test.describe("person search source fixture", () => {
       await page.getByRole("button", { name: "Cancel" }).click()
       await expect(page.getByText("Waiting for a search")).toBeVisible()
 
-      await setFixtureBehavior(page, "inference-unavailable")
+      await setFixtureBehavior(page, "response-mismatch")
       await query.fill("a person")
       await page.getByRole("button", { name: "Search" }).click()
       await expect(page.locator(".search-state[role='alert']")).toContainText(
-        "text_inference_unavailable",
+        "The search service returned an unexpected response. Retry the search.",
       )
+      await expect(page.locator(".search-state[role='alert']")).not.toContainText(
+        "search_response_mismatch",
+      )
+
+      await setFixtureBehavior(page, "inference-unavailable")
+      await query.fill("a person")
+      await page.getByRole("button", { name: "Search", exact: true }).click()
+      await expect(page.locator(".search-state[role='alert']")).toContainText(
+        "Person search is temporarily unavailable. Retry in a moment.",
+      )
+      await expect(page.getByRole("alert")).toHaveCount(1)
       await expect(page.getByRole("button", { name: "Retry search" })).toBeVisible()
+      for (const width of [375, 768, 1280]) {
+        await page.setViewportSize({ height: 900, width })
+        await page.screenshot({
+          fullPage: true,
+          path: join(directory, `search-unavailable-${width}.png`),
+        })
+      }
 
       await setFixtureBehavior(page, "normal")
       await page.getByRole("button", { name: "Retry search" }).click()
       await expect(page.getByRole("button", { name: "View details" })).toHaveCount(1)
       await setFixtureBehavior(page, "crop-expired")
       await page.getByRole("button", { name: "View details" }).click()
-      await expect(page.locator(".search-detail__crop--error")).toContainText("appearance_expired")
+      await expect(page.locator(".search-detail__crop--error")).toContainText(
+        "This appearance crop has expired under the retention policy.",
+      )
+      await expect(page.getByRole("alert")).toHaveCount(1)
       await expect(page.getByRole("button", { name: "Retry detail" })).toBeVisible()
+      for (const width of [375, 768, 1280]) {
+        await page.setViewportSize({ height: 900, width })
+        await page.screenshot({
+          fullPage: true,
+          path: join(directory, `crop-expired-${width}.png`),
+        })
+      }
 
       await setFixtureBehavior(page, "normal")
       await page.getByRole("button", { name: "Retry detail" }).click()

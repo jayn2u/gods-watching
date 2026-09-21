@@ -147,6 +147,11 @@ async def test_ingest_start_is_searchable_before_track_exit(
         assert len(starts) == 1
         assert consumer.last_ack is not None
         assert consumer.last_ack.outcome.value == "published"
+        assert consumer.last_ack.t_searchable_monotonic is not None
+        assert consumer.stats.pending_embeddings == 0
+        assert consumer.stats.last_searchable_latency_seconds == (
+            consumer.last_ack.t_searchable_monotonic - consumer.last_ack.t_detect_monotonic
+        )
         async with database.transaction() as session:
             response = await SearchService(SearchRepository()).search(
                 session,

@@ -1,6 +1,8 @@
 """Compose the pipeline worker process from its settings."""
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anyio
@@ -9,6 +11,7 @@ from gods_watching.appearances import (
     AppearanceHandoffConsumer,
     AppearancePublisher,
     ConservativeWriterBudget,
+    PublicationOutcome,
 )
 from gods_watching.cameras import CameraRepository, CameraService
 from gods_watching.contracts.identifiers import CameraId
@@ -17,6 +20,7 @@ from gods_watching.inference.clip import ClipAdapter, TritonClipTransport
 from gods_watching.inference.detector import DetectorClient, TritonGrpcDetectorTransport
 from gods_watching.ingest import IngestCoordinator
 from gods_watching.retention import RetentionService
+from gods_watching.status import StatusReporter, WorkerStatusSnapshot
 from gods_watching.storage import CredentialCipher, CropObjectStore, Database, StorageRepository
 
 from .service import PipelineWorker
@@ -80,6 +84,24 @@ async def run_pipeline_worker(
             )
             async with anyio.create_task_group() as task_group:
                 task_group.start_soon(_run_pipeline, pipeline, stop_event)
+                task_group.start_soon(
+                    _drain_publications,
+                    consumer,
+                    stop_event,
+                    settings.worker_poll_seconds,
+                )
+                task_group.start_soon(
+                    _report_status,
+                    _StatusLoop(
+                        database=database,
+                        reporter=StatusReporter(coordinator),
+                        retention=retention,
+                        detector=detector_transport,
+                        consumer=consumer,
+                    ),
+                    stop_event,
+                    settings.worker_poll_seconds,
+                )
                 await retention.run_forever(stop_event)
     finally:
         await detector_transport.close()
@@ -88,6 +110,54 @@ async def run_pipeline_worker(
 
 async def _run_pipeline(pipeline: PipelineWorker, stop_event: anyio.Event) -> None:
     await pipeline.run(stop_event=stop_event)
+
+
+async def _drain_publications(
+    consumer: AppearanceHandoffConsumer,
+    stop_event: anyio.Event,
+    interval_seconds: float,
+) -> None:
+    while not stop_event.is_set():
+        acknowledgement = await consumer.drain_one()
+        if acknowledgement is None or acknowledgement.outcome is PublicationOutcome.PAUSED:
+            with anyio.move_on_after(interval_seconds):
+                await stop_event.wait()
+
+
+@dataclass(frozen=True, slots=True)
+class _StatusLoop:
+    database: Database
+    reporter: StatusReporter
+    retention: RetentionService
+    detector: TritonGrpcDetectorTransport
+    consumer: AppearanceHandoffConsumer
+
+
+async def _report_status(
+    loop: _StatusLoop,
+    stop_event: anyio.Event,
+    interval_seconds: float,
+) -> None:
+    while not stop_event.is_set():
+        accounting = await loop.retention.accounting()
+        publication = loop.consumer.stats
+        async with loop.database.transaction() as session:
+            await loop.reporter.report(
+                session,
+                snapshot=WorkerStatusSnapshot(
+                    observed_at=datetime.now(UTC),
+                    inference_ready=await loop.detector.ready(),
+                    persistence_paused=(
+                        accounting.cleanup_required or accounting.filesystem_guard_active
+                    ),
+                    storage_managed_bytes=accounting.managed_bytes,
+                    storage_quota_bytes=accounting.quota_bytes,
+                    indexing_queue_depth=publication.pending_embeddings,
+                    last_searchable_latency_seconds=(publication.last_searchable_latency_seconds),
+                ),
+            )
+        with anyio.move_on_after(interval_seconds):
+            await stop_event.wait()
 
 
 __all__ = ["run_pipeline_worker"]

@@ -3,11 +3,6 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-if ! command -v uv >/dev/null 2>&1; then
-    echo "gods-watching: uv is required to select the locked project environment" >&2
-    exit 127
-fi
-
 pending_signal=
 
 capture_signal() {
@@ -19,14 +14,22 @@ capture_signal() {
 trap 'capture_signal TERM' TERM
 trap 'capture_signal INT' INT
 
-if PYTHON_BIN=$(uv run --project "$SCRIPT_DIR" python -c 'import sys; print(sys.executable)'); then
-    :
-elif [ "$pending_signal" = TERM ]; then
-    exit 143
-elif [ "$pending_signal" = INT ]; then
-    exit 130
-elif [ -z "$pending_signal" ]; then
-    exit 1
+if [ "${GW_FORCE_UV:-0}" != 1 ] && [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+    PYTHON_BIN=$SCRIPT_DIR/.venv/bin/python
+else
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "gods-watching: uv is required when the locked project environment is absent" >&2
+        exit 127
+    fi
+    if PYTHON_BIN=$(uv run --project "$SCRIPT_DIR" python -c 'import sys; print(sys.executable)'); then
+        :
+    elif [ "$pending_signal" = TERM ]; then
+        exit 143
+    elif [ "$pending_signal" = INT ]; then
+        exit 130
+    elif [ -z "$pending_signal" ]; then
+        exit 1
+    fi
 fi
 
 if [ -n "$pending_signal" ]; then

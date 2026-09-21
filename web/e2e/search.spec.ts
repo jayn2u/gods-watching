@@ -139,7 +139,9 @@ test.describe("person search against the real API", () => {
     await query.fill(`a person carrying an umbrella ${Date.now()}`)
     await page.getByRole("button", { name: "Search", exact: true }).click()
     const alert = page.locator(".search-state[role='alert']")
-    await expect(alert).toContainText("inference_unavailable", { timeout: 60_000 })
+    await expect(alert).toContainText("Person search is temporarily unavailable", {
+      timeout: 60_000,
+    })
     await expect(page.getByRole("button", { name: "Retry search" })).toBeVisible()
 
     writeFileSync(outageMarker ?? "", "outage observed\n")

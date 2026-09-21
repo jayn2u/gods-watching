@@ -76,12 +76,16 @@ class PipelineWorker:
 
     async def run(self, *, stop_event: anyio.Event) -> None:
         """Run decode/detection and poll committed sessions until stopped."""
-        async with anyio.create_task_group() as task_group:
-            task_group.start_soon(self._run_coordinator, stop_event)
-            while not stop_event.is_set():
-                _ = await self.reconcile_once()
-                with anyio.move_on_after(self._poll_seconds):
-                    await stop_event.wait()
+        try:
+            async with anyio.create_task_group() as task_group:
+                task_group.start_soon(self._run_coordinator, stop_event)
+                while not stop_event.is_set():
+                    _ = await self.reconcile_once()
+                    with anyio.move_on_after(self._poll_seconds):
+                        await stop_event.wait()
+        finally:
+            for worker in self._coordinator.workers:
+                await self._stop(worker.camera_id)
 
     async def _run_coordinator(self, stop_event: anyio.Event) -> None:
         await self._coordinator.run(stop_event=stop_event)

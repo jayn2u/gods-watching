@@ -77,6 +77,7 @@ def test_launcher_preserves_sigterm_received_during_uv_resolution(tmp_path: Path
         ),
         extra_environment={
             "PATH": f"{uv_root}{os.pathsep}{os.environ['PATH']}",
+            "GW_FORCE_UV": "1",
             "GW_TEST_PYTHON": sys.executable,
         },
     )
@@ -117,6 +118,7 @@ def test_launcher_forwards_sigterm_to_child_after_uv_resolution(tmp_path: Path) 
     environment.update(
         {
             "PATH": f"{uv_root}{os.pathsep}{environment['PATH']}",
+            "GW_FORCE_UV": "1",
             "GW_TEST_PYTHON": str(fake_python),
         }
     )

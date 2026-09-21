@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, final, override
 from uuid import UUID, uuid4
 
+import anyio
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import delete, select
@@ -82,6 +83,21 @@ class _CountingConsumer:
 class _Detector:
     async def detect(self, request: DetectorRequest) -> DetectorResult:
         return DetectorResult(detections=(Detection(80, 20, 160, 200, request.confidence, 0),))
+
+
+class _EarlyExitCoordinator(IngestCoordinator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.added: anyio.Event = anyio.Event()
+
+    @override
+    def add(self, worker: IngestWorker) -> None:
+        super().add(worker)
+        self.added.set()
+
+    @override
+    async def run(self, *, stop_event: anyio.Event) -> None:
+        await stop_event.wait()
 
 
 def _frame(binding: GenerationBinding, *, sequence: int) -> DecodedFrame:
@@ -216,6 +232,65 @@ async def test_pipeline_worker_follows_camera_edits_and_publishes_on_the_current
             )
         assert ended is not None
         assert ended.ended_at is not None
+    finally:
+        if camera_id is not None:
+            await _delete_camera_rows(database, camera_id)
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_pipeline_worker_closes_workers_left_after_coordinator_exit(
+    database_url: str,
+) -> None:
+    database = Database.connect(database_url)
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    cameras = CameraService(CameraRepository(storage))
+    coordinator = _EarlyExitCoordinator()
+    handoffs: list[PipelineHandoff] = []
+
+    async def consume(handoff: PipelineHandoff) -> None:
+        handoffs.append(handoff)
+
+    pipeline = PipelineWorker(
+        database=database,
+        cameras=cameras,
+        coordinator=coordinator,
+        consumer=consume,
+        detector=_Detector(),
+        worker_factory=_fixed_clock_worker,
+        poll_seconds=0.01,
+    )
+    camera_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            created = await cameras.create(
+                session,
+                CameraCreateRequest.model_validate(
+                    {
+                        "name": f"pipeline shutdown {uuid4().hex[:8]}",
+                        "source_url": "rtsp://fixture:8554/person",
+                    }
+                ),
+            )
+        camera_id = UUID(str(created.camera.camera_id))
+        stop = anyio.Event()
+
+        async def run_pipeline() -> None:
+            await pipeline.run(stop_event=stop)
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(run_pipeline)
+            with anyio.fail_after(2.0):
+                await coordinator.added.wait()
+            worker = coordinator.workers[0]
+            worker.receive(_frame(worker.generation, sequence=0))
+            _ = await worker.sample_once()
+            stop.set()
+
+        assert [handoff.lifecycle.kind.value for handoff in handoffs] == [
+            "start",
+            "end",
+        ]
     finally:
         if camera_id is not None:
             await _delete_camera_rows(database, camera_id)

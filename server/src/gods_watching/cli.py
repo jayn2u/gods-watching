@@ -1,5 +1,7 @@
 """Initial command dispatcher for the research server lifecycle."""
 
+from __future__ import annotations
+
 import os
 import signal
 
@@ -10,7 +12,7 @@ _STARTUP_PREVIOUS_HANDLERS = tuple(
 _startup_signum = [0]
 
 
-def _capture_startup_signal(signum: int, _frame: object) -> None:
+def _capture_startup_signal(signum: int, _frame: FrameType | None) -> None:
     if _startup_signum[0] == 0:
         _startup_signum[0] = signum
 
@@ -25,22 +27,26 @@ elif _startup_signal_name == "TERM":
     _startup_signum[0] = signal.SIGTERM
 
 from pathlib import Path  # noqa: E402
-from typing import Annotated, NoReturn  # noqa: E402
+from typing import TYPE_CHECKING, Annotated  # noqa: E402
 
 import anyio  # noqa: E402
 import typer  # noqa: E402
-from pydantic import ValidationError  # noqa: E402
 from typer.models import OptionInfo  # noqa: E402
 
 from gods_watching.auth.credentials_command import credentials_app  # noqa: E402
-from gods_watching.pipeline_worker.app import run_pipeline_worker  # noqa: E402
-from gods_watching.pipeline_worker.settings import PipelineWorkerSettings  # noqa: E402
-from gods_watching.verification import (  # noqa: E402
-    EvidencePathError,
-    RunResult,
-    execute_scenario,
+from gods_watching.lifecycle import (  # noqa: E402
+    LifecycleAction,
+    LifecycleCommandError,
+    execute_lifecycle,
+    inspect_runtime,
 )
-from gods_watching.verification.context import VerificationInterruptedError  # noqa: E402
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from types import FrameType
+
+    from gods_watching.pipeline_worker.settings import PipelineWorkerSettings
+    from gods_watching.verification import RunResult
 
 app = typer.Typer(
     name="gods-watching",
@@ -50,46 +56,76 @@ app = typer.Typer(
 app.add_typer(credentials_app, name="credentials")
 
 
-def _unimplemented(command: str) -> NoReturn:
-    typer.echo(f"{command} is not implemented yet", err=True)
-    raise typer.Exit(code=1)
+def execute_scenario(
+    *,
+    scenario: str,
+    evidence_dir: Path,
+    repository_root: Path,
+    interrupt_reader: Callable[[], int | None] | None = None,
+) -> RunResult:
+    """Load the heavyweight verification graph only when verification is invoked."""
+    from gods_watching.verification import execute_scenario as execute  # noqa: PLC0415
+
+    return execute(
+        scenario=scenario,
+        evidence_dir=evidence_dir,
+        repository_root=repository_root,
+        interrupt_reader=interrupt_reader,
+    )
+
+
+def _run_lifecycle(action: LifecycleAction) -> None:
+    try:
+        execute_lifecycle(action)
+    except LifecycleCommandError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=error.exit_code) from error
 
 
 @app.command()
 def prepare() -> None:
     """Prepare pinned assets and runtime configuration."""
-    _unimplemented("prepare")
+    _run_lifecycle(LifecycleAction.PREPARE)
 
 
 @app.command()
 def up() -> None:
     """Start the prepared research server."""
-    _unimplemented("up")
+    _run_lifecycle(LifecycleAction.UP)
 
 
 @app.command()
 def down() -> None:
     """Stop this research server instance."""
-    _unimplemented("down")
+    _run_lifecycle(LifecycleAction.DOWN)
 
 
 @app.command()
 def status() -> None:
     """Inspect the running research server."""
-    _unimplemented("status")
+    _run_lifecycle(LifecycleAction.STATUS)
 
 
 @app.command()
 def doctor() -> None:
     """Check local runtime prerequisites."""
-    _unimplemented("doctor")
+    report = inspect_runtime()
+    typer.echo(report.to_json())
+    if not report.ready:
+        raise typer.Exit(code=1)
 
 
 @app.command()
 def worker() -> None:
     """Run the pipeline worker: RTSP ingest, appearance publication, and retention."""
+    from pydantic import ValidationError  # noqa: PLC0415
+
+    from gods_watching.pipeline_worker.settings import (  # noqa: PLC0415
+        PipelineWorkerSettings,
+    )
+
     try:
-        settings = PipelineWorkerSettings()  # pyright: ignore[reportCallIssue]
+        settings = PipelineWorkerSettings.model_validate({})
     except ValidationError as error:
         invalid = sorted({f"GW_{str(item['loc'][0]).upper()}" for item in error.errors()})
         typer.echo(f"worker configuration is invalid: {', '.join(invalid)}", err=True)
@@ -103,6 +139,8 @@ def worker() -> None:
 
 
 async def _serve_worker(settings: PipelineWorkerSettings, lock_path: Path) -> None:
+    from gods_watching.pipeline_worker.app import run_pipeline_worker  # noqa: PLC0415
+
     stop_event = anyio.Event()
     async with anyio.create_task_group() as task_group:
 
@@ -120,10 +158,14 @@ async def _serve_worker(settings: PipelineWorkerSettings, lock_path: Path) -> No
 def _execute_with_signal_handlers(
     *, scenario: str, evidence: Path, repository_root: Path
 ) -> tuple[RunResult | None, int | None, int]:
+    from gods_watching.verification.context import (  # noqa: PLC0415
+        VerificationInterruptedError,
+    )
+
     previous_handlers = dict(_STARTUP_PREVIOUS_HANDLERS)
     observed_signum = _take_startup_signal()
 
-    def observe(signum: int, _frame: object) -> None:
+    def observe(signum: int, _frame: FrameType | None) -> None:
         nonlocal observed_signum
         if observed_signum == 0:
             observed_signum = signum
@@ -178,6 +220,8 @@ def verify(
     ],
 ) -> None:
     """Execute an isolated verification scenario."""
+    from gods_watching.verification import EvidencePathError  # noqa: PLC0415
+
     repository_root = Path(__file__).resolve().parents[3]
     try:
         result, interrupted_signum, observed_signum = _execute_with_signal_handlers(

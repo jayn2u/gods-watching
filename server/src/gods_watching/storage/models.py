@@ -70,6 +70,42 @@ class CameraSession(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class WorkerRuntimeStatus(Base):
+    """Persist the worker heartbeat and process-wide readiness snapshot."""
+
+    __tablename__: str = "worker_runtime_status"
+
+    singleton: Mapped[bool] = mapped_column(Boolean, primary_key=True, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    inference_ready: Mapped[bool] = mapped_column(Boolean)
+    persistence_paused: Mapped[bool] = mapped_column(Boolean)
+    storage_managed_bytes: Mapped[int] = mapped_column(BigInteger)
+    storage_quota_bytes: Mapped[int] = mapped_column(BigInteger)
+    indexing_queue_depth: Mapped[int] = mapped_column(Integer)
+    last_searchable_latency_seconds: Mapped[float | None] = mapped_column(Float)
+
+
+class CameraRuntimeStatus(Base):
+    """Persist the latest bounded ingest snapshot for one configured camera."""
+
+    __tablename__: str = "camera_runtime_status"
+
+    camera_id: Mapped[UUID] = mapped_column(
+        ForeignKey("cameras.id", ondelete="CASCADE"), primary_key=True
+    )
+    camera_session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("camera_sessions.id", ondelete="CASCADE")
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_ingest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actual_framerate: Mapped[float] = mapped_column(Float)
+    detector_framerate: Mapped[float] = mapped_column(Float)
+    dropped_frames: Mapped[int] = mapped_column(BigInteger)
+    detector_requests: Mapped[int] = mapped_column(BigInteger)
+    detector_results: Mapped[int] = mapped_column(BigInteger)
+    last_error: Mapped[str | None] = mapped_column(String(200))
+
+
 class Appearance(Base):
     """Store one query-visible representative per camera session track."""
 

@@ -52,7 +52,7 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #02060a;
+  background: var(--gw-color-camera-viewport);
 }
 
 .wall-slot__video {
@@ -60,7 +60,7 @@
   height: 100%;
   display: block;
   object-fit: cover;
-  background: #02060a;
+  background: var(--gw-color-camera-viewport);
 }
 
 .wall-slot__overlay {
@@ -71,7 +71,7 @@
   gap: var(--gw-space-2);
   padding: var(--gw-space-4);
   color: var(--gw-color-muted);
-  background: rgba(2, 6, 10, 0.78);
+  background: var(--gw-color-camera-overlay);
   text-align: center;
   transition: opacity var(--gw-duration-fast) var(--gw-ease-out);
 }
