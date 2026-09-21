@@ -86,7 +86,7 @@ mkdir -p runtime/evidence
 docker compose down
 ```
 
-이 명령은 컨테이너와 네트워크만 제거합니다. PostgreSQL 데이터와 인물 crop은 named volume에 유지되어 다음 실행에서 복구됩니다. 저장 데이터까지 삭제하려는 경우에만 명시적으로 `docker compose down --volumes`를 사용하십시오.
+이 명령은 컨테이너만 제거합니다. PostgreSQL 데이터와 인물 crop은 named volume에 유지되어 다음 실행에서 복구됩니다. 저장 데이터까지 삭제하려는 경우에만 명시적으로 `docker compose down --volumes`를 사용하십시오.
 
 ## 문제 해결
 
@@ -107,4 +107,23 @@ docker compose down
 - `postgres`: pgvector가 설치된 PostgreSQL 17
 - `migrate`: 시작할 때 Alembic migration을 적용하고 종료하는 one-shot 서비스
 
-기본 공개 포트는 HTTP `8080/tcp`(`GW_PUBLIC_PORT`)와 WebRTC media `8189/udp`입니다. TLS overlay에서는 HTTPS `8443/tcp`(`GW_PUBLIC_TLS_PORT`)도 공개하며 HTTP 포트는 redirect 전용입니다. PostgreSQL, Triton, MediaMTX 제어·WHEP 포트는 Compose 네트워크 내부에만 존재합니다.
+모든 서비스는 `network_mode: host`로 호스트 네트워크 namespace에서 실행됩니다. Compose 네트워크와 서비스 이름 DNS가 없으므로 서비스끼리는 `127.0.0.1`로 통신하며, 각 포트는 호스트에 직접 바인딩됩니다.
+
+기본 공개 포트는 HTTP `8080/tcp`(`GW_PUBLIC_PORT`)와 WebRTC media `8189/udp`(`GW_MEDIA_WEBRTC_UDP_PORT`)이며 둘 다 `GW_BIND_HOST`에 바인딩됩니다. TLS overlay에서는 HTTPS `8443/tcp`(`GW_PUBLIC_TLS_PORT`)도 공개하며 HTTP 포트는 redirect 전용입니다.
+
+나머지는 모두 `127.0.0.1`에만 바인딩되어 LAN에 노출되지 않습니다. 다만 호스트에서 실행 중인 다른 프로세스는 접근할 수 있으므로, Compose 내부 네트워크가 제공하던 격리와 동일하지는 않습니다.
+
+| 서비스 | 환경 변수 | 기본값 | 바인딩 |
+| --- | --- | --- | --- |
+| api (uvicorn) | `GW_API_PORT` | 18000 | 127.0.0.1 |
+| postgres | `GW_POSTGRES_PORT` | 15432 | 127.0.0.1 |
+| triton HTTP | `GW_TRITON_HTTP_PORT` | 18010 | 127.0.0.1 |
+| triton gRPC | `GW_TRITON_GRPC_PORT` | 18011 | 127.0.0.1 |
+| triton metrics | `GW_TRITON_METRICS_PORT` | 18012 | 127.0.0.1 |
+| media-gateway RTSP | `GW_MEDIA_RTSP_PORT` | 18554 | 127.0.0.1 |
+| media-gateway WHEP | `GW_MEDIA_WHEP_PORT` | 18889 | 127.0.0.1 |
+| media-gateway API | `GW_MEDIA_CONTROL_PORT` | 19997 | 127.0.0.1 |
+
+이 포트 중 하나를 호스트의 다른 프로그램이 이미 사용 중이면 `.env`에서 값을 바꿉니다. `./gods-watching doctor`가 잘못된 포트 번호와 서로 겹치는 값을 Compose가 bind를 시도하기 전에 거부합니다.
+
+호스트 네트워크이므로 호스트 `127.0.0.1`에서 listen하는 RTSP 서버를 카메라 source로 그대로 지정할 수 있습니다.
