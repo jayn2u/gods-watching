@@ -37,7 +37,7 @@
 }
 
 .auth-screen .gw-panel {
-  border-radius: 0;
+  border-radius: var(--gw-radius-control);
   background: linear-gradient(145deg, var(--gw-color-panel-start), var(--gw-color-panel-end));
   box-shadow: var(--gw-shadow-auth-panel);
 }

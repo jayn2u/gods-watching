@@ -20,6 +20,7 @@
   --gw-color-page: #03070c;
   --gw-color-page-top: #050b12;
   --gw-color-page-glow: #12324d;
+  --gw-color-camera-viewport: #02060a;
   --gw-color-text: #eaf5ff;
   --gw-color-panel-start: rgba(13, 29, 44, 0.96);
   --gw-color-panel-end: rgba(6, 14, 23, 0.98);
@@ -40,6 +41,7 @@
   --gw-color-footer: #6f899b;
   --gw-color-shadow: rgba(0, 0, 0, 0.53);
   --gw-color-overlay: rgba(3, 7, 12, 0.74);
+  --gw-color-camera-overlay: rgba(2, 6, 10, 0.78);
 
   --gw-font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --gw-font-display: "Space Grotesk", "DM Sans", ui-sans-serif, system-ui, sans-serif;
@@ -135,7 +137,7 @@
   --gw-shell-event-rail-height: 176px;
   --gw-shell-mobile-wall-min-height: 460px;
   --gw-shell-mobile-camera-max-height: 230px;
-  --gw-shell-mobile-slot-min-height: 190px;
+  --gw-shell-mobile-slot-min-height: 340px;
   --gw-shell-mobile-event-min-height: 150px;
   --gw-wall-slot-min-height: 220px;
   --gw-copy-measure: 28ch;

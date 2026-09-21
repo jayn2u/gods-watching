@@ -12,13 +12,13 @@ The reference is visual guidance only. Its bundled demo, inline implementation, 
 
 All color usage must resolve through `web/src/styles/tokens.css`.
 
-- Canvas: `page #03070c`, `page-top #050b12`, `page-glow #12324d`.
+- Canvas: `page #03070c`, `page-top #050b12`, `page-glow #12324d`, camera viewport `#02060a`.
 - Content: `text #eaf5ff`, `muted #8daabd`, `footer #6f899b`.
 - Action: `accent #9bdcff`, `accent-ink #03101a`.
 - Structure: `line #21384b`, `input-border #31516a`, `secondary-border #44637a`.
 - Panels: `rgba(13,29,44,.96)` to `rgba(6,14,23,.98)`; inputs `#040b12`; secondary controls/cards `#08131e`.
 - Status: success `#a6c6d8`, danger `#ff9ca6` on `#24131a`, inactive `#526e82`.
-- Overlay: `rgba(3,7,12,.74)`.
+- Overlay: dialog `rgba(3,7,12,.74)`, camera status `rgba(2,6,10,.78)`.
 
 Panels use a one-pixel rule, the two-stop reference gradient, and a subtle black shadow. Radius is `2px` for buttons, fields, panels, and dialogs. No pill-shaped containers, ornamental gradients, glass blur, or oversized shadows.
 
@@ -44,14 +44,14 @@ The login and shell retain these measured reference type values through named to
 - At 375–767px every operation remains in DOM order, controls become full-width where needed, dialog margins are 16px, and no horizontal scrolling is permitted.
 - The isolated primitive showcase uses one column at 375px, two at 768px, and a three-column specimen grid at 1280/1440px.
 
-Reference-specific shell tokens preserve the measured header flex geometry and responsive rail heights: `--gw-shell-header-gap` (22px), brand width/gap/name bounds (162.125px, 9px, 121.4375px, 74.390625px), tag width (31.6875px), nav width (305.609375px), nav button bases/minima (84.296875px/55.46875px, 125.75px/75.203125px, 87.5625px), action/meta widths (338px/253px), status gap (7px), action width and padding (73px, 7px 11px), tablet widths (221.578125px and 55.03125px), and rail/mobile heights (176px, 460px, 230px, 190px, 150px). The 220px desktop wall-slot minimum, 28ch empty-copy measure, and 720px deferred-panel cap are also named there. Fractional values are intentional reference measurements and must not be replaced with rounded scale values.
+Reference-specific shell tokens preserve the measured header flex geometry and responsive rail heights: `--gw-shell-header-gap` (22px), brand width/gap/name bounds (162.125px, 9px, 121.4375px, 74.390625px), tag width (31.6875px), nav width (305.609375px), nav button bases/minima (84.296875px/55.46875px, 125.75px/75.203125px, 87.5625px), action/meta widths (338px/253px), status gap (7px), action width and padding (73px, 7px 11px), tablet widths (221.578125px and 55.03125px), and rail/mobile heights (176px, 460px, 230px, 340px, 150px). The 340px mobile wall-slot minimum preserves a meaningful viewport above stacked touch controls. The 220px desktop wall-slot minimum, 28ch empty-copy measure, and 720px deferred-panel cap are also named there. Fractional values are intentional reference measurements and must not be replaced with rounded scale values.
 
 ## 5. Reusable primitives and states
 
 - `Button`: primary, secondary, danger; normal, hover, active, focus-visible, disabled, loading. Loading keeps its label, exposes `aria-busy`, and cannot be activated.
 - `Input`: visible label, optional hint, invalid description; normal, hover, focus-visible, disabled, invalid. Invalid uses `aria-invalid` and `aria-describedby`.
 - `Panel`: semantic titled region with optional eyebrow and actions; default and quiet variants.
-- `Status`: neutral, live/success, warning, offline/error; calm text plus a dot. Polite changes use `role=status`; errors use `role=alert`.
+- `Status`: neutral, live/success, warning, offline/error; calm text plus a dot. Polite changes use `role=status`; errors use `role=alert`. When a status sits inside an existing live region, announcement is delegated to that parent so the same change is announced once.
 - `Dialog`: native modal semantics, title/description association, initial focus, Tab/Shift+Tab containment, Escape close, backdrop close, and focus return to the trigger. Destructive actions use the danger button.
 
 Focus uses a two-pixel cyan outline with a two-pixel dark offset. Disabled controls remain legible at reduced opacity and use the native `disabled` contract. Error meaning is never communicated by color alone.

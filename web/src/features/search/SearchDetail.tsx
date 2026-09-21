@@ -62,7 +62,9 @@ export function SearchDetail({
           ) : null}
           {detail.kind === "error" ? (
             <div className="search-detail__crop search-detail__crop--error" role="alert">
-              <Status tone="offline">Crop unavailable</Status>
+              <Status announce={false} tone="offline">
+                Crop unavailable
+              </Status>
               <p>{detail.message}</p>
               <Button onClick={onRetry} type="button">
                 Retry detail

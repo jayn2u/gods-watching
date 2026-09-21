@@ -36,7 +36,7 @@ function nextResultsState(request: SearchRequest, response: SearchResponse): Res
   if (request.mode !== response.mode) {
     return {
       kind: "error",
-      message: "search_response_mismatch: the service returned a different search mode.",
+      message: "The search service returned an unexpected response. Retry the search.",
       request,
     }
   }
@@ -322,7 +322,9 @@ function ResultsPanel({
       ) : null}
       {state.kind === "error" ? (
         <div className="search-state" role="alert">
-          <Status tone="offline">Search unavailable</Status>
+          <Status announce={false} tone="offline">
+            Search unavailable
+          </Status>
           <p>{state.message}</p>
           <Button onClick={() => onRetry(state.request)} type="button">
             Retry search
