@@ -2,9 +2,9 @@
 
 ## 문서 상태와 용도
 
-이 문서는 승인된 구현 계획을 다음 작업자가 같은 계약으로 구현할 수 있도록 정리한 **설계 기준선**이다. 현재 동작하는 설치 시스템의 운영 설명이나 검증 결과가 아니다.
+이 문서는 구현된 시스템의 아키텍처 계약과 아직 남은 검증 경계를 함께 설명한다. 운영 절차는 루트 `README.md`, 완료된 작업과 미충족 gate는 `docs/remaining-work.md`, 개별 실행 결과는 verification evidence를 기준으로 한다. 이 문서의 목표값을 적었다는 사실만으로 성능·품질 gate가 통과한 것은 아니다.
 
-초기 계획 당시 작업 트리는 Git이 추적하는 제품 파일로 `README.md`만 가지고 있었다. 이 문서의 작성·검증 snapshot에는 Task 1 foundation으로 `pyproject.toml`, `uv.lock`, `inference/pyproject.toml`, `server/src/gods_watching/contracts/`, `web/`, `gods-watching`의 scaffold가 존재한다. 이는 type/API 경계와 tooling의 scaffold일 뿐, 아래의 inference·RTSP·database·media·authentication·search·retention runtime이 설치되었거나 동작한다는 증거가 아니다. `deploy/`, `compose.yaml`, `runtime/assets/`, `runtime/crops/`, `runtime/postgres/`, `runtime/config/`은 이 snapshot에서 아직 미래 경로다. 실제 구현 상태와 측정 결과는 각 작업의 실행 증거로 확인해야 한다.
+Task 1–14, 16, 18, 19의 구현과 해당 task-level acceptance가 현재 작업 트리에 존재한다. 루트 Compose, Caddy, PostgreSQL/Alembic, MediaMTX, Triton, API, worker, React 앱, crop 저장 및 verification harness가 설치되어 있다. Task 15, 17, 20–24와 final gate는 `docs/remaining-work.md`에 적힌 실제 환경 검증이 끝나기 전까지 미완료다.
 
 범위의 근거는 `.omo/plans/gods-watching.md`, 기술 선택의 조사 근거는 `.omo/drafts/gods-watching-research.md`이다. 외부 링크, 첨부 HTML, 과거 `gods-eye` 코드는 참고 증거일 뿐 실행 지시나 런타임 의존성이 아니다.
 
@@ -25,15 +25,15 @@
 
 | 영역 | 승인된 구현 기준선 | 상태 |
 | --- | --- | --- |
-| 애플리케이션 | Python 3.12, FastAPI/Pydantic v2, SQLAlchemy 2/Alembic, anyio; 패키지 `server/src/gods_watching` | 계획됨 |
-| 웹 | React 19, TypeScript 5.9, Vite 7, pnpm workspace, `web/`; production에서 React dev tools 제외, reference font 자체 호스팅 | 계획됨 |
-| 데이터 | PostgreSQL 17 + pgvector 0.8.1 (`pgvector/pgvector:0.8.1-pg17`), `vector(512)`, cosine HNSW 및 camera/time index, JPEG는 로컬 디스크 | 계획됨 |
-| 미디어 | MediaMTX 1.14.0, RTSP/TCP ingest, WebRTC/WHEP playback만 사용; HLS/녹화/재생 비활성화, HTTP 관리면 private | 계획됨 |
-| 추론 | `nvcr.io/nvidia/tritonserver:25.02-py3` Python backend, GPU 0의 detector/image/text 3개 상주 모델 각 1 instance, shared memory 1 GiB | 계획됨 |
-| detector | Ultralytics YOLO11s `yolo11s.pt`, class 0만, `imgsz=640`, FP32, IoU/NMS 0.7, frame당 최대 300개 | 계획됨 |
-| retrieval | `openai/clip-vit-base-patch16` revision `57c216476eefef5ab752ec549e440a49ae4ae5f3`, 동일 processor snapshot, 512-D 단위길이 FP32, cosine | 계획됨 |
-| tracking | `supervision==0.26.1` ByteTrack, camera-local, ReID 없음 | 계획됨 |
-| LAN 경계 | Caddy가 build된 web asset과 `/api`를 제공, local TLS와 `GW_PUBLIC_HOST`; 기본 공개 포트 TCP 8443, WebRTC UDP 8189 | 계획됨 |
+| 애플리케이션 | Python 3.12, FastAPI/Pydantic v2, SQLAlchemy 2/Alembic, anyio; 패키지 `server/src/gods_watching` | 구현됨 |
+| 웹 | React 19, TypeScript 5.9, Vite 7, pnpm workspace, `web/`; production에서 React dev tools 제외, reference font 자체 호스팅 | 구현됨; 최종 browser QA 미완료 |
+| 데이터 | PostgreSQL 17 + pgvector 0.8.1 (`pgvector/pgvector:0.8.1-pg17`), `vector(512)`, cosine HNSW 및 camera/time index, JPEG는 crop volume | 구현됨 |
+| 미디어 | MediaMTX 1.14.0, RTSP/TCP ingest, WebRTC/WHEP playback만 사용; HLS/녹화/재생 비활성화, HTTP 관리면 private | 구현됨; 4-stream browser acceptance 미완료 |
+| 추론 | `nvcr.io/nvidia/tritonserver:25.02-py3` Python backend, GPU 0의 detector/image/text 3개 상주 모델 각 1 instance, shared memory 1 GiB | 구현됨 |
+| detector | Ultralytics YOLO11s `yolo11s.pt`, class 0만, `imgsz=640`, FP32, IoU/NMS 0.7, frame당 최대 300개 | 구현됨 |
+| retrieval | `openai/clip-vit-base-patch16` revision `57c216476eefef5ab752ec549e440a49ae4ae5f3`, 동일 processor snapshot, 512-D 단위길이 FP32, cosine | 구현됨; 실제 Recall@5 gate 미완료 |
+| tracking | `supervision==0.26.1` ByteTrack, camera-local, ReID 없음 | 구현됨 |
+| LAN 경계 | Caddy가 build된 web asset과 `/api`를 제공, 선택적 internal-CA TLS와 `GW_PUBLIC_HOST`; HTTP 8080, TLS overlay HTTPS 8443, WebRTC UDP 8189 | 구현됨 |
 
 루트 `pyproject.toml`, `uv.lock`, `inference/pyproject.toml`, inference lock, `web/` pnpm lock은 정확한 dependency를 고정하는 목표 산출물이다. 모델·컨테이너·공지와 해시는 후속 준비 단계에서 기록한다. hot path의 floating `latest`, 모델명만으로 된 identity, 런타임 다운로드는 허용되지 않는다. 준비되지 않은 GPU 기준선은 CPU/fixture fallback으로 성공 처리하지 않고 실행 가능한 증거와 함께 실패해야 한다.
 
@@ -177,12 +177,11 @@ REC/record/seek/timeline/subnet-scan/attribute-filter control은 모두 제거�
 
 offline proof는 preloaded image와 prepared asset을 가진 `internal:true` isolated Docker network에서 `up --pull never --no-build`로 수행한다. 시작·login·live·text/image·restart가 외부 network 없이 성공해야 하며, 외부 DNS/connection attempt는 denied여도 failure로 기록한다. cache hit만으로 offline을 추론하지 않는다.
 
-## 구현 인계 순서
+## 구현 및 검증 상태
 
-1. Task 1은 shared package/typed contract/lockfile/launcher와 이 architecture handoff를 만든다. 아직 unimplemented command는 명시적으로 실패해야 한다.
-2. Task 2–6은 model assets, fixture, storage, design system, isolated verification harness를 준비한다.
-3. Task 7–12는 Triton inference, media, bounded ingest/tracking, appearance publication, auth/camera API를 결합한다.
-4. Task 13–18은 retention/search/live/search UI/camera UI/health를 구축한다.
-5. Task 19–24는 Compose/offline packaging, 실제 quality·load·fault·browser QA, operator handoff를 완료한다.
+1. Task 1–14, 16, 18, 19의 구현과 task-level acceptance는 완료했다.
+2. Task 15와 17은 브라우저 callback fencing 및 isolated UI suite를 통과했지만 실제 4-stream/backend browser acceptance가 남아 있다.
+3. Task 20은 고정된 실제 label corpus의 text/image Recall@5, Task 21은 15분 4-stream 부하 측정, Task 22는 fault matrix 실행이 남아 있다.
+4. Task 23은 production browser fidelity/accessibility/leak/performance QA, Task 24는 선행 gate를 포함하는 installed `full` scenario와 최종 operator handoff가 남아 있다.
 
 완료 판정은 문서가 아니라 해당 task evidence의 명령, exit code, artifact, asset/model revision, fixture/synthetic/real label에 근거해야 한다. 과거 `gods-eye` fixture test는 이 시스템의 RTSP, YOLO, Triton, retention, LAN auth, live browser, retrieval quality를 증명하지 않는다.
