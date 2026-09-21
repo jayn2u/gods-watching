@@ -7,7 +7,7 @@ import "./auth.css"
 export type LoginOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string }
 
 type AuthScreenProps = {
-  readonly onLogin: (password: string) => Promise<LoginOutcome>
+  readonly onLogin: (username: string, password: string) => Promise<LoginOutcome>
   readonly notice?: string | undefined
   readonly onRetry?: () => void
   readonly unavailable?: boolean
@@ -29,14 +29,14 @@ export function AuthScreen({ onLogin, notice, onRetry, unavailable = false }: Au
       setFormError("Enter an operator ID.")
       return
     }
-    if (password.length < 12) {
-      setFormError("Password must be at least 12 characters.")
+    if (password.length < 4) {
+      setFormError("Password must be at least 4 characters.")
       return
     }
     setFormError(undefined)
     setSubmitting(true)
     try {
-      const outcome = await onLogin(password)
+      const outcome = await onLogin(operatorId.trim(), password)
       if (!outcome.ok) {
         setFormError(outcome.message)
         return
@@ -66,7 +66,7 @@ export function AuthScreen({ onLogin, notice, onRetry, unavailable = false }: Au
               autoComplete="username"
               label="Operator ID"
               onChange={(event) => setOperatorId(event.target.value)}
-              placeholder="operator"
+              placeholder="admin"
               value={operatorId}
             />
             <Input

@@ -12,11 +12,13 @@ import anyio
 from gods_watching.storage.models import LoginSession
 
 from .passwords import (
+    DEFAULT_OPERATOR_USERNAME,
     PasswordPolicyError,
     hash_password,
     parse_password,
     read_password_file,
     verify_password,
+    verify_username,
 )
 from .policy import canonical_client_ip
 from .repository import (
@@ -79,6 +81,7 @@ class AuthService:
     """Own password verification, DB sessions, expiry, and revocation events."""
 
     transactions: TransactionProvider
+    operator_username: str = DEFAULT_OPERATOR_USERNAME
     credentials: CredentialStore = field(default_factory=SqlAlchemyCredentialStore)
     clock: Clock = field(default_factory=UtcClock)
     revocation_hook: SessionRevocationHook = field(default_factory=NoopRevocationHook)
@@ -122,6 +125,10 @@ class AuthService:
         await self._emit(revocations)
         return PasswordReplacement(changed=True, revoked=revocations)
 
+    async def sync_password(self, raw_password: str) -> PasswordReplacement:
+        """Make the configured password authoritative, creating or replacing the credential."""
+        return await self.replace_password(raw_password)
+
     async def replace_password_file(self, path: str | Path) -> PasswordReplacement:
         """Read a mode-0600 password file before opening the replacement transaction."""
         return await self.replace_password(read_password_file(Path(path)))
@@ -140,13 +147,17 @@ class AuthService:
             password = parse_password(attempt.password)
         except PasswordPolicyError:
             return self._failed_login(client_ip, now)
+        # Evaluated here, applied after the hash check so a wrong identifier still pays
+        # the Argon2 cost and cannot be distinguished by response time.
+        username_ok = verify_username(attempt.username, self.operator_username)
 
         revocations: tuple[SessionRevocation, ...] = ()
         accepted: LoginAccepted | None = None
         async with self.transactions.transaction() as session:
             await lock_auth_namespace(session)
             encoded_hash = await self.credentials.read_password_hash(session, lock=True)
-            if encoded_hash is None or not verify_password(password, encoded_hash):
+            password_ok = encoded_hash is not None and verify_password(password, encoded_hash)
+            if not password_ok or not username_ok:
                 accepted = None
             else:
                 now = self._now()

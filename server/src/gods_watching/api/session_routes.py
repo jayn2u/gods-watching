@@ -144,6 +144,7 @@ def _register_login(
         await _require_origin(request, config)
         result: LoginResult = await auth.login(
             LoginAttempt(
+                username=payload.username,
                 password=payload.password.get_secret_value(),
                 peer_ip=request_peer_ip(request),
                 forwarded_for=request.headers.get("x-forwarded-for"),

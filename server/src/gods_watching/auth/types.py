@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, NewType, Protocol, override
 
+from .passwords import DEFAULT_OPERATOR_USERNAME
+
 if TYPE_CHECKING:
     from datetime import datetime
 
@@ -113,6 +115,7 @@ class LoginAttempt:
     peer_ip: str
     forwarded_for: str | None = None
     trusted_gateway: str | None = None
+    username: str = DEFAULT_OPERATOR_USERNAME
 
     @override
     def __repr__(self) -> str:

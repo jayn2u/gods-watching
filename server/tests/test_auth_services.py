@@ -12,6 +12,7 @@ from gods_watching.auth.passwords import (
     parse_password,
     read_password_file,
     verify_password,
+    verify_username,
 )
 from gods_watching.auth.policy import (
     MutationOriginError,
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 
 def test_parse_password_accepts_only_scope_lengths() -> None:
     # Given
-    shortest = "p" * 12
+    shortest = "p" * 4
     longest = "p" * 128
 
     # When
@@ -40,11 +41,29 @@ def test_parse_password_accepts_only_scope_lengths() -> None:
     assert str(parsed_longest) == longest
 
 
-@pytest.mark.parametrize("password", ["p" * 11, "p" * 129])
+@pytest.mark.parametrize("password", ["p" * 3, "p" * 129])
 def test_parse_password_rejects_outside_scope_lengths(password: str) -> None:
     # When / Then
     with pytest.raises(PasswordPolicyError):
         _ = parse_password(password)
+
+
+def test_verify_username_ignores_case_and_surrounding_whitespace() -> None:
+    # When / Then
+    assert verify_username("  Admin ", "admin")
+    assert verify_username("admin", "admin")
+
+
+@pytest.mark.parametrize(
+    ("candidate", "configured"),
+    [("operator", "admin"), ("", "admin"), ("admin", ""), ("a" * 65, "a" * 65)],
+)
+def test_verify_username_rejects_mismatched_or_unusable_identifiers(
+    candidate: str,
+    configured: str,
+) -> None:
+    # When / Then
+    assert not verify_username(candidate, configured)
 
 
 def test_forwarded_ip_is_trusted_only_from_configured_gateway() -> None:

@@ -9,7 +9,11 @@ auth = AuthService(
 )
 ```
 
-`LoginAttempt` accepts the password and request peer metadata. `AuthService.login()` canonicalizes the address, applies the five failures per 60 seconds throttle, verifies the Argon2id hash, and returns a `LoginAccepted` containing a `SessionToken`. Only `SessionToken.raw` is suitable for setting the HttpOnly cookie; its `repr` and `str` are redacted. The database receives only the SHA-256 digest in `sessions.token_hash`.
+`AuthService` accepts the configured operator identifier as `operator_username` (default `admin`, supplied in production from `GW_OPERATOR_USERNAME`). `LoginAttempt` accepts the identifier, the password, and request peer metadata. The identifier is compared case-insensitively after stripping surrounding whitespace, in constant time, and a mismatch is indistinguishable from a wrong password.
+
+`sync_password()` makes the configured password authoritative at process start: it creates the credential when the singleton row is absent and replaces it — revoking every session — when the stored hash no longer matches. Use `initialize_password()` instead when the stored credential must win.
+
+ `AuthService.login()` canonicalizes the address, applies the five failures per 60 seconds throttle, verifies the Argon2id hash, and returns a `LoginAccepted` containing a `SessionToken`. Only `SessionToken.raw` is suitable for setting the HttpOnly cookie; its `repr` and `str` are redacted. The database receives only the SHA-256 digest in `sessions.token_hash`.
 
 `AuthService.authenticate(token, user_action=False)` checks both expiry limits. Set `user_action=True` only for search, camera/settings mutations, or the CSRF-protected activity endpoint. Passive polling, WHEP keepalives, and live viewing must leave it false. The HTTP layer should rate-limit activity requests to one refresh per minute after real pointer or keyboard activity.
 

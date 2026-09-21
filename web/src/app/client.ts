@@ -263,10 +263,10 @@ export class ApiClient {
     return requestJson("/api/session", { method: "GET", signal }, parseSession)
   }
 
-  login(password: string, signal: AbortSignal): Promise<SessionResponse> {
+  login(username: string, password: string, signal: AbortSignal): Promise<SessionResponse> {
     return requestJson(
       "/api/session",
-      { method: "POST", body: JSON.stringify({ password }), signal },
+      { method: "POST", body: JSON.stringify({ username, password }), signal },
       parseSession,
     )
   }

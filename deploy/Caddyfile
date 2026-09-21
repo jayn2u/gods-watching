@@ -1,4 +1,4 @@
-:8080 {
+:{$GW_PUBLIC_PORT:8080} {
 	encode zstd gzip
 	reverse_proxy api:8000
 }

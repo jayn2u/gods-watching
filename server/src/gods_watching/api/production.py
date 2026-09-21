@@ -52,7 +52,8 @@ class _ProductionSettings(BaseSettings):
     triton_grpc_url: str = Field(default="", min_length=1)
     crops_root: Path = Path()
     camera_cipher_key: str = Field(default="", repr=False, min_length=1)
-    operator_password: str = Field(default="", repr=False, min_length=12, max_length=128)
+    operator_username: str = Field(default="admin", min_length=1, max_length=64)
+    operator_password: str = Field(default="", repr=False, min_length=4, max_length=128)
     public_origin: str = Field(default="", min_length=1)
     secure_cookie: bool = False
     trusted_gateway: str | None = None
@@ -93,8 +94,8 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
     _model_id, model_revision = locked_clip_model(configured.model_lock_path)
     repository = SearchRepository()
     storage = StorageRepository(CredentialCipher(configured.camera_cipher_key.encode()))
-    auth = AuthService(database)
-    _ = await auth.initialize_password(configured.operator_password)
+    auth = AuthService(database, operator_username=configured.operator_username)
+    _ = await auth.sync_password(configured.operator_password)
 
     control = HttpMediaControlGateway(
         MediaGatewayConnection(

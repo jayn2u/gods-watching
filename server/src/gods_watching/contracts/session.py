@@ -9,9 +9,10 @@ from .primitives import UtcDatetime
 
 
 class LoginRequest(ContractModel):
-    """Parse the operator password without serializing its value."""
+    """Parse the operator identifier and password without serializing the secret."""
 
-    password: Annotated[SecretStr, Field(min_length=12, max_length=128)]
+    username: Annotated[str, Field(default="admin", min_length=1, max_length=64)]
+    password: Annotated[SecretStr, Field(min_length=4, max_length=128)]
 
 
 class SessionResponse(ContractModel):
