@@ -1,0 +1,157 @@
+x-application-environment: &application-environment
+  MPLCONFIGDIR: /tmp/matplotlib
+  GW_CAMERA_CIPHER_KEY: ${GW_CAMERA_CIPHER_KEY:?run ./gods-watching prepare first}
+  GW_CROPS_ROOT: /var/lib/gods-watching/crops
+  GW_DATABASE_URL: postgresql+asyncpg://gods_watching:${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}@postgres/gods_watching
+  GW_MEDIA_CONTROL_HOST: media-gateway
+  GW_MEDIA_CONTROL_PASSWORD: gw-control-internal-2026
+  GW_MEDIA_CONTROL_USER: control
+  GW_MEDIA_READER_PASSWORD: gw-reader-internal-2026
+  GW_MEDIA_READER_USER: reader
+  GW_MEDIA_WHEP_HOST: media-gateway
+  GW_OPERATOR_PASSWORD: ${GW_OPERATOR_PASSWORD:?run ./gods-watching prepare first}
+  GW_PUBLIC_ORIGIN: ${GW_PUBLIC_ORIGIN:-http://localhost:8080}
+  GW_SECURE_COOKIE: ${GW_SECURE_COOKIE:-false}
+  GW_TRUSTED_GATEWAY: 172.31.250.2
+  GW_TRITON_GRPC_URL: triton:8001
+  GW_WEB_ROOT: /opt/gods-watching/web/dist
+
+x-application-image: &application-image
+  build:
+    context: .
+    dockerfile: deploy/Dockerfile.app
+  image: gods-watching-app:local
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      POSTGRES_DB: gods_watching
+      POSTGRES_PASSWORD: ${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}
+      POSTGRES_USER: gods_watching
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U gods_watching -d gods_watching"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+
+  migrate:
+    <<: *application-image
+    command: ["alembic", "upgrade", "head"]
+    environment: *application-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
+  media-gateway:
+    image: bluenviron/mediamtx@sha256:206139c58377b7544d6ef63f8af86bcf46b9e89262aaa6f7513e1347dbab7d36
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: ${GW_PUBLIC_HOST:-127.0.0.1}
+    ports:
+      - "${GW_BIND_HOST:-0.0.0.0}:8189:8189/udp"
+    expose: ["8554", "8889", "9997"]
+    read_only: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    volumes:
+      - ./deploy/mediamtx.compose.yml:/mediamtx.yml:ro
+    networks: [media]
+
+  triton:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.triton
+    image: gods-watching-triton:25.02
+    gpus: all
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/v2/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    restart: unless-stopped
+    networks: [backend]
+
+  api:
+    <<: *application-image
+    environment: *application-environment
+    depends_on:
+      media-gateway:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+      triton:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/openapi.json', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    read_only: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    volumes:
+      - crops:/var/lib/gods-watching/crops
+    networks:
+      backend: null
+      media: null
+      public:
+        ipv4_address: 172.31.250.3
+
+  worker:
+    <<: *application-image
+    command: ["gods-watching-cli", "worker"]
+    environment: *application-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      triton:
+        condition: service_healthy
+    read_only: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    volumes:
+      - crops:/var/lib/gods-watching/crops
+    networks: [backend, media]
+
+  gateway:
+    image: caddy:2.10.2-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${GW_BIND_HOST:-0.0.0.0}:8080:8080"
+    read_only: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    tmpfs: [/config, /data]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      public:
+        ipv4_address: 172.31.250.2
+
+networks:
+  backend:
+    internal: true
+  media:
+  public:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+
+volumes:
+  crops:
+  postgres-data:

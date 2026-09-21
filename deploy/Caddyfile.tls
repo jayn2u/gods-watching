@@ -1,0 +1,13 @@
+{
+	default_sni {$GW_PUBLIC_HOST}
+}
+
+http://:8080 {
+	redir https://{$GW_PUBLIC_HOST}:8443{uri} permanent
+}
+
+https://{$GW_PUBLIC_HOST}:8443 {
+	tls internal
+	encode zstd gzip
+	reverse_proxy api:8000
+}

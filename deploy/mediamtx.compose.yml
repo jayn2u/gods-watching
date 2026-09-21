@@ -1,0 +1,46 @@
+logLevel: info
+logDestinations: [stdout]
+
+authMethod: internal
+authInternalUsers:
+  - user: reader
+    pass: sha256:2447b9bd1dabea9a04d1af5515f2b27c74fc8c10a9fe7098122906ef53a380db
+    permissions:
+      - action: read
+        path: ~^camera/[a-z0-9-]+$
+  - user: control
+    pass: sha256:8cfce37cf054e2ef24d9aa787d9c090673859d8d538479634f48852231b6b0ee
+    permissions:
+      - action: api
+
+api: yes
+apiAddress: :9997
+metrics: no
+pprof: no
+playback: no
+
+rtsp: yes
+rtspTransports: [tcp]
+rtspAddress: :8554
+rtspAuthMethods: [basic]
+rtmp: no
+hls: no
+srt: no
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: no
+webrtcAllowOrigin: ""
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ""
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [127.0.0.1]
+webrtcICEServers2: []
+
+pathDefaults:
+  source: publisher
+  record: no
+  overridePublisher: no
+
+paths:
+  all_others:

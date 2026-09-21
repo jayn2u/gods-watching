@@ -1,0 +1,10 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.basedpyright
+node_modules
+web/node_modules
+web/dist
+runtime
+.omo

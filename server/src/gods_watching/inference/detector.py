@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from tritonclient.grpc import InferInput, InferRequestedOutput
 from tritonclient.grpc.aio import InferenceServerClient
+from tritonclient.utils import InferenceServerException
 
 type FloatTensor = npt.NDArray[np.float32]
 type IntTensor = npt.NDArray[np.int32]
@@ -135,6 +136,13 @@ class TritonGrpcDetectorTransport:
             boxes=np.ascontiguousarray(boxes, dtype=np.float32),
             count=np.ascontiguousarray(count, dtype=np.int32),
         )
+
+    async def ready(self) -> bool:
+        """Return Triton's observed server readiness without leaking transport errors."""
+        try:
+            return bool(await self._client.is_server_ready())
+        except (InferenceServerException, OSError):
+            return False
 
     async def close(self) -> None:
         """Close the underlying gRPC channel."""

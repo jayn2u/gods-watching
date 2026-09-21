@@ -226,7 +226,7 @@ class IngestWorker:
         except (RuntimeError, ValueError):
             self._stats.record_error("tracking update failed")
             return ()
-        return await self._deliver(lifecycles, generation=generation)
+        return await self._deliver_after_mutation(lifecycles, generation=generation)
 
     def _take_dispatch_frame(self) -> DecodedFrame | None:
         if self._closed:
@@ -303,7 +303,7 @@ class IngestWorker:
             except (RuntimeError, ValueError):
                 self._stats.record_error("detector request failed")
                 return None
-            self._stats.record_detector_result()
+            self._stats.record_detector_result(self._monotonic_clock())
             return result
 
     async def run_decoder(self, *, status_sink: DecoderStatusSink | None = None) -> None:
@@ -367,7 +367,17 @@ class IngestWorker:
             detections=(),
         )
         lifecycles = tracking.reset(reason=reason, boundary=boundary)
-        return await self._deliver(lifecycles, generation=generation)
+        return await self._deliver_after_mutation(lifecycles, generation=generation)
+
+    async def _deliver_after_mutation(
+        self,
+        lifecycles: tuple[TrackLifecycle, ...],
+        *,
+        generation: GenerationBinding,
+    ) -> tuple[PipelineHandoff, ...]:
+        with anyio.CancelScope(shield=True):
+            return await self._deliver(lifecycles, generation=generation)
+        return ()
 
     async def _deliver(
         self,

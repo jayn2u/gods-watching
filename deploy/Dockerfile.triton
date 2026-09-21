@@ -10,7 +10,32 @@ COPY inference/pyproject.toml inference/uv.lock /opt/inference/
 RUN cd /opt/inference && uv sync --locked --no-dev
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends libgl1 libxcb1 \
+    && apt-get install --yes --no-install-recommends curl libgl1 libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python -c "import sys, torch, torchvision; assert sys.version_info[:2] == (3, 12); assert torch.__version__ == '2.7.1+cu128'; assert torchvision.__version__ == '0.22.1+cu128'"
+
+RUN install -d /models/clip /models/yolo \
+    && curl --fail --location --output /models/yolo/yolo11s.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.pt \
+    && printf '%s  %s\n' 85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5 /models/yolo/yolo11s.pt | sha256sum --check
+
+RUN hf download openai/clip-vit-base-patch16 \
+    config.json merges.txt pytorch_model.bin preprocessor_config.json \
+    special_tokens_map.json tokenizer.json tokenizer_config.json vocab.json \
+    --revision 57c216476eefef5ab752ec549e440a49ae4ae5f3 \
+    --local-dir /models/clip \
+    && printf '%s  %s\n' \
+      eaf1c9089a8553c913d27ea66407f8bfc2be9989c80c9f331ddb3d63d4c5e8ad /models/clip/config.json \
+      9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a /models/clip/merges.txt \
+      ec89c7b09c749a60aae3c9cd910516f24b58214a7df060b48962d14c469cfbf0 /models/clip/pytorch_model.bin \
+      910e70b3956ac9879ebc90b22fb3bc8a75b6a0677814500101a4c072bd7857bd /models/clip/preprocessor_config.json \
+      f8c0d6c39aee3f8431078ef6646567b0aba7f2246e9c54b8b99d55c22b707cbf /models/clip/special_tokens_map.json \
+      a83e0809aa4c3af7208b2df632a7a69668c6d48775b3c3fe4e1b1199d1f8b8f4 /models/clip/tokenizer.json \
+      3f74b6a4d97fee70b3b96921a687fc5e3f2fb583f5f81e7c178c0c22281beade /models/clip/tokenizer_config.json \
+      3f0c4f7d2086b61b38487075278ea9ed04edb53a03cbb045b86c27190fa8fb69 /models/clip/vocab.json \
+    | sha256sum --check
+
+COPY inference/models /models-repository
+
+EXPOSE 8000 8001 8002
+CMD ["tritonserver", "--model-repository=/models-repository", "--strict-readiness=true"]

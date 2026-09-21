@@ -23,7 +23,7 @@ from gods_watching.ingest.decoder import (
     DecoderStatusSink,
     PyAvRtspDecoder,
 )
-from gods_watching.ingest.models import DecodedFrame, LatestFrameSlot
+from gods_watching.ingest.models import DecodedFrame, IngestStats, LatestFrameSlot
 from gods_watching.ingest.scheduler import FairRoundRobinScheduler
 from gods_watching.ingest.worker import (
     IngestCoordinator,
@@ -39,6 +39,20 @@ from gods_watching.tracking import (
     LifecycleKind,
     TrackingScope,
 )
+
+
+def test_ingest_stats_reports_detector_result_rate_in_bounded_window() -> None:
+    # Given: three completed detector results spanning half a second
+    stats = IngestStats()
+    stats.record_detector_result(1.0)
+    stats.record_detector_result(1.25)
+    stats.record_detector_result(1.5)
+
+    # When: runtime telemetry is sampled
+    snapshot = stats.snapshot(now_monotonic=1.5, dropped_frames=0)
+
+    # Then: accepted detector throughput is measured from completion times
+    assert snapshot.detector_framerate == 4.0
 
 
 def test_pipeline_start_handoff_requires_one_bounded_rgb_crop() -> None:
@@ -219,6 +233,34 @@ def test_detection_toggle_closes_tracks_and_stops_detector_work() -> None:
         assert worker.detection_enabled is False
 
     _ = anyio.run(exercise)
+
+
+def test_cancellation_cannot_drop_a_terminal_handoff() -> None:
+    binding = _new_binding()
+    detector = _ImmediateDetector()
+    delivered: list[LifecycleKind] = []
+    end_delivery_started = anyio.Event()
+
+    async def consume(handoff: PipelineHandoff) -> None:
+        if handoff.lifecycle.kind is LifecycleKind.END:
+            end_delivery_started.set()
+            await anyio.sleep(0.05)
+        delivered.append(handoff.lifecycle.kind)
+
+    worker = _new_worker(binding, detector, consume)
+
+    async def exercise() -> None:
+        worker.receive(_new_frame(binding, seconds=1.0, reference="cancel-end"))
+        assert [item.lifecycle.kind for item in await worker.sample_once()] == [LifecycleKind.START]
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(worker.close)
+            await end_delivery_started.wait()
+            task_group.cancel_scope.cancel()
+
+        assert delivered == [LifecycleKind.START, LifecycleKind.END]
+
+    anyio.run(exercise)
 
 
 def test_detector_result_after_threshold_reset_cannot_start_a_new_track() -> None:

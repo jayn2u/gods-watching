@@ -9,7 +9,7 @@ from .budget import (
     WriterGate,
     WriterGateProvider,
 )
-from .pipeline import AppearanceHandoffConsumer
+from .pipeline import AppearanceHandoffConsumer, PublicationStatsSnapshot
 from .policy import (
     CandidateRank,
     CropRejected,
@@ -44,6 +44,7 @@ __all__ = [
     "PublicationAck",
     "PublicationOutcome",
     "PublicationResult",
+    "PublicationStatsSnapshot",
     "PublicationStatus",
     "PublicationWork",
     "ReconciliationReport",

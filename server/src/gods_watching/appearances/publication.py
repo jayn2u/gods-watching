@@ -193,6 +193,11 @@ class AppearancePublisher:
             else WriterGate()
         )
 
+    @property
+    def pending_embeddings(self) -> int:
+        """Return the current bounded embedding backlog."""
+        return len(self.queue)
+
     async def accept_handoff(  # noqa: C901, PLR0911, PLR0912
         self,
         handoff: PipelineHandoff,

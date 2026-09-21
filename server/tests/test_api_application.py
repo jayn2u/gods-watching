@@ -146,9 +146,11 @@ async def test_default_app_composes_search_and_appearance_auth_boundaries(tmp_pa
             "/api/search",
             headers={"origin": "https://evil.test", "cookie": "gw_session=installed-session"},
         )
+        anonymous_status = await _request_status(app, "GET", "/api/status")
 
         assert anonymous == 401
         assert cross_origin == 403
+        assert anonymous_status == 401
     finally:
         await transport.__aexit__(None, None, None)
         await database.close()
@@ -169,6 +171,7 @@ async def test_default_app_openapi_pins_task12_route_boundaries(tmp_path: Path) 
             "/api/cameras/test",
             "/api/cameras/{camera_id}",
             "/api/settings",
+            "/api/status",
             "/api/search",
             "/api/appearances/{appearance_id}",
             "/api/appearances/{appearance_id}/crop",
@@ -186,6 +189,7 @@ async def test_default_app_openapi_pins_task12_route_boundaries(tmp_path: Path) 
             ("/api/cameras/{camera_id}", "patch", "200", "CameraResponse"),
             ("/api/settings", "get", "200", "SettingsResponse"),
             ("/api/settings", "patch", "200", "SettingsResponse"),
+            ("/api/status", "get", "200", "StatusResponse"),
             ("/api/search", "post", "200", "SearchResponse"),
             ("/api/appearances/{appearance_id}", "get", "200", "AppearanceResponse"),
         )

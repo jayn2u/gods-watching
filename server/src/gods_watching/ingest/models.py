@@ -119,6 +119,7 @@ class IngestStatsSnapshot:
     dropped_frames: int
     pending_detector_requests: int
     actual_framerate: float
+    detector_framerate: float
     frame_age_seconds: float | None
     sanitized_errors: int
     last_sanitized_error: str | None
@@ -158,6 +159,7 @@ class IngestStats:
     dispatch_closed: int = 0
     peak_detector_requests: int = 0
     _ingress_times: deque[float] = field(default_factory=deque, init=False, repr=False)
+    _detector_result_times: deque[float] = field(default_factory=deque, init=False, repr=False)
     _last_ingress_monotonic: float | None = field(default=None, init=False, repr=False)
 
     def record_decoded(self, ingress_monotonic: float) -> None:
@@ -201,10 +203,14 @@ class IngestStats:
             case unreachable:
                 raise DecoderInputError(detail=f"unknown dispatch outcome: {unreachable}")
 
-    def record_detector_result(self) -> None:
+    def record_detector_result(self, observed_monotonic: float) -> None:
         """Record one detector response and release the pending slot."""
         self.detector_results += 1
         self.pending_detector_requests = 0
+        self._detector_result_times.append(observed_monotonic)
+        cutoff = observed_monotonic - _FPS_WINDOW_SECONDS
+        while self._detector_result_times and self._detector_result_times[0] < cutoff:
+            _ = self._detector_result_times.popleft()
 
     def record_detection_counts(self, *, total: int, invalid: int) -> None:
         """Record detector boxes retained and rejected by crop eligibility."""
@@ -232,6 +238,7 @@ class IngestStats:
     def reset_freshness(self) -> None:
         """Clear source-specific freshness clocks at a new generation boundary."""
         self._ingress_times.clear()
+        self._detector_result_times.clear()
         self._last_ingress_monotonic = None
         self.pending_detector_requests = 0
 
@@ -242,6 +249,11 @@ class IngestStats:
             elapsed = self._ingress_times[-1] - self._ingress_times[0]
             if elapsed > 0.0:
                 rate = (len(self._ingress_times) - 1) / elapsed
+        detector_rate = 0.0
+        if len(self._detector_result_times) >= _MIN_RATE_SAMPLES:
+            detector_elapsed = self._detector_result_times[-1] - self._detector_result_times[0]
+            if detector_elapsed > 0.0:
+                detector_rate = (len(self._detector_result_times) - 1) / detector_elapsed
         age = (
             None
             if self._last_ingress_monotonic is None
@@ -258,6 +270,7 @@ class IngestStats:
             dropped_frames=dropped_frames,
             pending_detector_requests=self.pending_detector_requests,
             actual_framerate=rate,
+            detector_framerate=detector_rate,
             frame_age_seconds=age,
             sanitized_errors=self.sanitized_errors,
             last_sanitized_error=self.last_sanitized_error,

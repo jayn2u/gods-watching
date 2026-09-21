@@ -18,6 +18,7 @@ from .search_routes import build_search_router
 from .session_routes import build_session_router
 from .sessionguard import AuthenticatedRequest, require_session
 from .settings_routes import build_settings_router
+from .status_routes import build_status_router
 from .whep_auth import SessionWhepAuthorizer
 
 if TYPE_CHECKING:
@@ -63,6 +64,12 @@ def _build_api_router(dependencies: ApiDependencies) -> APIRouter:
         build_settings_router(
             database=dependencies.database,
             settings=dependencies.settings,
+            require_session=require_camera_session,
+        )
+    )
+    router.include_router(
+        build_status_router(
+            database=dependencies.database,
             require_session=require_camera_session,
         )
     )
