@@ -4,9 +4,9 @@ x-application-environment: &application-environment
   GW_CROPS_ROOT: /var/lib/gods-watching/crops
   GW_DATABASE_URL: postgresql+asyncpg://gods_watching:${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}@postgres/gods_watching
   GW_MEDIA_CONTROL_HOST: media-gateway
-  GW_MEDIA_CONTROL_PASSWORD: gw-control-internal-2026
+  GW_MEDIA_CONTROL_PASSWORD: ${GW_MEDIA_CONTROL_PASSWORD:?run ./gods-watching prepare first}
   GW_MEDIA_CONTROL_USER: control
-  GW_MEDIA_READER_PASSWORD: gw-reader-internal-2026
+  GW_MEDIA_READER_PASSWORD: ${GW_MEDIA_READER_PASSWORD:?run ./gods-watching prepare first}
   GW_MEDIA_READER_USER: reader
   GW_MEDIA_WHEP_HOST: media-gateway
   GW_OPERATOR_PASSWORD: ${GW_OPERATOR_PASSWORD:?run ./gods-watching prepare first}
@@ -52,6 +52,13 @@ services:
   media-gateway:
     image: bluenviron/mediamtx@sha256:206139c58377b7544d6ef63f8af86bcf46b9e89262aaa6f7513e1347dbab7d36
     environment:
+      MTX_AUTHINTERNALUSERS_0_PASS: ${GW_MEDIA_READER_PASSWORD:?run ./gods-watching prepare first}
+      MTX_AUTHINTERNALUSERS_0_PERMISSIONS_0_ACTION: read
+      MTX_AUTHINTERNALUSERS_0_PERMISSIONS_0_PATH: ~^camera/[a-z0-9-]+$
+      MTX_AUTHINTERNALUSERS_0_USER: reader
+      MTX_AUTHINTERNALUSERS_1_PASS: ${GW_MEDIA_CONTROL_PASSWORD:?run ./gods-watching prepare first}
+      MTX_AUTHINTERNALUSERS_1_PERMISSIONS_0_ACTION: api
+      MTX_AUTHINTERNALUSERS_1_USER: control
       MTX_WEBRTCADDITIONALHOSTS: ${GW_PUBLIC_HOST:-127.0.0.1}
     ports:
       - "${GW_BIND_HOST:-0.0.0.0}:8189:8189/udp"

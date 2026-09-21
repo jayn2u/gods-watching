@@ -7,9 +7,10 @@ GPU 기반 RTSP 인물 검색 서버입니다. 브라우저에서 실시간 카�
 - Linux x86_64
 - NVIDIA GPU와 동작하는 NVIDIA Container Toolkit
 - Docker Engine 29 이상과 Docker Compose v2
+- 잠긴 Python 환경과 `./gods-watching` launcher를 실행할 [uv](https://docs.astral.sh/uv/)
 - 처음 빌드할 때 약 600 MB의 고정 CLIP 모델과 YOLO 가중치를 받을 수 있는 네트워크
 
-기본 구성은 로컬 확인용입니다. `prepare`는 `.env`가 없을 때 운영자·PostgreSQL 비밀번호와 Fernet 키를 무작위로 생성하고 파일 권한을 `0600`으로 설정합니다. 기존 `.env`는 절대 덮어쓰지 않습니다. 이미 저장된 카메라가 있는 상태에서 `GW_CAMERA_CIPHER_KEY`를 바꾸면 기존 RTSP 자격 증명을 복호화할 수 없습니다.
+기본 구성은 로컬 확인용입니다. `prepare`는 `.env`가 없을 때 운영자·PostgreSQL·내부 미디어 비밀번호와 Fernet 키를 무작위로 생성하고 파일 권한을 `0600`으로 설정합니다. 기존 값은 덮어쓰지 않으며, 이전 준비 파일에 내부 미디어 비밀번호만 없으면 두 값을 추가합니다. 이미 저장된 카메라가 있는 상태에서 `GW_CAMERA_CIPHER_KEY`를 바꾸면 기존 RTSP 자격 증명을 복호화할 수 없습니다.
 
 ## 켜기
 
@@ -50,7 +51,7 @@ docker compose ps
 docker compose logs --tail=100 api worker triton
 ```
 
-브라우저의 상태 화면은 worker heartbeat, 카메라별 decode/detector rate와 frame age, embedding queue, 검색 가능 latency, Triton, crop/DB 저장 압력을 표시합니다. `ready=false`이거나 source가 stale/offline이면 로그와 해당 카메라의 RTSP 접근성을 먼저 확인하십시오. 저장 압력으로 publication이 멈춘 경우 retention 또는 filesystem 여유 공간을 복구하면 worker가 bounded queue를 다시 처리합니다.
+로그인한 운영자는 `GET /api/status`에서 worker heartbeat, 카메라별 decode/detector rate와 frame age, embedding queue, 검색 가능 latency, Triton, crop/DB 저장 압력을 JSON으로 확인할 수 있습니다. 응답의 `state`가 `ready`가 아니거나 source가 stale/offline이면 로그와 해당 카메라의 RTSP 접근성을 먼저 확인하십시오. 저장 압력으로 publication이 멈춘 경우 retention 또는 filesystem 여유 공간을 복구하면 worker가 bounded queue를 다시 처리합니다. 현재 브라우저 UI에는 별도 상태 화면이 없습니다.
 
 ## 검증
 

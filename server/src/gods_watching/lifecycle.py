@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
+from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 from typing import Final, override
 
@@ -18,6 +19,7 @@ _ENV_MODE: Final = 0o600
 _MODE_MASK: Final = 0o777
 _MIN_OPERATOR_PASSWORD_LENGTH: Final = 12
 _MIN_POSTGRES_PASSWORD_LENGTH: Final = 20
+_MIN_MEDIA_PASSWORD_LENGTH: Final = 20
 
 
 class LifecycleAction(StrEnum):
@@ -86,10 +88,13 @@ def execute_lifecycle(action: LifecycleAction) -> None:
 
 def _prepare_environment() -> None:
     if _ENV_PATH.exists():
+        _append_missing_media_credentials()
         return
     lines = (
         "GW_BIND_HOST=0.0.0.0",
         f"GW_CAMERA_CIPHER_KEY={Fernet.generate_key().decode('ascii')}",
+        f"GW_MEDIA_CONTROL_PASSWORD={secrets.token_urlsafe(24)}",
+        f"GW_MEDIA_READER_PASSWORD={secrets.token_urlsafe(24)}",
         f"GW_OPERATOR_PASSWORD={secrets.token_urlsafe(24)}",
         f"GW_POSTGRES_PASSWORD={secrets.token_urlsafe(24)}",
         "GW_PUBLIC_HOST=127.0.0.1",
@@ -104,6 +109,43 @@ def _prepare_environment() -> None:
         _ = environment_file.write("\n".join(lines) + "\n")
 
 
+def _append_missing_media_credentials() -> None:
+    try:
+        metadata = _ENV_PATH.stat()
+    except FileNotFoundError:
+        return
+    if metadata.st_mode & _MODE_MASK != _ENV_MODE:
+        return
+    try:
+        environment_file = _ENV_PATH.open("r+", encoding="utf-8")
+    except FileNotFoundError:
+        return
+    with environment_file:
+        flock(environment_file.fileno(), LOCK_EX)
+        try:
+            contents = environment_file.read()
+            keys = {
+                line.split("=", maxsplit=1)[0]
+                for line in contents.splitlines()
+                if line and not line.startswith("#") and "=" in line
+            }
+            additions = tuple(
+                f"{key}={secrets.token_urlsafe(24)}"
+                for key in ("GW_MEDIA_CONTROL_PASSWORD", "GW_MEDIA_READER_PASSWORD")
+                if key not in keys
+            )
+            if not additions:
+                return
+            _ = environment_file.seek(0, os.SEEK_END)
+            if contents and not contents.endswith("\n"):
+                _ = environment_file.write("\n")
+            _ = environment_file.write("\n".join(additions) + "\n")
+            environment_file.flush()
+            os.fsync(environment_file.fileno())
+        finally:
+            flock(environment_file.fileno(), LOCK_UN)
+
+
 def _environment_ready() -> bool:
     try:
         metadata = _ENV_PATH.stat()
@@ -115,14 +157,20 @@ def _environment_ready() -> bool:
             if line and not line.startswith("#") and "=" in line
         )
         camera_key = values["GW_CAMERA_CIPHER_KEY"]
+        media_control_password = values["GW_MEDIA_CONTROL_PASSWORD"]
+        media_reader_password = values["GW_MEDIA_READER_PASSWORD"]
         operator_password = values["GW_OPERATOR_PASSWORD"]
         postgres_password = values["GW_POSTGRES_PASSWORD"]
         _ = Fernet(camera_key.encode("ascii"))
     except (FileNotFoundError, KeyError, OSError, UnicodeError, ValueError):
         return False
     return (
-        len(operator_password) >= _MIN_OPERATOR_PASSWORD_LENGTH
+        len(media_control_password) >= _MIN_MEDIA_PASSWORD_LENGTH
+        and len(media_reader_password) >= _MIN_MEDIA_PASSWORD_LENGTH
+        and len(operator_password) >= _MIN_OPERATOR_PASSWORD_LENGTH
         and len(postgres_password) >= _MIN_POSTGRES_PASSWORD_LENGTH
+        and "replace-with" not in media_control_password
+        and "replace-with" not in media_reader_password
         and "replace-with" not in operator_password
         and "replace-with" not in postgres_password
     )

@@ -12,6 +12,8 @@ _LINE_BREAK = chr(10)
 _VALID_ENVIRONMENT = _LINE_BREAK.join(
     (
         "GW_CAMERA_CIPHER_KEY=MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+        "GW_MEDIA_CONTROL_PASSWORD=control-password-material",
+        "GW_MEDIA_READER_PASSWORD=reader-password-material",
         "GW_OPERATOR_PASSWORD=correct-horse-battery-staple",
         "GW_POSTGRES_PASSWORD=database-password-material",
         "",
@@ -140,16 +142,38 @@ def test_prepare_creates_private_first_run_credentials(fake_runtime: Path) -> No
         for line in environment_path.read_text(encoding="utf-8").splitlines()
     )
     assert len(values["GW_CAMERA_CIPHER_KEY"]) == 44
+    assert len(values["GW_MEDIA_CONTROL_PASSWORD"]) >= 20
+    assert len(values["GW_MEDIA_READER_PASSWORD"]) >= 20
     assert len(values["GW_OPERATOR_PASSWORD"]) >= 20
     assert len(values["GW_POSTGRES_PASSWORD"]) >= 20
-    assert values["GW_OPERATOR_PASSWORD"] != values["GW_POSTGRES_PASSWORD"]
+    generated_secrets = {
+        values["GW_MEDIA_CONTROL_PASSWORD"],
+        values["GW_MEDIA_READER_PASSWORD"],
+        values["GW_OPERATOR_PASSWORD"],
+        values["GW_POSTGRES_PASSWORD"],
+    }
+    assert len(generated_secrets) == 4
     assert all("replace-with" not in value for value in values.values())
+
+
+def test_compose_does_not_ship_media_gateway_credentials() -> None:
+    repository_root = Path(__file__).resolve().parents[2]
+    compose = (repository_root / "compose.yaml").read_text(encoding="utf-8")
+    media_config = (repository_root / "deploy/mediamtx.compose.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "gw-control-internal-2026" not in compose
+    assert "gw-reader-internal-2026" not in compose
+    assert "authInternalUsers:" not in media_config
+    assert "MTX_AUTHINTERNALUSERS_0_PASS" in compose
+    assert "MTX_AUTHINTERNALUSERS_1_PASS" in compose
 
 
 def test_prepare_preserves_existing_credentials(fake_runtime: Path) -> None:
     # Given: an operator-managed credential file already exists
     environment_path = fake_runtime.parent / ".env"
-    existing = "GW_OPERATOR_PASSWORD=operator-owned-secret\n"
+    existing = _VALID_ENVIRONMENT
     _ = environment_path.write_text(existing, encoding="utf-8")
     _ = environment_path.chmod(0o600)
 
@@ -159,3 +183,28 @@ def test_prepare_preserves_existing_credentials(fake_runtime: Path) -> None:
     # Then: the existing credential material is not replaced
     assert result.exit_code == 0
     assert environment_path.read_text(encoding="utf-8") == existing
+
+
+def test_prepare_adds_only_missing_media_credentials(fake_runtime: Path) -> None:
+    environment_path = fake_runtime.parent / ".env"
+    existing = _LINE_BREAK.join(
+        (
+            "GW_CAMERA_CIPHER_KEY=MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+            "GW_OPERATOR_PASSWORD=operator-owned-secret",
+            "GW_POSTGRES_PASSWORD=database-password-material",
+            "",
+        )
+    )
+    _ = environment_path.write_text(existing, encoding="utf-8")
+    _ = environment_path.chmod(0o600)
+
+    result = _RUNNER.invoke(app, ["prepare"])
+
+    assert result.exit_code == 0
+    contents = environment_path.read_text(encoding="utf-8")
+    assert contents.startswith(existing)
+    values = dict(line.split("=", maxsplit=1) for line in contents.splitlines())
+    existing_values = dict(line.split("=", maxsplit=1) for line in existing.splitlines())
+    assert values["GW_OPERATOR_PASSWORD"] == existing_values["GW_OPERATOR_PASSWORD"]
+    assert len(values["GW_MEDIA_CONTROL_PASSWORD"]) >= 20
+    assert len(values["GW_MEDIA_READER_PASSWORD"]) >= 20
