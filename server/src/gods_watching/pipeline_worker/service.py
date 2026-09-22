@@ -12,6 +12,7 @@ from gods_watching.contracts.identifiers import CameraId
 from gods_watching.contracts.pipeline import GenerationBinding
 from gods_watching.ingest import IngestCoordinator, IngestWorker, IngestWorkerConfiguration
 from gods_watching.ingest.worker import DetectorPort, PipelineHandoffConsumer
+from gods_watching.live_detections import LiveDetectionSink
 from gods_watching.media.models import SourceGenerationId
 from gods_watching.storage import Database
 
@@ -41,6 +42,7 @@ class PipelineWorker:
         worker_factory: WorkerFactory = IngestWorker,
         poll_seconds: float = _DEFAULT_POLL_SECONDS,
         detector_deadline_seconds: float = 2.0,
+        live_detection_sink: LiveDetectionSink | None = None,
     ) -> None:
         """Bind the database, ingest coordinator, and shared publication consumer."""
         self._database: Database = database
@@ -51,6 +53,7 @@ class PipelineWorker:
         self._worker_factory: WorkerFactory = worker_factory
         self._poll_seconds: float = poll_seconds
         self._detector_deadline_seconds: float = detector_deadline_seconds
+        self._live_detection_sink: LiveDetectionSink | None = live_detection_sink
         self._startup_sessions_renewed: bool = False
 
     async def active_binding(self, camera_id: CameraId) -> GenerationBinding | None:
@@ -144,6 +147,7 @@ class PipelineWorker:
                 threshold=camera.threshold,
                 detector_deadline_seconds=self._detector_deadline_seconds,
                 generation_reconnect=self._reconnect,
+                live_detection_sink=self._live_detection_sink,
             ),
             self._detector,
             self._consumer,

@@ -14,6 +14,10 @@ from anyio.lowlevel import checkpoint
 from gods_watching.contracts.identifiers import CameraId
 from gods_watching.contracts.pipeline import CropCandidate, GenerationBinding, PipelineHandoff
 from gods_watching.inference.detector import Detection, DetectorRequest, DetectorResult
+from gods_watching.live_detections import (
+    LiveDetectionSink,
+    snapshot_from_result,
+)
 from gods_watching.media.models import SourceGenerationId
 from gods_watching.tracking import (
     ByteTrackScope,
@@ -90,6 +94,7 @@ class IngestWorkerConfiguration:
     utc_clock: UtcClock | None = None
     generation_reconnect: GenerationReconnect | None = None
     detection_enabled: bool = True
+    live_detection_sink: LiveDetectionSink | None = None
 
 
 class IngestWorker:
@@ -123,6 +128,7 @@ class IngestWorker:
         self._monotonic_clock: FrameClock = config.monotonic_clock
         self._utc_clock: UtcClock = config.utc_clock or (lambda: datetime.now(UTC))
         self._generation_reconnect: GenerationReconnect | None = config.generation_reconnect
+        self._live_detection_sink: LiveDetectionSink | None = config.live_detection_sink
         self._slot: LatestFrameSlot = LatestFrameSlot()
         self._detector_lock: anyio.Lock = anyio.Lock()
         self._stats: IngestStats = IngestStats()
@@ -209,6 +215,7 @@ class IngestWorker:
         if self._closed or self._generation != generation or self._tracking is not tracking:
             self._stats.record_error("detector result crossed the active generation")
             return ()
+        await self._publish_live_detection(frame, result, generation=generation)
         result = self._crop_eligible_result(frame, result)
         detector_result_monotonic = max(self._monotonic_clock(), frame.ingress_monotonic)
         detection_frame = DetectionFrame(
@@ -331,6 +338,32 @@ class IngestWorker:
                 return None
             self._stats.record_detector_result(self._monotonic_clock())
             return cast("DetectorResult", result)
+
+    async def _publish_live_detection(
+        self,
+        frame: DecodedFrame,
+        result: DetectorResult,
+        *,
+        generation: GenerationBinding,
+    ) -> None:
+        sink = self._live_detection_sink
+        if sink is None:
+            return
+        try:
+            snapshot = snapshot_from_result(
+                camera_id=generation.camera_id,
+                camera_session_id=generation.camera_session_id,
+                db_generation_id=generation.db_generation_id,
+                source_generation_id=generation.source_generation_id,
+                frame_at=frame.ingress_utc,
+                width=frame.width,
+                height=frame.height,
+                result=result,
+                threshold=self._threshold,
+            )
+            await sink(snapshot)
+        except Exception:  # noqa: BLE001 - overlay publication cannot stop ingest
+            self._stats.record_error("live detection publication failed")
 
     async def run_decoder(self, *, status_sink: DecoderStatusSink | None = None) -> None:
         """Drain the RTSP decoder until cancellation or explicit close."""

@@ -198,6 +198,7 @@ class StorageRepository:
         relation_names = (
             "cameras",
             "camera_sessions",
+            "camera_detection_latest",
             "appearances",
             "crop_gc",
             "sessions",

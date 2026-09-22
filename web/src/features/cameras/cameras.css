@@ -144,8 +144,11 @@
   gap: var(--gw-space-4);
 }
 
-.camera-editor__fields .gw-field:nth-child(2) {
+.camera-editor__source-fields {
   grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr));
+  gap: var(--gw-space-4);
 }
 
 .camera-editor__toggle {
@@ -220,8 +223,9 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .camera-editor__fields .gw-field:nth-child(2) {
+  .camera-editor__source-fields {
     grid-column: auto;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .camera-card__header {

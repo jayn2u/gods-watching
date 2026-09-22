@@ -2,6 +2,8 @@ import { useRef, useState } from "react"
 import type { CameraResponse, WallSlotIds } from "../../app/client"
 import { Button } from "../../components/Button"
 import { Status, type StatusTone } from "../../components/Status"
+import { LiveDetectionOverlay } from "./LiveDetectionOverlay"
+import { useLiveDetections } from "./liveDetections"
 import { type LiveStreamStatus, useLiveStream } from "./useLiveStream"
 
 type WallSlotProps = Readonly<{
@@ -40,6 +42,11 @@ export function WallSlot({
   const slotRef = useRef<HTMLElement>(null)
   const [fullscreenRequested, setFullscreenRequested] = useState(false)
   const { videoRef, snapshot } = useLiveStream(cameraId)
+  const liveDetections = useLiveDetections(
+    cameraId,
+    camera?.detection_enabled === true,
+    snapshot.status,
+  )
   const slotLabel = `Slot ${index + 1}`
 
   async function requestFullscreen(): Promise<void> {
@@ -89,6 +96,16 @@ export function WallSlot({
             ref={videoRef}
           />
         )}
+        {snapshot.status === "live" &&
+        liveDetections.cameraId === cameraId &&
+        liveDetections.width !== null &&
+        liveDetections.height !== null ? (
+          <LiveDetectionOverlay
+            boxes={liveDetections.boxes}
+            height={liveDetections.height}
+            width={liveDetections.width}
+          />
+        ) : null}
         <div className="wall-slot__overlay">
           <span>{cameraId === null ? "NO SIGNAL" : STATUS_LABELS[snapshot.status]}</span>
           <small>

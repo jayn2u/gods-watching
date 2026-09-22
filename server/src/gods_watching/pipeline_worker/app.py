@@ -19,6 +19,7 @@ from gods_watching.contracts.pipeline import GenerationBinding
 from gods_watching.inference.clip import ClipAdapter, TritonClipTransport
 from gods_watching.inference.detector import DetectorClient, TritonGrpcDetectorTransport
 from gods_watching.ingest import IngestCoordinator
+from gods_watching.live_detections import LiveDetectionPublisher
 from gods_watching.retention import RetentionService
 from gods_watching.status import StatusReporter, WorkerStatusSnapshot
 from gods_watching.storage import CredentialCipher, CropObjectStore, Database, StorageRepository
@@ -67,6 +68,7 @@ async def run_pipeline_worker(
             )
             consumer = AppearanceHandoffConsumer(publisher)
             _ = await consumer.start()
+            live_detection_publisher = LiveDetectionPublisher(database)
             pipeline = PipelineWorker(
                 database=database,
                 cameras=CameraService(CameraRepository(storage)),
@@ -74,6 +76,7 @@ async def run_pipeline_worker(
                 consumer=consumer,
                 detector=DetectorClient(transport=detector_transport),
                 poll_seconds=settings.worker_poll_seconds,
+                live_detection_sink=live_detection_publisher.publish,
             )
             retention = RetentionService(
                 database=database,
@@ -84,6 +87,7 @@ async def run_pipeline_worker(
             )
             async with anyio.create_task_group() as task_group:
                 task_group.start_soon(_run_pipeline, pipeline, stop_event)
+                task_group.start_soon(live_detection_publisher.run, stop_event)
                 task_group.start_soon(
                     _drain_publications,
                     consumer,

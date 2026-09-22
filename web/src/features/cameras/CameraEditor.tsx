@@ -16,16 +16,19 @@ import type {
   CameraFormDraft,
 } from "./cameraTypes"
 import {
+  buildAuthenticatedSourceUrl,
+  resolveSourceUrl,
   testMetadataLabel,
   validateCameraName,
-  validateOptionalSourceUrl,
-  validateSourceUrl,
+  validateRtspCredentials,
   validateThreshold,
 } from "./cameraValidation"
 
 const EMPTY_FIELD_ERRORS: CameraFieldErrors = {
   name: undefined,
   sourceUrl: undefined,
+  sourceUsername: undefined,
+  sourcePassword: undefined,
   threshold: undefined,
 }
 
@@ -33,10 +36,19 @@ type PendingAction = "test" | "save" | null
 
 function initialDraft(camera: CameraResponse | null): CameraFormDraft {
   return camera === null
-    ? { name: "", sourceUrl: "", threshold: "0.50", detectionEnabled: true }
+    ? {
+        name: "",
+        sourceUrl: "",
+        sourceUsername: "",
+        sourcePassword: "",
+        threshold: "0.50",
+        detectionEnabled: true,
+      }
     : {
         name: camera.name,
         sourceUrl: "",
+        sourceUsername: "",
+        sourcePassword: "",
         threshold: String(camera.detection_threshold),
         detectionEnabled: camera.detection_enabled,
       }
@@ -44,6 +56,9 @@ function initialDraft(camera: CameraResponse | null): CameraFormDraft {
 
 function apiErrorMessage(error: unknown, action: "save" | "test"): string {
   if (error instanceof HttpError) {
+    if (error.code === "authentication_failed") {
+      return "RTSP authentication failed. Enter the stream's RTSP username and password, then test again."
+    }
     if (error.status === 409 && action === "save") {
       return "This camera changed elsewhere. The latest row was requested; review your draft before trying again."
     }
@@ -84,12 +99,26 @@ export function CameraEditor({
     }
   }, [])
 
-  function updateDraft(field: "name" | "sourceUrl" | "threshold", value: string): void {
+  function invalidateConnectionTest(): void {
+    setTestResult(null)
+    if (pendingAction !== "test") {
+      return
+    }
+    requestGeneration.current += 1
+    activeController.current?.abort()
+    activeController.current = null
+    setPendingAction(null)
+  }
+
+  function updateDraft(
+    field: "name" | "sourceUrl" | "sourceUsername" | "sourcePassword" | "threshold",
+    value: string,
+  ): void {
     setDraft((current) => ({ ...current, [field]: value }))
     setFieldErrors((current) => ({ ...current, [field]: undefined }))
     setFormError(undefined)
-    if (field === "sourceUrl") {
-      setTestResult(null)
+    if (field === "sourceUrl" || field === "sourceUsername" || field === "sourcePassword") {
+      invalidateConnectionTest()
     }
   }
 
@@ -120,7 +149,21 @@ export function CameraEditor({
     if (pendingAction !== null) {
       return
     }
-    const source = validateSourceUrl(draft.sourceUrl)
+    const credentials = validateRtspCredentials(draft.sourceUsername, draft.sourcePassword)
+    if (credentials.kind === "invalid") {
+      setFieldErrors((current) => ({
+        ...current,
+        sourceUsername: credentials.message,
+        sourcePassword: undefined,
+      }))
+      setTestResult(null)
+      return
+    }
+    const source = buildAuthenticatedSourceUrl(
+      draft.sourceUrl,
+      credentials.value.username,
+      credentials.value.password,
+    )
     if (source.kind === "invalid") {
       setFieldErrors((current) => ({ ...current, sourceUrl: source.message }))
       setTestResult(null)
@@ -165,26 +208,28 @@ export function CameraEditor({
     | Readonly<{ kind: "invalid"; errors: CameraFieldErrors }> {
     const name = validateCameraName(draft.name)
     const threshold = validateThreshold(draft.threshold)
+    const credentials = validateRtspCredentials(draft.sourceUsername, draft.sourcePassword)
     const source =
-      mode === "create"
-        ? validateSourceUrl(draft.sourceUrl)
-        : validateOptionalSourceUrl(draft.sourceUrl)
+      credentials.kind === "invalid" && draft.sourceUrl.trim() !== ""
+        ? { kind: "valid" as const, value: null }
+        : resolveSourceUrl(draft.sourceUrl, draft.sourceUsername, draft.sourcePassword, mode)
     const errors: CameraFieldErrors = {
       name: name.kind === "invalid" ? name.message : undefined,
       sourceUrl: source.kind === "invalid" ? source.message : undefined,
+      sourceUsername: credentials.kind === "invalid" ? credentials.message : undefined,
+      sourcePassword: undefined,
       threshold: threshold.kind === "invalid" ? threshold.message : undefined,
     }
-    if (name.kind === "invalid" || source.kind === "invalid" || threshold.kind === "invalid") {
+    if (
+      name.kind === "invalid" ||
+      credentials.kind === "invalid" ||
+      source.kind === "invalid" ||
+      threshold.kind === "invalid"
+    ) {
       return { kind: "invalid", errors }
     }
     const sourceUrl =
-      source.kind === "valid"
-        ? typeof source.value === "string"
-          ? source.value
-          : source.value.kind === "replacement"
-            ? source.value.value
-            : null
-        : null
+      source.kind === "valid" && typeof source.value === "string" ? source.value : null
     return {
       kind: "valid",
       name: name.value,
@@ -280,35 +325,61 @@ export function CameraEditor({
         <div className="camera-editor__fields">
           <Input
             autoComplete="off"
+            disabled={pendingAction === "save"}
             error={fieldErrors.name}
             label="Camera name"
             maxLength={80}
             onChange={(event) => updateDraft("name", event.target.value)}
             value={draft.name}
           />
-          <Input
-            autoComplete="off"
-            error={fieldErrors.sourceUrl}
-            hint={
-              mode === "edit"
-                ? "Leave empty to keep the current source. Enter a replacement explicitly when needed."
-                : "Credentials stay server-side and are never shown in camera responses."
-            }
-            label={mode === "edit" ? "Replacement RTSP source (optional)" : "RTSP source"}
-            onChange={(event) => updateDraft("sourceUrl", event.target.value)}
-            placeholder="rtsp://host:8554/path"
-            type="text"
-            value={draft.sourceUrl}
-          />
+          <div className="camera-editor__source-fields">
+            <Input
+              autoComplete="off"
+              disabled={pendingAction === "save"}
+              error={fieldErrors.sourceUrl}
+              hint={
+                mode === "edit"
+                  ? "Leave empty to keep the current source. Enter a replacement when changing the RTSP server credentials."
+                  : "Optional RTSP server credentials are separate from app sign-in and stay server-side."
+              }
+              label={mode === "edit" ? "Replacement RTSP source (optional)" : "RTSP source"}
+              onChange={(event) => updateDraft("sourceUrl", event.target.value)}
+              placeholder="rtsp://host:8554/path"
+              type="text"
+              value={draft.sourceUrl}
+            />
+            <Input
+              autoComplete="off"
+              disabled={pendingAction === "save"}
+              error={fieldErrors.sourceUsername}
+              hint="Optional RTSP server credential, separate from app sign-in."
+              label="RTSP username (optional)"
+              onChange={(event) => updateDraft("sourceUsername", event.target.value)}
+              type="text"
+              value={draft.sourceUsername}
+            />
+            <Input
+              autoComplete="new-password"
+              disabled={pendingAction === "save"}
+              error={fieldErrors.sourcePassword}
+              hint="Optional RTSP server credential, separate from app sign-in."
+              label="RTSP password (optional)"
+              onChange={(event) => updateDraft("sourcePassword", event.target.value)}
+              type="password"
+              value={draft.sourcePassword}
+            />
+          </div>
           <label className="camera-editor__toggle">
             <input
               checked={draft.detectionEnabled}
+              disabled={pendingAction === "save"}
               onChange={(event) => updateDetectionEnabled(event.target.checked)}
               type="checkbox"
             />
             <span>Detection enabled</span>
           </label>
           <Input
+            disabled={pendingAction === "save"}
             error={fieldErrors.threshold}
             inputMode="decimal"
             label="Detection threshold"
@@ -332,8 +403,14 @@ export function CameraEditor({
           </p>
         )}
         <div className="camera-editor__actions">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button loading={pendingAction === "test"} onClick={() => void testConnection()}>
+          <Button disabled={pendingAction === "save"} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={pendingAction === "save"}
+            loading={pendingAction === "test"}
+            onClick={() => void testConnection()}
+          >
             Test connection
           </Button>
           <Button loading={pendingAction === "save"} type="submit" variant="primary">

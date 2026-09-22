@@ -5,9 +5,11 @@ import {
   type CameraTestRequest,
   type CameraTestResponse,
   type CropResponse,
+  type LiveDetectionsResponse,
   parseAppearanceResponse,
   parseCameraResponse,
   parseCameraTestResponse,
+  parseLiveDetectionsResponse,
   parseSearchResponse,
   parseSettingsResponse,
   type SearchRequest,
@@ -24,6 +26,8 @@ export type {
   CameraTestRequest,
   CameraTestResponse,
   CropResponse,
+  LiveDetectionBox,
+  LiveDetectionsResponse,
   SearchFilters,
   SearchRequest,
   SearchResponse,
@@ -297,6 +301,14 @@ export class ApiClient {
 
   getAppearanceCrop(appearanceId: string, signal: AbortSignal): Promise<CropResponse> {
     return requestBlob(`/api/appearances/${pathSegment(appearanceId)}/crop`, signal)
+  }
+
+  getLiveDetections(cameraId: string, signal: AbortSignal): Promise<LiveDetectionsResponse> {
+    return requestJson(
+      `/api/live/${pathSegment(cameraId)}/detections`,
+      { method: "GET", cache: "no-store", signal },
+      parseLiveDetectionsResponse,
+    )
   }
 
   createCamera(request: CameraCreateRequest, signal: AbortSignal): Promise<CameraResponse> {
