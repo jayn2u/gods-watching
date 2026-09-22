@@ -33,7 +33,7 @@ Task 1–14, 16, 18, 19의 구현과 해당 task-level acceptance가 현재 작�
 | detector | Ultralytics YOLO11s `yolo11s.pt`, class 0만, `imgsz=640`, FP32, IoU/NMS 0.7, frame당 최대 300개 | 구현됨 |
 | retrieval | `openai/clip-vit-base-patch16` revision `57c216476eefef5ab752ec549e440a49ae4ae5f3`, 동일 processor snapshot, 512-D 단위길이 FP32, cosine | 구현됨; 실제 Recall@5 gate 미완료 |
 | tracking | `supervision==0.26.1` ByteTrack, camera-local, ReID 없음 | 구현됨 |
-| LAN 경계 | Caddy가 build된 web asset과 `/api`를 제공, 선택적 internal-CA TLS와 `GW_PUBLIC_HOST`; HTTP 8080, TLS overlay HTTPS 8443, WebRTC UDP 8189 | 구현됨 |
+| LAN 경계 | 호스트 네트워크의 Caddy가 build된 web asset과 `/api`를 제공, 선택적 internal-CA TLS와 `GW_PUBLIC_HOST`; `GW_BIND_HOST`에 HTTP 8080, TLS overlay HTTPS 8443, WebRTC UDP 8189 바인딩 | 구현됨 |
 
 루트 `pyproject.toml`, `uv.lock`, `inference/pyproject.toml`, inference lock, `web/` pnpm lock은 정확한 dependency를 고정하는 목표 산출물이다. 모델·컨테이너·공지와 해시는 후속 준비 단계에서 기록한다. hot path의 floating `latest`, 모델명만으로 된 identity, 런타임 다운로드는 허용되지 않는다. 준비되지 않은 GPU 기준선은 CPU/fixture fallback으로 성공 처리하지 않고 실행 가능한 증거와 함께 실패해야 한다.
 
@@ -127,9 +127,9 @@ degenerate/out-of-bounds bbox를 거절하고 최소 crop은 32×64 px이다. so
 
 MediaMTX source 변경은 worker supervision에 generation ID를 전달한다. worker는 새 generation frame을 처리하기 전에 old decode task를 취소하고 old track을 끝낸다. fixture publisher는 FFmpeg process 하나가 path를 한 번 publish하고 path not-ready를 기다린 뒤 다음 loop를 reopen한다. seamless `-stream_loop -1`로 loop boundary를 숨기지 않는다.
 
-camera configuration/test는 인증된 trusted operator의 capability다. operator가 선택한 routable RTSP IP literal/hostname(Compose fixture hostname 포함)을 받되, `rtsp` scheme, nonempty host, port 1–65535, URL length 최대 2048을 요구한다. 한 번 typed field로 parse하고 subprocess argument는 shell 없이 넘긴다. FFmpeg protocol whitelist는 RTSP/TCP media만 허용하고 explicit timeout/resource limit을 둔다. `file`, `http`, `https`, `data` input은 network call 전에 거절한다. 이는 arbitrary remote destination의 network sandbox 또는 CIDR-management 기능을 약속하지 않는다. credential-bearing URL은 server에만 두고 response/log/DOM에서 redaction한다.
+camera configuration/test는 인증된 trusted operator의 capability다. operator가 선택한 routable RTSP IP literal/hostname(호스트 네트워크 fixture의 loopback 주소 포함)을 받되, `rtsp` scheme, nonempty host, port 1–65535, URL length 최대 2048을 요구한다. 한 번 typed field로 parse하고 subprocess argument는 shell 없이 넘긴다. FFmpeg protocol whitelist는 RTSP/TCP media만 허용하고 explicit timeout/resource limit을 둔다. `file`, `http`, `https`, `data` input은 network call 전에 거절한다. 이는 arbitrary remote destination의 network sandbox 또는 CIDR-management 기능을 약속하지 않는다. credential-bearing URL은 server에만 두고 response/log/DOM에서 redaction한다.
 
-RTSP/control/WHEP HTTP, PostgreSQL, Triton은 Compose 내부 private port다. Caddy와 application이 public signaling을 담당한다. browser의 `/api/live/{camera_id}/whep` POST/PATCH/DELETE는 authenticated request를 MediaMTX resource Location으로 validate/rewrite하고 login session별 resource를 추적한다. configured LAN host로 ICE를 구성하며 external STUN/TURN은 없다. logout, expiry, password replacement, camera deletion은 연결된 WebRTC resource를 종료한다.
+모든 운영 서비스는 Docker bridge를 만들지 않고 호스트 네트워크를 공유한다. RTSP/control/WHEP HTTP, PostgreSQL, Triton과 API는 loopback private port에 바인딩하고 Caddy와 MediaMTX의 WebRTC UDP만 `GW_BIND_HOST`에 바인딩한다. Caddy가 public signaling을 담당하며 API는 loopback peer `127.0.0.1`을 trusted gateway로 사용한다. browser의 `/api/live/{camera_id}/whep` POST/PATCH/DELETE는 authenticated request를 MediaMTX resource Location으로 validate/rewrite하고 login session별 resource를 추적한다. configured LAN host로 ICE를 구성하며 external STUN/TURN은 없다. logout, expiry, password replacement, camera deletion은 연결된 WebRTC resource를 종료한다.
 
 ## 인증과 session lifecycle
 

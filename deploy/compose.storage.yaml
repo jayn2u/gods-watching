@@ -1,15 +1,22 @@
 services:
   postgres:
     image: pgvector/pgvector:0.8.1-pg17
+    command:
+      - postgres
+      - -c
+      - listen_addresses=127.0.0.1
+      - -c
+      - port=${GW_POSTGRES_PORT:-5432}
     environment:
       POSTGRES_DB: gods_watching
       POSTGRES_USER: gods_watching
       POSTGRES_PASSWORD: ${GW_POSTGRES_PASSWORD:?set GW_POSTGRES_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U gods_watching -d gods_watching"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${GW_POSTGRES_PORT:-5432} -U gods_watching -d gods_watching"]
       interval: 2s
       timeout: 2s
       retries: 30
     restart: unless-stopped
+    network_mode: host
     volumes:
       - ../runtime/postgres:/var/lib/postgresql/data

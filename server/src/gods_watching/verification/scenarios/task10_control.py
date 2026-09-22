@@ -18,6 +18,7 @@ class DriverRunConfig:
 
     mode: str
     rtsp_host: str
+    rtsp_port: int
     output_path: Path
     slow_signal: Path
     project: str
@@ -69,6 +70,7 @@ def _driver_command(config: DriverRunConfig) -> tuple[str, ...]:
         "PYTHONPATH=server/src",
         f"GW_TASK10_MODE={config.mode}",
         f"GW_TASK10_RTSP_HOST={config.rtsp_host}",
+        f"GW_TASK10_RTSP_PORT={config.rtsp_port}",
         f"GW_TASK10_TRITON_URL=127.0.0.1:{config.triton_port}",
         f"GW_TASK10_OUTPUT={config.output_path}",
         f"GW_TASK10_SLOW_SIGNAL={config.slow_signal}",

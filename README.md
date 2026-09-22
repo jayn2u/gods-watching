@@ -86,7 +86,7 @@ mkdir -p runtime/evidence
 docker compose down
 ```
 
-이 명령은 컨테이너와 네트워크만 제거합니다. PostgreSQL 데이터와 인물 crop은 named volume에 유지되어 다음 실행에서 복구됩니다. 저장 데이터까지 삭제하려는 경우에만 명시적으로 `docker compose down --volumes`를 사용하십시오.
+이 명령은 컨테이너만 제거합니다. 호스트 네트워크 모드에서는 Compose bridge 네트워크를 만들지 않습니다. PostgreSQL 데이터와 인물 crop은 named volume에 유지되어 다음 실행에서 복구됩니다. 저장 데이터까지 삭제하려는 경우에만 명시적으로 `docker compose down --volumes`를 사용하십시오.
 
 ## 문제 해결
 
@@ -107,4 +107,4 @@ docker compose down
 - `postgres`: pgvector가 설치된 PostgreSQL 17
 - `migrate`: 시작할 때 Alembic migration을 적용하고 종료하는 one-shot 서비스
 
-기본 공개 포트는 HTTP `8080/tcp`(`GW_PUBLIC_PORT`)와 WebRTC media `8189/udp`입니다. TLS overlay에서는 HTTPS `8443/tcp`(`GW_PUBLIC_TLS_PORT`)도 공개하며 HTTP 포트는 redirect 전용입니다. PostgreSQL, Triton, MediaMTX 제어·WHEP 포트는 Compose 네트워크 내부에만 존재합니다.
+모든 운영 Compose 서비스는 Docker bridge 네트워크 대신 호스트 네트워크를 공유합니다. 기본 공개 포트는 `GW_BIND_HOST`에 바인딩되는 HTTP `8080/tcp`(`GW_PUBLIC_PORT`)와 WebRTC media `8189/udp`(`GW_MEDIA_UDP_PORT`)입니다. TLS overlay에서는 HTTPS `8443/tcp`(`GW_PUBLIC_TLS_PORT`)도 공개하며 HTTP 포트는 redirect 전용입니다. API `8000`, PostgreSQL `5432`, Triton `8001`/`8002`/`8003`, MediaMTX RTSP `8554`, WHEP `8889`, 제어 API `9997`은 loopback에만 바인딩됩니다. 이 포트들은 `.env`에서 바꿀 수 있고 `doctor`가 중복·범위를 검사합니다. fixture Compose는 운영 포트와 충돌하지 않도록 RTSP `28554`(`GW_FIXTURE_RTSP_PORT`)를 사용합니다.

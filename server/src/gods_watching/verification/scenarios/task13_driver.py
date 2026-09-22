@@ -289,6 +289,7 @@ async def _drive(mode: Literal["retention", "retention-crash"]) -> None:
         database_url=_env("GW_TASK13_DATABASE_URL"),
         triton_url=_env("GW_TASK13_TRITON_URL"),
         rtsp_host=_env("GW_TASK13_RTSP_HOST"),
+        rtsp_port=int(_env("GW_TASK13_RTSP_PORT")),
         crop_root=Path(_env("GW_TASK13_CROP_ROOT")),
         cipher_key=Fernet.generate_key().decode(),
         worker_log=Path(_env("GW_TASK13_WORKER_LOG")),

@@ -185,10 +185,14 @@ async def test_fixture_readiness_reserves_probe_cleanup_before_deadline(
         return clock
 
     async def fake_probe(
-        context: ScenarioContextProtocol, *, camera_index: int, rtsp_host: str
+        context: ScenarioContextProtocol,
+        *,
+        camera_index: int,
+        rtsp_host: str,
+        rtsp_port: int,
     ) -> CommandResult | None:
         nonlocal clock
-        del context, rtsp_host
+        del context, rtsp_host, rtsp_port
         calls.append(camera_index)
         clock += 2.0 + 2.0
         return None

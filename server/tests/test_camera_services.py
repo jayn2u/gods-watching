@@ -61,6 +61,18 @@ def test_probe_command_is_shell_free_and_rtsp_tcp_only() -> None:
     assert "secret" not in repr(source)
 
 
+def test_probe_command_uses_rtsp_timeout_option_supported_by_runtime() -> None:
+    # Given: a source that must be opened through the application's FFmpeg runtime
+    source = parse_rtsp_source("rtsp://fixture:8554/lobby")
+
+    # When: the one-frame probe command is constructed
+    command = RtspSourceProbe.build_command(source)
+
+    # Then: use FFmpeg's RTSP socket-I/O timeout option, in microseconds
+    assert command[command.index("-timeout") + 1] == "10000000"
+    assert "-stimeout" not in command
+
+
 def test_probe_result_is_sanitized() -> None:
     # Given: metadata parsed from an actual H.264 1080p frame
     result = ProbeResult(

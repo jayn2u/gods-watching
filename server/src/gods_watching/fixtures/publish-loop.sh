@@ -4,8 +4,9 @@ set -eu
 : "${FIXTURE_INPUT:?FIXTURE_INPUT is required}"
 : "${FIXTURE_PATH:?FIXTURE_PATH is required}"
 : "${RTSP_HOST:?RTSP_HOST is required}"
+: "${RTSP_PORT:=8554}"
 
-destination="rtsp://${RTSP_HOST}:8554/${FIXTURE_PATH}"
+destination="rtsp://${RTSP_HOST}:${RTSP_PORT}/${FIXTURE_PATH}"
 
 while true; do
   ffmpeg \

@@ -10,7 +10,7 @@ from tritonclient.utils import InferenceServerException
 
 from gods_watching.verification.models import ScenarioContextProtocol
 
-from .task10_runtime import CommandResult, run_command
+from .task10_runtime import CommandResult, fixture_rtsp_port, run_command
 
 _REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[5]
 _MODEL_ROOT: Final = _REPOSITORY_ROOT / "inference/models"
@@ -181,7 +181,7 @@ async def run_driver(  # noqa: PLR0913
             f"GW_TASK11_MODE={mode}",
             f"GW_TASK11_DATABASE_URL={resources.database_url}",
             f"GW_TASK11_TRITON_URL=127.0.0.1:{context.allocated_port}",
-            f"GW_TASK11_RTSP_URL=rtsp://{rtsp_host}:8554/camera-1",
+            f"GW_TASK11_RTSP_URL=rtsp://{rtsp_host}:{fixture_rtsp_port()}/camera-1",
             f"GW_TASK11_OUTPUT={output}",
             f"GW_TASK11_CROP_ROOT={crop_root}",
             "uv",

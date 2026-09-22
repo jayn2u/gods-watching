@@ -18,6 +18,7 @@ from .task10_runtime import (
     CommandResult,
     compose_logs,
     fixture_ip,
+    fixture_rtsp_port,
     inspect_resources,
     run_command,
     start_fixtures,
@@ -92,7 +93,9 @@ async def _run(  # noqa: C901, PLR0912, PLR0915
             _ = ipaddress.ip_address(rtsp_host)
         except ValueError as error:
             raise Task11ExecutionError(detail="fixture RTSP address was invalid") from error
-        if not await wait_fixture_streams(context, rtsp_host=rtsp_host):
+        if not await wait_fixture_streams(
+            context, rtsp_host=rtsp_host, rtsp_port=fixture_rtsp_port()
+        ):
             raise Task11ExecutionError(detail="fixture RTSP stream was not ready")
 
         postgres_result = await start_postgres(context, container=postgres)

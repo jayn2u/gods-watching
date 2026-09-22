@@ -4,7 +4,7 @@ import os
 import signal
 import sys
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final, final, override
@@ -20,6 +20,8 @@ from gods_watching.contracts.identifiers import CameraId
 from gods_watching.contracts.settings import SettingsPatchRequest
 from gods_watching.settings import SettingsService
 from gods_watching.storage import Appearance, Database
+
+from .task10_runtime import fixture_rtsp_port
 
 _POLL_SECONDS: Final = 0.5
 _STOP_GRACE_SECONDS: Final = 30.0
@@ -50,6 +52,7 @@ class WorkerStackSettings:
     crop_root: Path
     cipher_key: str
     worker_log: Path
+    rtsp_port: int = field(default_factory=fixture_rtsp_port)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,16 +183,22 @@ async def wait_published(
 
 
 async def create_cameras(
-    database: Database, cameras: CameraService, rtsp_host: str, *, label: str
+    database: Database,
+    cameras: CameraService,
+    rtsp_host: str,
+    *,
+    label: str,
+    rtsp_port: int | None = None,
 ) -> tuple[CameraId, ...]:
     """Create two detection-enabled fixture cameras through the camera service."""
+    resolved_rtsp_port = fixture_rtsp_port() if rtsp_port is None else rtsp_port
     created: list[CameraId] = []
     async with database.transaction() as session:
         for index in (1, 2):
             request = CameraCreateRequest.model_validate(
                 {
                     "name": f"{label} camera {index} {uuid4().hex[:8]}",
-                    "source_url": f"rtsp://{rtsp_host}:8554/camera-{index}",
+                    "source_url": f"rtsp://{rtsp_host}:{resolved_rtsp_port}/camera-{index}",
                 }
             )
             mutation = await cameras.create(session, request)

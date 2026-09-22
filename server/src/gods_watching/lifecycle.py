@@ -20,6 +20,16 @@ _ENV_MODE: Final = 0o600
 _MODE_MASK: Final = 0o777
 _MIN_OPERATOR_PASSWORD_LENGTH: Final = 4
 _DEFAULT_OPERATOR_USERNAME: Final = "admin"
+_DEFAULT_API_PORT: Final = 8000
+_DEFAULT_POSTGRES_PORT: Final = 5432
+_DEFAULT_TRITON_HTTP_PORT: Final = 8003
+_DEFAULT_TRITON_GRPC_PORT: Final = 8001
+_DEFAULT_TRITON_METRICS_PORT: Final = 8002
+_DEFAULT_MEDIA_RTSP_PORT: Final = 8554
+_DEFAULT_MEDIA_WHEP_PORT: Final = 8889
+_DEFAULT_MEDIA_CONTROL_PORT: Final = 9997
+_DEFAULT_MEDIA_UDP_PORT: Final = 8189
+_DEFAULT_FIXTURE_RTSP_PORT: Final = 28554
 _DEFAULT_PUBLIC_PORT: Final = 8080
 _DEFAULT_PUBLIC_TLS_PORT: Final = 8443
 _MIN_TCP_PORT: Final = 1
@@ -98,17 +108,27 @@ def _prepare_environment() -> None:
         return
     lines = (
         "GW_BIND_HOST=0.0.0.0",
+        f"GW_API_PORT={_DEFAULT_API_PORT}",
         f"GW_CAMERA_CIPHER_KEY={Fernet.generate_key().decode('ascii')}",
+        f"GW_FIXTURE_RTSP_PORT={_DEFAULT_FIXTURE_RTSP_PORT}",
         f"GW_MEDIA_CONTROL_PASSWORD={secrets.token_urlsafe(24)}",
+        f"GW_MEDIA_CONTROL_PORT={_DEFAULT_MEDIA_CONTROL_PORT}",
         f"GW_MEDIA_READER_PASSWORD={secrets.token_urlsafe(24)}",
+        f"GW_MEDIA_RTSP_PORT={_DEFAULT_MEDIA_RTSP_PORT}",
+        f"GW_MEDIA_UDP_PORT={_DEFAULT_MEDIA_UDP_PORT}",
+        f"GW_MEDIA_WHEP_PORT={_DEFAULT_MEDIA_WHEP_PORT}",
         f"GW_OPERATOR_PASSWORD={secrets.token_urlsafe(24)}",
         f"GW_OPERATOR_USERNAME={_DEFAULT_OPERATOR_USERNAME}",
         f"GW_POSTGRES_PASSWORD={secrets.token_urlsafe(24)}",
+        f"GW_POSTGRES_PORT={_DEFAULT_POSTGRES_PORT}",
         "GW_PUBLIC_HOST=127.0.0.1",
         f"GW_PUBLIC_ORIGIN=http://localhost:{_DEFAULT_PUBLIC_PORT}",
         f"GW_PUBLIC_PORT={_DEFAULT_PUBLIC_PORT}",
         f"GW_PUBLIC_TLS_PORT={_DEFAULT_PUBLIC_TLS_PORT}",
         "GW_SECURE_COOKIE=false",
+        f"GW_TRITON_GRPC_PORT={_DEFAULT_TRITON_GRPC_PORT}",
+        f"GW_TRITON_HTTP_PORT={_DEFAULT_TRITON_HTTP_PORT}",
+        f"GW_TRITON_METRICS_PORT={_DEFAULT_TRITON_METRICS_PORT}",
     )
     try:
         descriptor = os.open(_ENV_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _ENV_MODE)
@@ -156,10 +176,20 @@ def _append_missing_media_credentials() -> None:
 
 
 def _ports_valid(values: Mapping[str, str]) -> bool:
-    """Return whether the optional published-port overrides are usable TCP ports."""
+    """Return whether all host-network listener overrides are valid and unique."""
     defaults = {
+        "GW_API_PORT": _DEFAULT_API_PORT,
+        "GW_FIXTURE_RTSP_PORT": _DEFAULT_FIXTURE_RTSP_PORT,
+        "GW_MEDIA_CONTROL_PORT": _DEFAULT_MEDIA_CONTROL_PORT,
+        "GW_MEDIA_RTSP_PORT": _DEFAULT_MEDIA_RTSP_PORT,
+        "GW_MEDIA_UDP_PORT": _DEFAULT_MEDIA_UDP_PORT,
+        "GW_MEDIA_WHEP_PORT": _DEFAULT_MEDIA_WHEP_PORT,
+        "GW_POSTGRES_PORT": _DEFAULT_POSTGRES_PORT,
         "GW_PUBLIC_PORT": _DEFAULT_PUBLIC_PORT,
         "GW_PUBLIC_TLS_PORT": _DEFAULT_PUBLIC_TLS_PORT,
+        "GW_TRITON_GRPC_PORT": _DEFAULT_TRITON_GRPC_PORT,
+        "GW_TRITON_HTTP_PORT": _DEFAULT_TRITON_HTTP_PORT,
+        "GW_TRITON_METRICS_PORT": _DEFAULT_TRITON_METRICS_PORT,
     }
     ports: list[int] = []
     for key, fallback in defaults.items():

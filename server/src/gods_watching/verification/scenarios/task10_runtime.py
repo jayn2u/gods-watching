@@ -1,5 +1,6 @@
 """Own the disposable fixture and Triton resources for Task 10 scenarios."""
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +19,10 @@ _COMPOSE_FILE: Final = _REPOSITORY_ROOT / "deploy/compose.fixtures.yaml"
 _MODEL_REPOSITORY: Final = _REPOSITORY_ROOT / "inference/models/detector"
 _MODEL_ASSETS: Final = _REPOSITORY_ROOT / "runtime/assets/models"
 _TRITON_IMAGE: Final = "gods-watching-triton:25.02"
+FIXTURE_RTSP_HOST: Final = "127.0.0.1"
+FIXTURE_RTSP_PORT: Final = 28554
 _FIXTURE_STREAM_COUNT: Final = 4
+_MAX_PORT: Final = 65535
 _FIXTURE_READY_TIMEOUT_SECONDS: Final = 20.0
 _FIXTURE_PROBE_TIMEOUT_SECONDS: Final = 2.0
 _FIXTURE_PROCESS_CLEANUP_GRACE_SECONDS: Final = 2.0
@@ -33,6 +37,30 @@ class CommandResult:
     return_code: int
     stdout: str
     stderr: str
+
+
+def fixture_rtsp_port() -> int:
+    """Resolve the fixture port using the shell environment or the repository .env."""
+    raw = os.environ.get("GW_FIXTURE_RTSP_PORT")
+    if raw is None:
+        environment_path = _REPOSITORY_ROOT / ".env"
+        try:
+            lines = environment_path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            lines = []
+        values = {
+            line.split("=", maxsplit=1)[0]: line.split("=", maxsplit=1)[1]
+            for line in lines
+            if line and not line.startswith("#") and "=" in line
+        }
+        raw = values.get("GW_FIXTURE_RTSP_PORT")
+    try:
+        port = int(raw) if raw is not None else FIXTURE_RTSP_PORT
+    except ValueError:
+        raise ValueError from None
+    if not 1 <= port <= _MAX_PORT:
+        raise ValueError
+    return port
 
 
 async def _drain(stream: ByteReceiveStream | None, chunks: list[bytes]) -> None:
@@ -144,21 +172,18 @@ async def remove_triton(context: ScenarioContextProtocol, *, container: str) -> 
 
 
 async def fixture_ip(context: ScenarioContextProtocol, *, project: str) -> CommandResult:
-    """Read the MediaMTX container IP used by the host-side PyAV driver."""
-    return await run_command(
-        context,
-        name="task10-fixtures-ip",
-        command=(
-            "docker",
-            "inspect",
-            "--format",
-            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            f"{project}-fixture-mediamtx-1",
-        ),
+    """Return the host-loopback address used by the host-network fixture stack."""
+    del context, project
+    return CommandResult(
+        return_code=0,
+        stdout=f"{FIXTURE_RTSP_HOST}\n",
+        stderr="",
     )
 
 
-async def wait_fixture_streams(context: ScenarioContextProtocol, *, rtsp_host: str) -> bool:
+async def wait_fixture_streams(
+    context: ScenarioContextProtocol, *, rtsp_host: str, rtsp_port: int = FIXTURE_RTSP_PORT
+) -> bool:
     """Wait until all finite publishers expose decodable H.264 RTSP streams."""
     deadline = anyio.current_time() + _FIXTURE_READY_TIMEOUT_SECONDS
     retry_delay = _FIXTURE_RETRY_DELAY_SECONDS
@@ -169,7 +194,10 @@ async def wait_fixture_streams(context: ScenarioContextProtocol, *, rtsp_host: s
             if deadline - anyio.current_time() <= probe_reservation:
                 return False
             result = await _probe_fixture_stream(
-                context, camera_index=camera_index, rtsp_host=rtsp_host
+                context,
+                camera_index=camera_index,
+                rtsp_host=rtsp_host,
+                rtsp_port=rtsp_port,
             )
             if result is None or not _is_h264_probe(result):
                 sweep_succeeded = False
@@ -187,7 +215,11 @@ async def wait_fixture_streams(context: ScenarioContextProtocol, *, rtsp_host: s
 
 
 async def _probe_fixture_stream(
-    context: ScenarioContextProtocol, *, camera_index: int, rtsp_host: str
+    context: ScenarioContextProtocol,
+    *,
+    camera_index: int,
+    rtsp_host: str,
+    rtsp_port: int = FIXTURE_RTSP_PORT,
 ) -> CommandResult | None:
     try:
         with anyio.fail_after(_FIXTURE_PROBE_TIMEOUT_SECONDS):
@@ -210,7 +242,7 @@ async def _probe_fixture_stream(
                     "stream=codec_name",
                     "-of",
                     "csv=p=0",
-                    f"rtsp://{rtsp_host}:8554/camera-{camera_index}",
+                    f"rtsp://{rtsp_host}:{rtsp_port}/camera-{camera_index}",
                 ),
             )
     except TimeoutError:
@@ -281,10 +313,13 @@ async def _inspect_queries(
 
 
 __all__ = [
+    "FIXTURE_RTSP_HOST",
+    "FIXTURE_RTSP_PORT",
     "CommandResult",
     "compose_command",
     "compose_logs",
     "fixture_ip",
+    "fixture_rtsp_port",
     "inspect_resources",
     "remove_triton",
     "run_command",

@@ -19,6 +19,7 @@ from .task10_runtime import (
     CommandResult,
     compose_logs,
     fixture_ip,
+    fixture_rtsp_port,
     inspect_resources,
     run_command,
     start_fixtures,
@@ -48,6 +49,7 @@ async def _run_driver(  # noqa: PLR0913
     mode: Literal["retention", "retention-crash"],
     database_url: str,
     rtsp_host: str,
+    rtsp_port: int,
     crop_root: Path,
     output: Path,
     worker_log: Path,
@@ -62,6 +64,7 @@ async def _run_driver(  # noqa: PLR0913
             f"GW_TASK13_DATABASE_URL={database_url}",
             f"GW_TASK13_TRITON_URL=127.0.0.1:{context.allocated_port}",
             f"GW_TASK13_RTSP_HOST={rtsp_host}",
+            f"GW_TASK13_RTSP_PORT={rtsp_port}",
             f"GW_TASK13_CROP_ROOT={crop_root}",
             f"GW_TASK13_OUTPUT={output}",
             f"GW_TASK13_WORKER_LOG={worker_log}",
@@ -132,7 +135,10 @@ async def _run(  # noqa: PLR0915
             await fixture_ip(context, project=project),
             detail="fixture RTSP address was unavailable",
         )
-        if not await wait_fixture_streams(context, rtsp_host=rtsp_host):
+        rtsp_port = fixture_rtsp_port()
+        if not await wait_fixture_streams(
+            context, rtsp_host=rtsp_host, rtsp_port=rtsp_port
+        ):
             raise Task13ExecutionError(detail="fixture RTSP streams were not ready")
         if (await start_postgres(context, container=postgres)).return_code != 0:
             raise Task13ExecutionError(detail="disposable PostgreSQL failed to start")
@@ -154,6 +160,7 @@ async def _run(  # noqa: PLR0915
             mode=mode,
             database_url=database_url,
             rtsp_host=rtsp_host,
+            rtsp_port=rtsp_port,
             crop_root=crop_root,
             output=output,
             worker_log=worker_log,

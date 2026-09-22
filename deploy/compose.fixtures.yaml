@@ -1,11 +1,11 @@
 x-fixture-publisher: &fixture-publisher
   image: jrottenberg/ffmpeg@sha256:9692b2603309ff0cad1ebba473f114229834ce3e7df64ebc3a1a322121d7981f
   entrypoint: ["/bin/sh", "/opt/gods-watching/publish-loop.sh"]
+  network_mode: host
   restart: unless-stopped
   depends_on:
     fixture-mediamtx:
       condition: service_started
-  networks: [fixture-media]
   profiles: [fixtures]
   read_only: true
   security_opt: ["no-new-privileges:true"]
@@ -16,8 +16,10 @@ x-fixture-publisher: &fixture-publisher
 services:
   fixture-mediamtx:
     image: bluenviron/mediamtx@sha256:206139c58377b7544d6ef63f8af86bcf46b9e89262aaa6f7513e1347dbab7d36
+    environment:
+      MTX_RTSPADDRESS: 127.0.0.1:${GW_FIXTURE_RTSP_PORT:-28554}
+    network_mode: host
     restart: unless-stopped
-    networks: [fixture-media]
     profiles: [fixtures]
     read_only: true
     security_opt: ["no-new-privileges:true"]
@@ -30,7 +32,8 @@ services:
     environment:
       FIXTURE_INPUT: /fixture/input.mp4
       FIXTURE_PATH: camera-1
-      RTSP_HOST: fixture-mediamtx
+      RTSP_HOST: 127.0.0.1
+      RTSP_PORT: ${GW_FIXTURE_RTSP_PORT:-28554}
     volumes:
       - ../server/src/gods_watching/fixtures/publish-loop.sh:/opt/gods-watching/publish-loop.sh:ro
       - ../runtime/assets/fixtures/business-plaza.mp4:/fixture/input.mp4:ro
@@ -40,7 +43,8 @@ services:
     environment:
       FIXTURE_INPUT: /fixture/input.mp4
       FIXTURE_PATH: camera-2
-      RTSP_HOST: fixture-mediamtx
+      RTSP_HOST: 127.0.0.1
+      RTSP_PORT: ${GW_FIXTURE_RTSP_PORT:-28554}
     volumes:
       - ../server/src/gods_watching/fixtures/publish-loop.sh:/opt/gods-watching/publish-loop.sh:ro
       - ../runtime/assets/fixtures/crosswalk.mp4:/fixture/input.mp4:ro
@@ -50,7 +54,8 @@ services:
     environment:
       FIXTURE_INPUT: /fixture/input.mp4
       FIXTURE_PATH: camera-3
-      RTSP_HOST: fixture-mediamtx
+      RTSP_HOST: 127.0.0.1
+      RTSP_PORT: ${GW_FIXTURE_RTSP_PORT:-28554}
     volumes:
       - ../server/src/gods_watching/fixtures/publish-loop.sh:/opt/gods-watching/publish-loop.sh:ro
       - ../runtime/assets/fixtures/night-market.mp4:/fixture/input.mp4:ro
@@ -60,11 +65,8 @@ services:
     environment:
       FIXTURE_INPUT: /fixture/input.mp4
       FIXTURE_PATH: camera-4
-      RTSP_HOST: fixture-mediamtx
+      RTSP_HOST: 127.0.0.1
+      RTSP_PORT: ${GW_FIXTURE_RTSP_PORT:-28554}
     volumes:
       - ../server/src/gods_watching/fixtures/publish-loop.sh:/opt/gods-watching/publish-loop.sh:ro
       - ../runtime/assets/fixtures/barcelona-boulevard.mp4:/fixture/input.mp4:ro
-
-networks:
-  fixture-media:
-    internal: true

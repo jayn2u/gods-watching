@@ -151,6 +151,7 @@ async def _main() -> None:  # noqa: C901, PLR0915
     if mode not in ("ingest", _OUTAGE_MODE):
         raise Task10ExecutionError(detail=f"unsupported Task 10 mode: {mode}")
     rtsp_host = _env("GW_TASK10_RTSP_HOST")
+    rtsp_port = int(_env("GW_TASK10_RTSP_PORT"))
     triton_url = _env("GW_TASK10_TRITON_URL")
     output = Path(_env("GW_TASK10_OUTPUT"))
     slow_signal = Path(_env("GW_TASK10_SLOW_SIGNAL"))
@@ -260,7 +261,7 @@ async def _main() -> None:  # noqa: C901, PLR0915
             IngestWorker(
                 IngestWorkerConfiguration(
                     generation=binding,
-                    source_url=f"rtsp://{rtsp_host}:8554/camera-{index + 1}",
+                    source_url=f"rtsp://{rtsp_host}:{rtsp_port}/camera-{index + 1}",
                     threshold=0.5,
                     detector_deadline_seconds=2.0,
                     generation_reconnect=lambda previous, index=index: make_reconnect(

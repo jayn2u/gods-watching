@@ -18,6 +18,7 @@ from gods_watching.verification.registry import parse_scenario_name, register_sc
 from .task10_runtime import (
     CommandResult,
     fixture_ip,
+    fixture_rtsp_port,
     inspect_resources,
     run_command,
     start_fixtures,
@@ -83,7 +84,10 @@ async def _run(
             await fixture_ip(context, project=project),
             detail="fixture RTSP address was unavailable",
         )
-        if not await wait_fixture_streams(context, rtsp_host=rtsp_host):
+        rtsp_port = fixture_rtsp_port()
+        if not await wait_fixture_streams(
+            context, rtsp_host=rtsp_host, rtsp_port=rtsp_port
+        ):
             raise Task14ExecutionError(detail="fixture RTSP streams were not ready")
         if (await start_postgres(context, container=postgres)).return_code != 0:
             raise Task14ExecutionError(detail="disposable PostgreSQL failed to start")
@@ -112,6 +116,7 @@ async def _run(
                 f"GW_TASK14_TRITON_URL=127.0.0.1:{context.allocated_port}",
                 f"GW_TASK14_TRITON_CONTAINER={triton}",
                 f"GW_TASK14_RTSP_HOST={rtsp_host}",
+                f"GW_TASK14_RTSP_PORT={rtsp_port}",
                 f"GW_TASK14_CROP_ROOT={crop_root}",
                 f"GW_TASK14_OUTPUT={output}",
                 f"GW_TASK14_WORKER_LOG={worker_log}",

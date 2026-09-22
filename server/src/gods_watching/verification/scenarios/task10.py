@@ -1,6 +1,5 @@
 """Register the installed real RTSP and outage verification scenarios."""
 
-import ipaddress
 import json
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -24,9 +23,10 @@ from .task10_control import DriverRunConfig, run_driver
 from .task10_errors import Task10ExecutionError
 from .task10_models import CleanupEvidence, DriverEvidence, SourceControlEvidence
 from .task10_runtime import (
+    FIXTURE_RTSP_HOST,
     CommandResult,
     compose_logs,
-    fixture_ip,
+    fixture_rtsp_port,
     inspect_resources,
     remove_triton,
     start_fixtures,
@@ -132,17 +132,9 @@ async def _run(  # noqa: PLR0915
         fixture_result = await start_fixtures(context, project)
         if fixture_result.return_code != 0:
             raise Task10ExecutionError(detail="fixture Compose project failed to start")
-        ip_result = await fixture_ip(context, project=project)
-        if ip_result.return_code != 0:
-            raise Task10ExecutionError(detail="fixture MediaMTX inspection failed")
-        rtsp_host = ip_result.stdout.strip()
-        try:
-            _ = ipaddress.ip_address(rtsp_host)
-        except ValueError as error:
-            raise Task10ExecutionError(
-                detail="fixture MediaMTX did not expose an IP address"
-            ) from error
-        if not await wait_fixture_streams(context, rtsp_host=rtsp_host):
+        rtsp_host = FIXTURE_RTSP_HOST
+        rtsp_port = fixture_rtsp_port()
+        if not await wait_fixture_streams(context, rtsp_host=rtsp_host, rtsp_port=rtsp_port):
             raise Task10ExecutionError(detail="fixture publishers did not expose all RTSP streams")
         triton_started = True
         triton_result = await start_triton(context, container=triton)
@@ -152,7 +144,7 @@ async def _run(  # noqa: PLR0915
         provenance_json = (
             f'{{\n  "label": "REAL",\n  "triton_image": "{_TRITON_IMAGE}",\n'
             f'  "triton_start_exit_code": {triton_result.return_code},\n'
-            f'  "fixture_ip_observed": "<fixture-mediamtx>",\n'
+            f'  "fixture_ip_observed": "{rtsp_host}",\n'
             f'  "assets": {provenance.model_dump_json()}\n}}\n'
         )
         _ = paths["provenance"].write_text(
@@ -164,6 +156,7 @@ async def _run(  # noqa: PLR0915
             DriverRunConfig(
                 mode=mode,
                 rtsp_host=rtsp_host,
+                rtsp_port=rtsp_port,
                 output_path=paths["driver"],
                 slow_signal=paths["slow_signal"],
                 project=project,
