@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, final, override
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import anyio
@@ -16,7 +17,12 @@ from gods_watching.appearances import (
     BudgetLease,
     BudgetSnapshot,
 )
-from gods_watching.cameras import CameraRepository, CameraService
+from gods_watching.cameras import (
+    CameraActivationRequest,
+    CameraGenerationMismatchError,
+    CameraRepository,
+    CameraService,
+)
 from gods_watching.contracts.cameras import CameraCreateRequest, CameraPatchRequest
 from gods_watching.contracts.identifiers import CameraId
 from gods_watching.inference.clip import ClipAdapter
@@ -38,6 +44,8 @@ from gods_watching.tracking import DetectorInputReference
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from gods_watching.contracts.pipeline import GenerationBinding, PipelineHandoff
     from gods_watching.ingest.worker import (
@@ -122,6 +130,10 @@ def _fixed_clock_worker(
     return IngestWorker(replace(config, monotonic_clock=lambda: 10.0), detector, consumer)
 
 
+async def _discard_handoff(handoff: PipelineHandoff) -> None:
+    del handoff
+
+
 async def _delete_camera_rows(database: Database, camera_id: UUID) -> None:
     async with database.transaction() as session:
         appearance_ids = tuple(
@@ -180,11 +192,11 @@ async def test_pipeline_worker_follows_camera_edits_and_publishes_on_the_current
         # When: the worker reconciles for the first time
         _ = await pipeline.reconcile_once()
 
-        # Then: it runs the committed session and version
+        # Then: it runs a fresh session and the committed version
         (first,) = [w for w in coordinator.workers if w.camera_id == CameraId(camera_id)]
         activation = created.lifecycle.activation
         assert activation is not None
-        assert first.generation.camera_session_id == activation.session_id
+        assert first.generation.camera_session_id != activation.session_id
         assert first.generation.camera_version == created.camera.version
 
         # When: a threshold edit bumps the version and the worker reconciles again
@@ -234,6 +246,157 @@ async def test_pipeline_worker_follows_camera_edits_and_publishes_on_the_current
         assert ended.ended_at is not None
     finally:
         if camera_id is not None:
+            await _delete_camera_rows(database, camera_id)
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_pipeline_worker_renews_active_session_before_starting_after_restart(
+    database_url: str,
+) -> None:
+    # Given: an active camera session left by a previous pipeline-worker process
+    database = Database.connect(database_url)
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    cameras = CameraService(CameraRepository(storage))
+    coordinator = IngestCoordinator()
+    pipeline = PipelineWorker(
+        database=database,
+        cameras=cameras,
+        coordinator=coordinator,
+        consumer=lambda handoff: _discard_handoff(handoff),
+        detector=_Detector(),
+        worker_factory=_fixed_clock_worker,
+    )
+    camera_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            created = await cameras.create(
+                session,
+                CameraCreateRequest.model_validate(
+                    {
+                        "name": f"pipeline restart {uuid4().hex[:8]}",
+                        "source_url": "rtsp://fixture:8554/person",
+                    }
+                ),
+            )
+        activation = created.lifecycle.activation
+        assert activation is not None
+        camera_id = UUID(str(created.camera.camera_id))
+
+        # When: a fresh pipeline-worker process reconciles its first camera
+        _ = await pipeline.reconcile_once()
+
+        # Then: the old namespace is ended before a new worker receives frames
+        (worker,) = coordinator.workers
+        assert worker.generation.camera_session_id != activation.session_id
+        async with database.transaction() as session:
+            sessions = tuple(
+                await session.scalars(
+                    select(CameraSession)
+                    .where(CameraSession.camera_id == camera_id)
+                    .order_by(CameraSession.started_at, CameraSession.id)
+                )
+            )
+        assert len(sessions) == 2
+        assert sessions[0].ended_at is not None
+        assert sessions[1].ended_at is None
+        assert sessions[1].id == UUID(str(worker.generation.camera_session_id))
+    finally:
+        if camera_id is not None:
+            await _delete_camera_rows(database, camera_id)
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_pipeline_worker_retries_startup_renewal_after_session_race(
+    database_url: str,
+) -> None:
+    # Given: two active cameras and an API replacement racing the first renewal pass
+    database = Database.connect(database_url)
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    cameras = CameraService(CameraRepository(storage))
+    coordinator = IngestCoordinator()
+    pipeline = PipelineWorker(
+        database=database,
+        cameras=cameras,
+        coordinator=coordinator,
+        consumer=lambda handoff: _discard_handoff(handoff),
+        detector=_Detector(),
+        worker_factory=_fixed_clock_worker,
+    )
+    camera_ids: list[UUID] = []
+    try:
+        async with database.transaction() as session:
+            for suffix in ("first", "second"):
+                created = await cameras.create(
+                    session,
+                    CameraCreateRequest.model_validate(
+                        {
+                            "name": f"pipeline race {suffix} {uuid4().hex[:8]}",
+                            "source_url": f"rtsp://fixture:8554/{suffix}",
+                        }
+                    ),
+                )
+                camera_ids.append(UUID(str(created.camera.camera_id)))
+
+        original_reconnect = cameras.reconnect
+        reconnect_calls = 0
+
+        async def race_reconnect(
+            service: CameraService,
+            session: AsyncSession,
+            previous: GenerationBinding,
+        ) -> CameraActivationRequest:
+            nonlocal reconnect_calls
+            del service
+            reconnect_calls += 1
+            if reconnect_calls == 2:
+                raise CameraGenerationMismatchError(previous.camera_id)
+            return await original_reconnect(session, previous)
+
+        # When: the first renewal pass loses a camera-generation race
+        with patch.object(CameraService, "reconnect", new=race_reconnect):
+            first_plan = await pipeline.reconcile_once()
+
+        # Then: no stale workers start and the failed transaction remains retryable
+        assert first_plan.stop == ()
+        assert first_plan.start == ()
+        assert reconnect_calls == 2
+        assert not coordinator.workers
+        async with database.transaction() as session:
+            before_retry = tuple(
+                await session.scalars(
+                    select(CameraSession)
+                    .where(CameraSession.camera_id.in_(camera_ids))
+                    .order_by(CameraSession.camera_id, CameraSession.started_at, CameraSession.id)
+                )
+            )
+        assert len(before_retry) == 2
+        assert all(camera_session.ended_at is None for camera_session in before_retry)
+
+        # When: the next reconcile reloads the committed sessions
+        second_plan = await pipeline.reconcile_once()
+
+        # Then: each camera is renewed exactly once after the rollback
+        assert second_plan.stop == ()
+        assert {camera.camera_id for camera in second_plan.start} == set(camera_ids)
+        assert len(coordinator.workers) == 2
+        async with database.transaction() as session:
+            after_retry = tuple(
+                await session.scalars(
+                    select(CameraSession)
+                    .where(CameraSession.camera_id.in_(camera_ids))
+                    .order_by(CameraSession.camera_id, CameraSession.started_at, CameraSession.id)
+                )
+            )
+        assert len(after_retry) == 4
+        for camera_id in camera_ids:
+            sessions = [item for item in after_retry if item.camera_id == camera_id]
+            assert len(sessions) == 2
+            assert sessions[0].ended_at is not None
+            assert sessions[1].ended_at is None
+    finally:
+        for camera_id in camera_ids:
             await _delete_camera_rows(database, camera_id)
         await database.close()
 

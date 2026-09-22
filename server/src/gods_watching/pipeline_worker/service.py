@@ -1,12 +1,13 @@
 """Run ingest workers for committed camera sessions in a process separate from the API."""
 
 from collections.abc import Callable
-from typing import Final
+from dataclasses import replace
+from typing import TYPE_CHECKING, Final
 from uuid import uuid4
 
 import anyio
 
-from gods_watching.cameras import CameraService
+from gods_watching.cameras import CameraGenerationMismatchError, CameraService
 from gods_watching.contracts.identifiers import CameraId
 from gods_watching.contracts.pipeline import GenerationBinding
 from gods_watching.ingest import IngestCoordinator, IngestWorker, IngestWorkerConfiguration
@@ -16,6 +17,9 @@ from gods_watching.storage import Database
 
 from .desired import load_desired_cameras
 from .reconcile import DesiredCamera, ReconcilePlan, RunningCamera, plan_reconcile
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 WorkerFactory = Callable[
     [IngestWorkerConfiguration, DetectorPort, PipelineHandoffConsumer], IngestWorker
@@ -47,6 +51,7 @@ class PipelineWorker:
         self._worker_factory: WorkerFactory = worker_factory
         self._poll_seconds: float = poll_seconds
         self._detector_deadline_seconds: float = detector_deadline_seconds
+        self._startup_sessions_renewed: bool = False
 
     async def active_binding(self, camera_id: CameraId) -> GenerationBinding | None:
         """Return the generation the live worker owns, for publication fencing."""
@@ -57,8 +62,15 @@ class PipelineWorker:
 
     async def reconcile_once(self) -> ReconcilePlan:
         """Stop, replace, and start workers so they match committed camera sessions."""
-        async with self._database.transaction() as session:
-            desired = await load_desired_cameras(session, self._cameras.repository)
+        try:
+            async with self._database.transaction() as session:
+                desired = await load_desired_cameras(session, self._cameras.repository)
+                if not self._startup_sessions_renewed:
+                    desired = await self._renew_startup_sessions(session, desired)
+        except CameraGenerationMismatchError:
+            # The renewal transaction rolls back; reload all desired sessions on the next pass.
+            return ReconcilePlan(stop=(), start=())
+        self._startup_sessions_renewed = True
         failed = set(self._coordinator.failed_cameras)
         running = {
             worker.camera_id: _running(worker)
@@ -73,6 +85,28 @@ class PipelineWorker:
         for camera in plan.start:
             self._coordinator.add(self._new_worker(camera))
         return plan
+
+    async def _renew_startup_sessions(
+        self,
+        session: "AsyncSession",
+        desired: dict[CameraId, DesiredCamera],
+    ) -> dict[CameraId, DesiredCamera]:
+        renewed: dict[CameraId, DesiredCamera] = {}
+        for camera_id, camera in desired.items():
+            previous = GenerationBinding(
+                camera_id=camera.camera_id,
+                camera_session_id=camera.session_id,
+                db_generation_id=camera.generation_id,
+                source_generation_id=SourceGenerationId(uuid4()),
+                camera_version=camera.version,
+            )
+            replacement = await self._cameras.reconnect(session, previous)
+            renewed[camera_id] = replace(
+                camera,
+                session_id=replacement.session_id,
+                generation_id=replacement.generation_id,
+            )
+        return renewed
 
     async def run(self, *, stop_event: anyio.Event) -> None:
         """Run decode/detection and poll committed sessions until stopped."""

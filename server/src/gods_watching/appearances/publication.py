@@ -226,9 +226,17 @@ class AppearancePublisher:
                 last_seen=lifecycle.last_seen,
             ),
         )
-        state.last_seen = max(state.last_seen, lifecycle.last_seen)
         if lifecycle.kind is LifecycleKind.END:
             return await self._accept_end(handoff, appearance_id, state, now)
+        if state.ended:
+            return self._ack(
+                PublicationOutcome.NOOP,
+                appearance_id,
+                lifecycle.sequence,
+                state,
+                detail="late lifecycle event after appearance end",
+            )
+        state.last_seen = max(state.last_seen, lifecycle.last_seen)
         if appearance_id in self._suppressed:
             return self._ack(
                 PublicationOutcome.SUPPRESSED,
@@ -255,6 +263,14 @@ class AppearancePublisher:
                 appearance_id,
                 lifecycle.sequence,
                 state,
+            )
+        if state.ended:
+            return self._ack(
+                PublicationOutcome.NOOP,
+                appearance_id,
+                lifecycle.sequence,
+                state,
+                detail="late lifecycle event after appearance end",
             )
         if handoff.candidate is None:
             return await self._touch_metadata(handoff, key, appearance_id, state, now)
@@ -567,6 +583,7 @@ class AppearancePublisher:
             )
             state.first_seen = appearance.first_seen
             state.last_seen = max(state.last_seen, appearance.last_seen)
+            state.ended = appearance.ended_at is not None
             return True
 
     @staticmethod
@@ -665,7 +682,11 @@ class AppearancePublisher:
             current = await self._verify_generation(session, handoff.generation)
             if current:
                 appearance = await session.get(Appearance, UUID(str(appearance_id)))
-                if appearance is not None and appearance.tombstoned_at is None:
+                if (
+                    appearance is not None
+                    and appearance.tombstoned_at is None
+                    and appearance.ended_at is None
+                ):
                     if handoff.lifecycle.last_seen > appearance.last_seen:
                         appearance.last_seen = handoff.lifecycle.last_seen
                         changed = True
@@ -700,7 +721,11 @@ class AppearancePublisher:
             current = await self._verify_end_generation(session, handoff.generation)
             if current:
                 appearance = await session.get(Appearance, UUID(str(appearance_id)))
-                if appearance is not None and appearance.tombstoned_at is None:
+                if (
+                    appearance is not None
+                    and appearance.tombstoned_at is None
+                    and appearance.ended_at is None
+                ):
                     appearance.last_seen = max(appearance.last_seen, handoff.lifecycle.last_seen)
                     ended_at = handoff.lifecycle.ended_at or handoff.lifecycle.last_seen
                     appearance.ended_at = max(ended_at, appearance.last_seen)

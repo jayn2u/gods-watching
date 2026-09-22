@@ -519,6 +519,108 @@ async def test_end_after_reconnect_keeps_true_end_timestamp(
 
 
 @pytest.mark.anyio
+async def test_late_update_after_end_does_not_advance_last_seen(
+    database_url: str, tmp_path: Path
+) -> None:
+    database = Database.connect(database_url)
+    repository = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    store = CropObjectStore(tmp_path / "crops")
+    camera_id: CameraId | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await repository.add_camera(
+                session, name=f"Publication late update {uuid4().hex}", source_url=_source("late")
+            )
+            camera_session = await repository.start_camera_session(
+                session, camera.id, cause="fixture"
+            )
+            camera_id = CameraId(camera.id)
+            session_id = CameraSessionId(camera_session.id)
+            db_generation = camera_session.generation_id
+        source_generation = SourceGenerationId(uuid4())
+        publisher = AppearancePublisher(
+            database=database,
+            storage=repository,
+            crop_store=store,
+            clip=ClipAdapter(_ClipTransport()),
+            model_id="synthetic/clip",
+            model_revision="fixture",
+            writer_budget=_Budget(),
+        )
+        started = await publisher.accept_handoff(
+            _handoff(
+                camera_id=camera_id,
+                session_id=session_id,
+                db_generation=db_generation,
+                source_generation=source_generation,
+                observed_at=datetime(2026, 9, 7, 2, 0, tzinfo=UTC),
+            )
+        )
+        ended = await publisher.accept_handoff(
+            _handoff(
+                camera_id=camera_id,
+                session_id=session_id,
+                db_generation=db_generation,
+                source_generation=source_generation,
+                kind=LifecycleKind.END,
+                observed_at=datetime(2026, 9, 7, 2, 1, tzinfo=UTC),
+            )
+        )
+        assert started.outcome.value == "published"
+        assert ended.outcome.value == "ended"
+        async with database.transaction() as session:
+            before = await session.get(Appearance, UUID(str(started.appearance_id)))
+        assert before is not None
+
+        # When: a restarted worker delivers a later update after the track already ended
+        restarted_publisher = AppearancePublisher(
+            database=database,
+            storage=repository,
+            crop_store=store,
+            clip=ClipAdapter(_ClipTransport()),
+            model_id="synthetic/clip",
+            model_revision="fixture",
+            writer_budget=_Budget(),
+        )
+        late = await restarted_publisher.accept_handoff(
+            _handoff(
+                camera_id=camera_id,
+                session_id=session_id,
+                db_generation=db_generation,
+                source_generation=source_generation,
+                kind=LifecycleKind.UPDATE,
+                observed_at=datetime(2026, 9, 7, 2, 2, tzinfo=UTC),
+            )
+        )
+
+        # Then: the closed appearance remains immutable and the late event is ignored
+        assert late.outcome.value == "noop"
+        async with database.transaction() as session:
+            after = await session.get(Appearance, UUID(str(started.appearance_id)))
+        assert after is not None
+        assert after.last_seen == before.last_seen
+        assert after.ended_at == before.ended_at
+    finally:
+        if camera_id is not None:
+            async with database.transaction() as session:
+                _ = await session.execute(
+                    delete(CropGarbage).where(
+                        CropGarbage.appearance_id.in_(
+                            select(Appearance.id).where(Appearance.camera_id == camera_id)
+                        )
+                    )
+                )
+                _ = await session.execute(
+                    delete(Appearance).where(Appearance.camera_id == camera_id)
+                )
+                _ = await session.execute(
+                    delete(CameraSession).where(CameraSession.camera_id == camera_id)
+                )
+                _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
+
+
+@pytest.mark.anyio
 async def test_retention_suppression_uses_stable_appearance_id(  # noqa: PLR0915
     database_url: str, tmp_path: Path
 ) -> None:

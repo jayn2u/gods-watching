@@ -1,13 +1,15 @@
 """Bounded camera ingest, detector sampling, tracking, and pipeline handoff."""
 
+from asyncio import current_task
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
 from time import monotonic
-from typing import TYPE_CHECKING, Protocol, override
+from typing import TYPE_CHECKING, Protocol, cast, override
 
 import anyio
+from anyio.lowlevel import checkpoint
 
 from gods_watching.contracts.identifiers import CameraId
 from gods_watching.contracts.pipeline import CropCandidate, GenerationBinding, PipelineHandoff
@@ -289,22 +291,46 @@ class IngestWorker:
                 self._stats.record_error("detector request crossed the active generation")
                 return None
             self._stats.record_detector_request()
+            transformed_cancellation = False
+            result: DetectorResult | None = None
             try:
-                with anyio.fail_after(self._detector_deadline_seconds):
-                    result = await self._detector.detect(
-                        DetectorRequest(
-                            encoded_image=frame.encoded_image,
-                            confidence=self._threshold,
+                with anyio.fail_after(self._detector_deadline_seconds) as deadline_scope:
+                    try:
+                        result = await self._detector.detect(
+                            DetectorRequest(
+                                encoded_image=frame.encoded_image,
+                                confidence=self._threshold,
+                            )
                         )
-                    )
+                    except anyio.get_cancelled_exc_class():
+                        # Triton's gRPC client can replace its local deadline cancellation
+                        # with a bare CancelledError, which AnyIO cannot identify itself.
+                        if (
+                            not deadline_scope.cancel_called
+                            and (
+                                anyio.current_effective_deadline() == -float("inf")
+                                or (
+                                    (task := current_task()) is not None
+                                    and task.cancelling() > 0
+                                )
+                            )
+                        ):
+                            raise
+                        transformed_cancellation = True
             except TimeoutError:
                 self._stats.record_error("detector request deadline exceeded")
                 return None
-            except (RuntimeError, ValueError):
+            except Exception:  # noqa: BLE001 - isolate one camera from transport failures
                 self._stats.record_error("detector request failed")
                 return None
+            if transformed_cancellation:
+                # Give a simultaneously cancelled parent scope one checkpoint before
+                # converting the transport cancellation into a bounded timeout.
+                await checkpoint()
+                self._stats.record_error("detector request deadline exceeded")
+                return None
             self._stats.record_detector_result(self._monotonic_clock())
-            return result
+            return cast("DetectorResult", result)
 
     async def run_decoder(self, *, status_sink: DecoderStatusSink | None = None) -> None:
         """Drain the RTSP decoder until cancellation or explicit close."""

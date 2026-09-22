@@ -1,3 +1,4 @@
+from asyncio import CancelledError, create_task
 from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, override
@@ -349,6 +350,64 @@ class _BlockingDetector:
         return DetectorResult(detections=(Detection(100, 100, 180, 260, request.confidence, 0),))
 
 
+class _TransportFailureError(Exception):
+    """Stand in for a detector transport exception outside the domain error types."""
+
+
+class _FailingOnceDetector:
+    def __init__(self) -> None:
+        self.calls: int = 0
+        self.first_started: anyio.Event = anyio.Event()
+        self.second_started: anyio.Event = anyio.Event()
+
+    async def detect(self, request: DetectorRequest) -> DetectorResult:
+        _ = request
+        self.calls += 1
+        if self.calls == 1:
+            self.first_started.set()
+            raise _TransportFailureError
+        self.second_started.set()
+        return DetectorResult(detections=())
+
+
+class _CancelledOnceDetector:
+    def __init__(self) -> None:
+        self.calls: int = 0
+        self.first_started: anyio.Event = anyio.Event()
+        self.second_started: anyio.Event = anyio.Event()
+
+    async def detect(self, request: DetectorRequest) -> DetectorResult:
+        _ = request
+        self.calls += 1
+        if self.calls == 1:
+            self.first_started.set()
+            cancelled = False
+            try:
+                await anyio.sleep_forever()
+            except anyio.get_cancelled_exc_class():
+                cancelled = True
+            if cancelled:
+                raise CancelledError
+        self.second_started.set()
+        return DetectorResult(detections=())
+
+
+class _LocallyCancelledOnceDetector:
+    def __init__(self) -> None:
+        self.calls: int = 0
+        self.first_started: anyio.Event = anyio.Event()
+        self.second_started: anyio.Event = anyio.Event()
+
+    async def detect(self, request: DetectorRequest) -> DetectorResult:
+        _ = request
+        self.calls += 1
+        if self.calls == 1:
+            self.first_started.set()
+            raise CancelledError
+        self.second_started.set()
+        return DetectorResult(detections=())
+
+
 class _SequenceDetector:
     def __init__(self, results: tuple[DetectorResult, ...]) -> None:
         self._results: Iterator[DetectorResult] = iter(results)
@@ -526,6 +585,168 @@ def test_coordinator_restarts_camera_with_a_new_generation_while_running() -> No
                 await old_decoder.finished.wait()
                 await new_decoder.started.wait()
             stop.set()
+
+    anyio.run(exercise)
+
+
+def test_detector_transport_failure_does_not_stop_coordinator() -> None:
+    async def exercise() -> None:
+        # Given: one running camera whose first detector call fails at the transport boundary
+        coordinator = IngestCoordinator()
+        binding = _new_binding()
+        decoder = _ParkedDecoder(binding)
+        detector = _FailingOnceDetector()
+        worker = IngestWorker(
+            IngestWorkerConfiguration(generation=binding, source_url="rtsp://camera/test"),
+            detector,
+            _discard,
+            decoder=decoder,
+        )
+        coordinator.add(worker)
+        worker.receive(_new_frame(binding, seconds=1.0, reference="transport-failure-1"))
+        stop = anyio.Event()
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(partial(coordinator.run, stop_event=stop))
+            with anyio.fail_after(2.0):
+                await decoder.started.wait()
+                await detector.first_started.wait()
+
+            # When: a newer frame arrives after that failed request
+            worker.receive(_new_frame(binding, seconds=2.0, reference="transport-failure-2"))
+
+            # Then: the coordinator remains alive and dispatches the next request
+            with anyio.fail_after(2.0):
+                await detector.second_started.wait()
+            assert worker.stats.detector_requests == 2
+            assert worker.stats.detector_results == 1
+            assert worker.stats.last_sanitized_error == "detector request failed"
+            stop.set()
+
+    anyio.run(exercise)
+
+
+def test_local_detector_cancellation_does_not_stop_coordinator() -> None:
+    async def exercise() -> None:
+        # Given: a detector transport whose own deadline returns a bare CancelledError
+        coordinator = IngestCoordinator()
+        binding = _new_binding()
+        decoder = _ParkedDecoder(binding)
+        detector = _LocallyCancelledOnceDetector()
+        worker = IngestWorker(
+            IngestWorkerConfiguration(generation=binding, source_url="rtsp://camera/test"),
+            detector,
+            _discard,
+            decoder=decoder,
+        )
+        coordinator.add(worker)
+        worker.receive(_new_frame(binding, seconds=1.0, reference="local-cancel-1"))
+        stop = anyio.Event()
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(partial(coordinator.run, stop_event=stop))
+            with anyio.fail_after(2.0):
+                await decoder.started.wait()
+                await detector.first_started.wait()
+
+            # When: a newer frame arrives after the transport cancellation
+            worker.receive(_new_frame(binding, seconds=2.0, reference="local-cancel-2"))
+
+            # Then: the coordinator remains alive and dispatches the next request
+            with anyio.fail_after(2.0):
+                await detector.second_started.wait()
+            assert worker.stats.detector_requests == 2
+            assert worker.stats.detector_results == 1
+            assert worker.stats.last_sanitized_error == "detector request deadline exceeded"
+            stop.set()
+
+    anyio.run(exercise)
+
+
+def test_transformed_detector_cancellation_isolated_from_coordinator() -> None:
+    async def exercise() -> None:
+        # Given: a detector whose local timeout is surfaced as a bare CancelledError
+        coordinator = IngestCoordinator()
+        binding = _new_binding()
+        decoder = _ParkedDecoder(binding)
+        detector = _CancelledOnceDetector()
+        worker = IngestWorker(
+            IngestWorkerConfiguration(
+                generation=binding,
+                source_url="rtsp://camera/test",
+                detector_deadline_seconds=0.01,
+            ),
+            detector,
+            _discard,
+            decoder=decoder,
+        )
+        coordinator.add(worker)
+        worker.receive(_new_frame(binding, seconds=1.0, reference="cancelled-detector-1"))
+        stop = anyio.Event()
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(partial(coordinator.run, stop_event=stop))
+            with anyio.fail_after(2.0):
+                await decoder.started.wait()
+                await detector.first_started.wait()
+
+            # When: a newer frame arrives after the detector's local cancellation
+            worker.receive(_new_frame(binding, seconds=2.0, reference="cancelled-detector-2"))
+
+            # Then: the coordinator continues and records the bounded deadline outcome
+            with anyio.fail_after(2.0):
+                await detector.second_started.wait()
+            assert worker.stats.detector_requests == 2
+            assert worker.stats.detector_results == 1
+            assert worker.stats.last_sanitized_error == "detector request deadline exceeded"
+            stop.set()
+
+    anyio.run(exercise)
+
+
+def test_external_cancellation_during_detection_propagates() -> None:
+    async def exercise() -> None:
+        # Given: a detector request that is still in flight
+        binding = _new_binding()
+        detector = _BlockingDetector()
+        worker = _new_worker(binding, detector, _discard)
+        worker.receive(_new_frame(binding, seconds=1.0, reference="external-cancel"))
+        cancellation_propagated = anyio.Event()
+
+        async def sample() -> None:
+            try:
+                _ = await worker.sample_once()
+            except anyio.get_cancelled_exc_class():
+                cancellation_propagated.set()
+                raise
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(sample)
+            await detector.started.wait()
+            task_group.cancel_scope.cancel()
+
+        # Then: the parent cancellation is not consumed as a detector timeout
+        assert cancellation_propagated.is_set()
+
+    anyio.run(exercise)
+
+
+def test_direct_task_cancellation_during_detection_propagates() -> None:
+    async def exercise() -> None:
+        # Given: a detector request running in a native asyncio task
+        binding = _new_binding()
+        detector = _BlockingDetector()
+        worker = _new_worker(binding, detector, _discard)
+        worker.receive(_new_frame(binding, seconds=1.0, reference="direct-cancel"))
+        task = create_task(worker.sample_once())
+        await detector.started.wait()
+
+        # When: the task is cancelled directly outside an AnyIO cancel scope
+        _ = task.cancel()
+
+        # Then: the worker propagates that cancellation to its caller
+        with pytest.raises(CancelledError):
+            await task
 
     anyio.run(exercise)
 
