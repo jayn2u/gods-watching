@@ -22,6 +22,21 @@ _MIN_OPERATOR_PASSWORD_LENGTH: Final = 4
 _DEFAULT_OPERATOR_USERNAME: Final = "admin"
 _DEFAULT_PUBLIC_PORT: Final = 8080
 _DEFAULT_PUBLIC_TLS_PORT: Final = 8443
+# Every service joins the host network namespace, so each of these binds the host
+# directly and no two may name the same port.
+_HOST_PORT_DEFAULTS: Final[Mapping[str, int]] = {
+    "GW_PUBLIC_PORT": _DEFAULT_PUBLIC_PORT,
+    "GW_PUBLIC_TLS_PORT": _DEFAULT_PUBLIC_TLS_PORT,
+    "GW_API_PORT": 18000,
+    "GW_POSTGRES_PORT": 15432,
+    "GW_TRITON_HTTP_PORT": 18010,
+    "GW_TRITON_GRPC_PORT": 18011,
+    "GW_TRITON_METRICS_PORT": 18012,
+    "GW_MEDIA_RTSP_PORT": 18554,
+    "GW_MEDIA_WHEP_PORT": 18889,
+    "GW_MEDIA_CONTROL_PORT": 19997,
+    "GW_MEDIA_WEBRTC_UDP_PORT": 8189,
+}
 _MIN_TCP_PORT: Final = 1
 _MAX_TCP_PORT: Final = 65535
 _MIN_POSTGRES_PASSWORD_LENGTH: Final = 20
@@ -109,6 +124,11 @@ def _prepare_environment() -> None:
         f"GW_PUBLIC_PORT={_DEFAULT_PUBLIC_PORT}",
         f"GW_PUBLIC_TLS_PORT={_DEFAULT_PUBLIC_TLS_PORT}",
         "GW_SECURE_COOKIE=false",
+        *(
+            f"{key}={port}"
+            for key, port in _HOST_PORT_DEFAULTS.items()
+            if key not in {"GW_PUBLIC_PORT", "GW_PUBLIC_TLS_PORT"}
+        ),
     )
     try:
         descriptor = os.open(_ENV_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _ENV_MODE)
@@ -156,13 +176,9 @@ def _append_missing_media_credentials() -> None:
 
 
 def _ports_valid(values: Mapping[str, str]) -> bool:
-    """Return whether the optional published-port overrides are usable TCP ports."""
-    defaults = {
-        "GW_PUBLIC_PORT": _DEFAULT_PUBLIC_PORT,
-        "GW_PUBLIC_TLS_PORT": _DEFAULT_PUBLIC_TLS_PORT,
-    }
+    """Return whether every host-bound port override is usable and unshared."""
     ports: list[int] = []
-    for key, fallback in defaults.items():
+    for key, fallback in _HOST_PORT_DEFAULTS.items():
         raw = values.get(key, str(fallback)).strip()
         if not raw.isdigit():
             return False

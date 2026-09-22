@@ -3,11 +3,13 @@
 }
 
 http://:{$GW_PUBLIC_PORT:8080} {
+	bind {$GW_BIND_HOST:0.0.0.0}
 	redir https://{$GW_PUBLIC_HOST}:{$GW_PUBLIC_TLS_PORT:8443}{uri} permanent
 }
 
 https://{$GW_PUBLIC_HOST}:{$GW_PUBLIC_TLS_PORT:8443} {
+	bind {$GW_BIND_HOST:0.0.0.0}
 	tls internal
 	encode zstd gzip
-	reverse_proxy api:8000
+	reverse_proxy 127.0.0.1:{$GW_API_PORT:18000}
 }

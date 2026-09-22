@@ -106,7 +106,7 @@ class RtspSourceProbe:
             "rtsp,tcp",
             "-rtsp_transport",
             "tcp",
-            "-stimeout",
+            "-timeout",
             "10000000",
             "-i",
             source.url,
