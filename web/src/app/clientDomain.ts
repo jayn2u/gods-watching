@@ -61,6 +61,24 @@ export type SearchResponse = Readonly<{
   results: readonly AppearanceResponse[]
 }>
 
+export type LiveDetectionBox = Readonly<{
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  confidence: number
+}>
+
+export type LiveDetectionsResponse = Readonly<{
+  camera_id: string
+  camera_session_id: string | null
+  frame_at: string | null
+  frame_age_seconds: number | null
+  width: number | null
+  height: number | null
+  boxes: readonly LiveDetectionBox[]
+}>
+
 export type CameraCreateRequest = Readonly<{
   name: string
   source_url: string
@@ -140,6 +158,28 @@ function boundedNumberField(
 function positiveIntegerField(record: Record<string, unknown>, key: string): number | undefined {
   const value = integerField(record, key)
   return value !== undefined && value > 0 ? value : undefined
+}
+
+function nullableNumberField(
+  record: Record<string, unknown>,
+  key: string,
+  minimum = Number.NEGATIVE_INFINITY,
+): number | null | undefined {
+  const value = unknownField(record, key)
+  if (value === null) {
+    return null
+  }
+  return typeof value === "number" && Number.isFinite(value) && value >= minimum ? value : undefined
+}
+
+function nullablePositiveIntegerField(
+  record: Record<string, unknown>,
+  key: string,
+): number | null | undefined {
+  const value = nullableNumberField(record, key)
+  return value === null || (value !== undefined && Number.isInteger(value) && value > 0)
+    ? value
+    : undefined
 }
 
 function parseBoundingBox(value: unknown): BoundingBox {
@@ -320,4 +360,64 @@ export function parseCameraTestResponse(value: unknown): CameraTestResponse {
     throw new Error("camera test response has an invalid shape")
   }
   return { source_host: sourceHost, source_port: sourcePort, codec, width, height }
+}
+
+function parseLiveDetectionBox(value: unknown): LiveDetectionBox {
+  if (!isRecord(value)) {
+    throw new Error("live detection response has an invalid shape")
+  }
+  const x1 = numberField(value, "x1")
+  const y1 = numberField(value, "y1")
+  const x2 = numberField(value, "x2")
+  const y2 = numberField(value, "y2")
+  const confidence = boundedNumberField(value, "confidence", 0, 1)
+  if (
+    x1 === undefined ||
+    y1 === undefined ||
+    x2 === undefined ||
+    y2 === undefined ||
+    confidence === undefined ||
+    x1 < 0 ||
+    y1 < 0 ||
+    x2 <= x1 ||
+    y2 <= y1
+  ) {
+    throw new Error("live detection response has an invalid shape")
+  }
+  return { x1, y1, x2, y2, confidence }
+}
+
+export function parseLiveDetectionsResponse(value: unknown): LiveDetectionsResponse {
+  if (!isRecord(value)) {
+    throw new Error("live detection response has an invalid shape")
+  }
+  const cameraId = stringField(value, "camera_id")
+  const cameraSessionId = nullableStringField(value, "camera_session_id")
+  const frameAt = nullableStringField(value, "frame_at")
+  const frameAgeSeconds = nullableNumberField(value, "frame_age_seconds", 0)
+  const width = nullablePositiveIntegerField(value, "width")
+  const height = nullablePositiveIntegerField(value, "height")
+  const boxes = unknownField(value, "boxes")
+  if (
+    cameraId === undefined ||
+    cameraId.length === 0 ||
+    cameraSessionId === undefined ||
+    frameAt === undefined ||
+    frameAgeSeconds === undefined ||
+    width === undefined ||
+    height === undefined ||
+    (width === null) !== (height === null) ||
+    !Array.isArray(boxes)
+  ) {
+    throw new Error("live detection response has an invalid shape")
+  }
+  return {
+    camera_id: cameraId,
+    camera_session_id: cameraSessionId,
+    frame_at: frameAt,
+    frame_age_seconds: frameAgeSeconds,
+    width,
+    height,
+    boxes: boxes.map(parseLiveDetectionBox),
+  }
 }

@@ -56,11 +56,28 @@
 }
 
 .wall-slot__video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
   background: var(--gw-color-camera-viewport);
+}
+
+.wall-slot__detection-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wall-slot__detection-overlay rect {
+  stroke: #22d36f;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
 }
 
 .wall-slot__overlay {

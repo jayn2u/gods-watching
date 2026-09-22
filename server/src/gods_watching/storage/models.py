@@ -106,6 +106,29 @@ class CameraRuntimeStatus(Base):
     last_error: Mapped[str | None] = mapped_column(String(200))
 
 
+class CameraDetectionLatest(Base):
+    """Retain one replaceable source-frame detector result per camera."""
+
+    __tablename__: str = "camera_detection_latest"
+    __table_args__: tuple[CheckConstraint, ...] = (
+        CheckConstraint("width > 0", name="ck_camera_detection_latest_width"),
+        CheckConstraint("height > 0", name="ck_camera_detection_latest_height"),
+    )
+
+    camera_id: Mapped[UUID] = mapped_column(
+        ForeignKey("cameras.id", ondelete="CASCADE"), primary_key=True
+    )
+    camera_session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("camera_sessions.id", ondelete="CASCADE")
+    )
+    db_generation_id: Mapped[UUID] = mapped_column(postgresql.UUID(as_uuid=True))
+    source_generation_id: Mapped[UUID] = mapped_column(postgresql.UUID(as_uuid=True))
+    frame_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    boxes: Mapped[list[dict[str, float]]] = mapped_column(postgresql.JSONB)
+
+
 class Appearance(Base):
     """Store one query-visible representative per camera session track."""
 

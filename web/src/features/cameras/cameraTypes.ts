@@ -31,6 +31,8 @@ export type CameraEditorMode = "create" | "edit"
 export type CameraFormDraft = Readonly<{
   name: string
   sourceUrl: string
+  sourceUsername: string
+  sourcePassword: string
   threshold: string
   detectionEnabled: boolean
 }>
@@ -38,6 +40,8 @@ export type CameraFormDraft = Readonly<{
 export type CameraFieldErrors = Readonly<{
   name: string | undefined
   sourceUrl: string | undefined
+  sourceUsername: string | undefined
+  sourcePassword: string | undefined
   threshold: string | undefined
 }>
 

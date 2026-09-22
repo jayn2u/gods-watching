@@ -4,6 +4,13 @@ type Validated<T> =
   | Readonly<{ kind: "valid"; value: T }>
   | Readonly<{ kind: "invalid"; message: string }>
 
+export type RtspCredentials = Readonly<{
+  username: string
+  password: string
+}>
+
+export type SourceDraftMode = "create" | "edit"
+
 export type SourceDraft = Readonly<{
   kind: "replacement" | "keep"
   value: string | null
@@ -81,6 +88,74 @@ export function validateSourceUrl(rawValue: string): Validated<string> {
     }
   }
   return { kind: "valid", value }
+}
+
+export function validateRtspCredentials(
+  username: string,
+  password: string,
+): Validated<RtspCredentials> {
+  if (password.length > 0 && username.length === 0) {
+    return invalid("Enter an RTSP username when providing a password.")
+  }
+  if (hasControlCharacter(username) || hasControlCharacter(password)) {
+    return invalid("RTSP credentials cannot contain control characters.")
+  }
+  return { kind: "valid", value: { username, password } }
+}
+
+export function buildAuthenticatedSourceUrl(
+  rawSourceUrl: string,
+  username: string,
+  password: string,
+): Validated<string> {
+  const source = validateSourceUrl(rawSourceUrl)
+  if (source.kind === "invalid") {
+    return source
+  }
+  const credentials = validateRtspCredentials(username, password)
+  if (credentials.kind === "invalid") {
+    return credentials
+  }
+  if (credentials.value.username.length === 0 && credentials.value.password.length === 0) {
+    return source
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(source.value)
+    parsed.username = encodeURIComponent(credentials.value.username)
+    parsed.password = encodeURIComponent(credentials.value.password)
+  } catch (error) {
+    if (error instanceof URIError || error instanceof TypeError) {
+      return invalid("Enter valid RTSP credentials.")
+    }
+    throw error
+  }
+  const value = parsed.href
+  if (value.length > SOURCE_URL_LIMIT) {
+    return invalid("Authenticated source URLs must be 2048 characters or fewer.")
+  }
+  return { kind: "valid", value }
+}
+
+export function resolveSourceUrl(
+  rawSourceUrl: string,
+  username: string,
+  password: string,
+  mode: SourceDraftMode,
+): Validated<string | null> {
+  const hasSeparateCredentials = username.length > 0 || password.length > 0
+  if (rawSourceUrl.trim() === "") {
+    if (mode === "create") {
+      return validateSourceUrl(rawSourceUrl)
+    }
+    if (hasSeparateCredentials) {
+      return invalid("Enter a replacement RTSP source URL when changing credentials.")
+    }
+    return { kind: "valid", value: null }
+  }
+  const source = buildAuthenticatedSourceUrl(rawSourceUrl, username, password)
+  return source.kind === "invalid" ? source : { kind: "valid", value: source.value }
 }
 
 export function validateOptionalSourceUrl(rawValue: string): Validated<SourceDraft> {

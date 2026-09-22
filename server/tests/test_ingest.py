@@ -32,6 +32,7 @@ from gods_watching.ingest.worker import (
     IngestWorkerConfiguration,
     PipelineHandoffConsumer,
 )
+from gods_watching.live_detections import LiveDetectionSnapshot
 from gods_watching.media.models import SourceGenerationId
 from gods_watching.tracking import (
     ByteTrackScope,
@@ -332,6 +333,59 @@ def test_invalid_crop_is_counted_and_cannot_orphan_a_track() -> None:
         assert worker.tracking.active_track_count == 1
 
     _ = anyio.run(exercise)
+
+
+def test_worker_publishes_immediate_bounded_boxes_and_survives_sink_failure() -> None:
+    # Given: detector output with a low-confidence person, a non-person, and a clipped person
+    binding = _new_binding()
+    detector = _SequenceDetector(
+        (
+            DetectorResult(
+                detections=(
+                    Detection(100, 100, 180, 260, 0.4, 0),
+                    Detection(200, 100, 280, 260, 0.95, 2),
+                    Detection(-20, 100, 180, 260, 0.9, 0),
+                )
+            ),
+            DetectorResult(detections=()),
+        )
+    )
+    snapshots: list[LiveDetectionSnapshot] = []
+
+    async def publish(snapshot: LiveDetectionSnapshot) -> None:
+        snapshots.append(snapshot)
+        if len(snapshots) == 2:
+            raise _PublicationFailureError
+
+    worker = IngestWorker(
+        IngestWorkerConfiguration(
+            generation=binding,
+            source_url="rtsp://camera/test",
+            live_detection_sink=publish,
+        ),
+        detector,
+        _discard,
+    )
+
+    async def exercise() -> None:
+        # When: two detector samples are processed, including one with no person
+        worker.receive(_new_frame(binding, seconds=1.0, reference="overlay-1"))
+        assert await worker.sample_once() == ()
+        worker.receive(_new_frame(binding, seconds=1.2, reference="overlay-2"))
+        assert await worker.sample_once() == ()
+
+    anyio.run(exercise)
+
+    # Then: the first result is available without waiting for tracker confirmation and is bounded
+    assert snapshots[0].boxes[0].x1 == 0.0
+    assert snapshots[0].boxes[0].x2 == 180.0
+    assert snapshots[0].boxes[0].confidence == 0.9
+    assert snapshots[1].boxes == ()
+    assert worker.stats.last_sanitized_error == "live detection publication failed"
+
+
+class _PublicationFailureError(RuntimeError):
+    """Represent a transient latest-snapshot persistence failure in the worker test."""
 
 
 class _ImmediateDetector:
