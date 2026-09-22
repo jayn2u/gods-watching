@@ -107,4 +107,24 @@ docker compose down
 - `postgres`: pgvector가 설치된 PostgreSQL 17
 - `migrate`: 시작할 때 Alembic migration을 적용하고 종료하는 one-shot 서비스
 
-모든 운영 Compose 서비스는 Docker bridge 네트워크 대신 호스트 네트워크를 공유합니다. 기본 공개 포트는 `GW_BIND_HOST`에 바인딩되는 HTTP `8080/tcp`(`GW_PUBLIC_PORT`)와 WebRTC media `8189/udp`(`GW_MEDIA_UDP_PORT`)입니다. TLS overlay에서는 HTTPS `8443/tcp`(`GW_PUBLIC_TLS_PORT`)도 공개하며 HTTP 포트는 redirect 전용입니다. API `8000`, PostgreSQL `5432`, Triton `8001`/`8002`/`8003`, MediaMTX RTSP `8554`, WHEP `8889`, 제어 API `9997`은 loopback에만 바인딩됩니다. 이 포트들은 `.env`에서 바꿀 수 있고 `doctor`가 중복·범위를 검사합니다. fixture Compose는 운영 포트와 충돌하지 않도록 RTSP `28554`(`GW_FIXTURE_RTSP_PORT`)를 사용합니다.
+모든 서비스는 `network_mode: host`로 호스트 네트워크 namespace에서 실행됩니다. Compose 네트워크와 서비스 이름 DNS가 없으므로 서비스끼리는 `127.0.0.1`로 통신하며, 각 포트는 호스트에 직접 바인딩됩니다.
+
+기본 공개 포트는 HTTP `8080/tcp`(`GW_PUBLIC_PORT`)와 WebRTC media `8189/udp`(`GW_MEDIA_WEBRTC_UDP_PORT`)이며 둘 다 `GW_BIND_HOST`에 바인딩됩니다. TLS overlay에서는 HTTPS `8443/tcp`(`GW_PUBLIC_TLS_PORT`)도 공개하며 HTTP 포트는 redirect 전용입니다.
+
+나머지는 모두 `127.0.0.1`에만 바인딩되어 LAN에 노출되지 않습니다. 다만 호스트에서 실행 중인 다른 프로세스는 접근할 수 있으므로, Compose 내부 네트워크가 제공하던 격리와 동일하지는 않습니다.
+
+| 서비스 | 환경 변수 | 기본값 | 바인딩 |
+| --- | --- | --- | --- |
+| api (uvicorn) | `GW_API_PORT` | 18000 | 127.0.0.1 |
+| postgres | `GW_POSTGRES_PORT` | 15432 | 127.0.0.1 |
+| triton HTTP | `GW_TRITON_HTTP_PORT` | 18010 | 127.0.0.1 |
+| triton gRPC | `GW_TRITON_GRPC_PORT` | 18011 | 127.0.0.1 |
+| triton metrics | `GW_TRITON_METRICS_PORT` | 18012 | 127.0.0.1 |
+| media-gateway RTSP | `GW_MEDIA_RTSP_PORT` | 18554 | 127.0.0.1 |
+| media-gateway WHEP | `GW_MEDIA_WHEP_PORT` | 18889 | 127.0.0.1 |
+| media-gateway API | `GW_MEDIA_CONTROL_PORT` | 19997 | 127.0.0.1 |
+| fixture MediaMTX RTSP | `GW_FIXTURE_RTSP_PORT` | 28554 | 127.0.0.1 |
+
+이 포트 중 하나를 호스트의 다른 프로그램이 이미 사용 중이면 `.env`에서 값을 바꿉니다. `./gods-watching doctor`가 잘못된 포트 번호와 서로 겹치는 값을 Compose가 bind를 시도하기 전에 거부합니다.
+
+호스트 네트워크이므로 호스트 `127.0.0.1`에서 listen하는 RTSP 서버를 카메라 source로 그대로 지정할 수 있습니다.

@@ -61,16 +61,18 @@ def test_probe_command_is_shell_free_and_rtsp_tcp_only() -> None:
     assert "secret" not in repr(source)
 
 
-def test_probe_command_uses_rtsp_timeout_option_supported_by_runtime() -> None:
-    # Given: a source that must be opened through the application's FFmpeg runtime
+def test_probe_command_socket_timeout_is_accepted_by_ffmpeg() -> None:
+    # Given: a parsed RTSP source
     source = parse_rtsp_source("rtsp://fixture:8554/lobby")
 
-    # When: the one-frame probe command is constructed
+    # When: the bounded decoder command is constructed
     command = RtspSourceProbe.build_command(source)
 
-    # Then: use FFmpeg's RTSP socket-I/O timeout option, in microseconds
-    assert command[command.index("-timeout") + 1] == "10000000"
+    # Then: the socket deadline uses the option name FFmpeg 5+ still accepts.
+    # The removed "-stimeout" spelling aborts argument parsing, so every probe
+    # would fail before it ever reached the source.
     assert "-stimeout" not in command
+    assert command[command.index("-timeout") + 1] == "10000000"
 
 
 def test_probe_result_is_sanitized() -> None:

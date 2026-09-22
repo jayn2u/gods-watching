@@ -2,21 +2,21 @@ x-application-environment: &application-environment
   MPLCONFIGDIR: /tmp/matplotlib
   GW_CAMERA_CIPHER_KEY: ${GW_CAMERA_CIPHER_KEY:?run ./gods-watching prepare first}
   GW_CROPS_ROOT: /var/lib/gods-watching/crops
-  GW_DATABASE_URL: postgresql+asyncpg://gods_watching:${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}@127.0.0.1:${GW_POSTGRES_PORT:-5432}/gods_watching
+  GW_DATABASE_URL: postgresql+asyncpg://gods_watching:${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}@127.0.0.1:${GW_POSTGRES_PORT:-15432}/gods_watching
   GW_MEDIA_CONTROL_HOST: 127.0.0.1
-  GW_MEDIA_CONTROL_PORT: ${GW_MEDIA_CONTROL_PORT:-9997}
   GW_MEDIA_CONTROL_PASSWORD: ${GW_MEDIA_CONTROL_PASSWORD:?run ./gods-watching prepare first}
+  GW_MEDIA_CONTROL_PORT: ${GW_MEDIA_CONTROL_PORT:-19997}
   GW_MEDIA_CONTROL_USER: control
   GW_MEDIA_READER_PASSWORD: ${GW_MEDIA_READER_PASSWORD:?run ./gods-watching prepare first}
   GW_MEDIA_READER_USER: reader
   GW_MEDIA_WHEP_HOST: 127.0.0.1
-  GW_MEDIA_WHEP_PORT: ${GW_MEDIA_WHEP_PORT:-8889}
+  GW_MEDIA_WHEP_PORT: ${GW_MEDIA_WHEP_PORT:-18889}
   GW_OPERATOR_PASSWORD: ${GW_OPERATOR_PASSWORD:?run ./gods-watching prepare first}
   GW_OPERATOR_USERNAME: ${GW_OPERATOR_USERNAME:-admin}
   GW_PUBLIC_ORIGIN: ${GW_PUBLIC_ORIGIN:-http://localhost:${GW_PUBLIC_PORT:-8080}}
   GW_SECURE_COOKIE: ${GW_SECURE_COOKIE:-false}
   GW_TRUSTED_GATEWAY: 127.0.0.1
-  GW_TRITON_GRPC_URL: 127.0.0.1:${GW_TRITON_GRPC_PORT:-8001}
+  GW_TRITON_GRPC_URL: 127.0.0.1:${GW_TRITON_GRPC_PORT:-18011}
   GW_WEB_ROOT: /opt/gods-watching/web/dist
 
 x-application-image: &application-image
@@ -33,13 +33,13 @@ services:
       - -c
       - listen_addresses=127.0.0.1
       - -c
-      - port=${GW_POSTGRES_PORT:-5432}
+      - port=${GW_POSTGRES_PORT:-15432}
     environment:
       POSTGRES_DB: gods_watching
       POSTGRES_PASSWORD: ${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}
       POSTGRES_USER: gods_watching
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${GW_POSTGRES_PORT:-5432} -U gods_watching -d gods_watching"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${GW_POSTGRES_PORT:-15432} -U gods_watching -d gods_watching"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -61,6 +61,7 @@ services:
   media-gateway:
     image: bluenviron/mediamtx@sha256:206139c58377b7544d6ef63f8af86bcf46b9e89262aaa6f7513e1347dbab7d36
     environment:
+      MTX_APIADDRESS: 127.0.0.1:${GW_MEDIA_CONTROL_PORT:-19997}
       MTX_AUTHINTERNALUSERS_0_PASS: ${GW_MEDIA_READER_PASSWORD:?run ./gods-watching prepare first}
       MTX_AUTHINTERNALUSERS_0_PERMISSIONS_0_ACTION: read
       MTX_AUTHINTERNALUSERS_0_PERMISSIONS_0_PATH: ~^camera/[a-z0-9-]+$
@@ -68,11 +69,10 @@ services:
       MTX_AUTHINTERNALUSERS_1_PASS: ${GW_MEDIA_CONTROL_PASSWORD:?run ./gods-watching prepare first}
       MTX_AUTHINTERNALUSERS_1_PERMISSIONS_0_ACTION: api
       MTX_AUTHINTERNALUSERS_1_USER: control
+      MTX_RTSPADDRESS: 127.0.0.1:${GW_MEDIA_RTSP_PORT:-18554}
       MTX_WEBRTCADDITIONALHOSTS: ${GW_PUBLIC_HOST:-127.0.0.1}
-      MTX_APIADDRESS: 127.0.0.1:${GW_MEDIA_CONTROL_PORT:-9997}
-      MTX_RTSPADDRESS: 127.0.0.1:${GW_MEDIA_RTSP_PORT:-8554}
-      MTX_WEBRTCADDRESS: 127.0.0.1:${GW_MEDIA_WHEP_PORT:-8889}
-      MTX_WEBRTCLOCALUDPADDRESS: ${GW_BIND_HOST:-0.0.0.0}:${GW_MEDIA_UDP_PORT:-8189}
+      MTX_WEBRTCADDRESS: 127.0.0.1:${GW_MEDIA_WHEP_PORT:-18889}
+      MTX_WEBRTCLOCALUDPADDRESS: ${GW_BIND_HOST:-0.0.0.0}:${GW_MEDIA_WEBRTC_UDP_PORT:-8189}
     read_only: true
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
@@ -91,15 +91,15 @@ services:
       - --model-repository=/models-repository
       - --strict-readiness=true
       - --http-address=127.0.0.1
-      - --http-port=${GW_TRITON_HTTP_PORT:-8003}
+      - --http-port=${GW_TRITON_HTTP_PORT:-18010}
       - --grpc-address=127.0.0.1
-      - --grpc-port=${GW_TRITON_GRPC_PORT:-8001}
+      - --grpc-port=${GW_TRITON_GRPC_PORT:-18011}
       - --metrics-address=127.0.0.1
-      - --metrics-port=${GW_TRITON_METRICS_PORT:-8002}
+      - --metrics-port=${GW_TRITON_METRICS_PORT:-18012}
     gpus: all
     shm_size: 1gb
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://127.0.0.1:${GW_TRITON_HTTP_PORT:-8003}/v2/health/ready"]
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:${GW_TRITON_HTTP_PORT:-18010}/v2/health/ready"]
       interval: 5s
       timeout: 3s
       retries: 60
@@ -115,7 +115,7 @@ services:
       - --host
       - 127.0.0.1
       - --port
-      - ${GW_API_PORT:-8000}
+      - ${GW_API_PORT:-18000}
       - --no-proxy-headers
     environment: *application-environment
     depends_on:
@@ -126,7 +126,7 @@ services:
       triton:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${GW_API_PORT:-8000}/api/openapi.json', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${GW_API_PORT:-18000}/api/openapi.json', timeout=2)"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -161,8 +161,8 @@ services:
       api:
         condition: service_healthy
     environment:
+      GW_API_PORT: ${GW_API_PORT:-18000}
       GW_BIND_HOST: ${GW_BIND_HOST:-0.0.0.0}
-      GW_API_PORT: ${GW_API_PORT:-8000}
       GW_PUBLIC_PORT: ${GW_PUBLIC_PORT:-8080}
     read_only: true
     restart: unless-stopped

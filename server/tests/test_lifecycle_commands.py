@@ -132,6 +132,53 @@ def test_doctor_rejects_unusable_published_port(fake_runtime: Path, override: st
     assert _BOOLEAN_REPORT.validate_json(result.stdout)["credentials"] is False
 
 
+@pytest.mark.parametrize(
+    "override",
+    [
+        "GW_API_PORT=8080",
+        "GW_TRITON_GRPC_PORT=18000",
+        "GW_MEDIA_RTSP_PORT=19997",
+        "GW_POSTGRES_PORT=not-a-port",
+        "GW_MEDIA_WHEP_PORT=70000",
+    ],
+)
+def test_doctor_rejects_colliding_host_network_ports(fake_runtime: Path, override: str) -> None:
+    # Given: every service binds the host namespace directly, so two services that
+    # name the same port cannot both start
+    environment_path = fake_runtime.parent / ".env"
+    _ = environment_path.write_text(
+        _VALID_ENVIRONMENT + _LINE_BREAK.join((override, "")), encoding="utf-8"
+    )
+    _ = environment_path.chmod(0o600)
+
+    # When: the operator runs the preflight doctor
+    result = _RUNNER.invoke(app, ["doctor"])
+
+    # Then: the collision is reported before Compose attempts the bind
+    assert result.exit_code == 1
+    assert _BOOLEAN_REPORT.validate_json(result.stdout)["credentials"] is False
+
+
+def test_doctor_accepts_relocated_host_network_ports(fake_runtime: Path) -> None:
+    # Given: an operator who moves the internal ports off values the host already uses
+    environment_path = fake_runtime.parent / ".env"
+    _ = environment_path.write_text(
+        _VALID_ENVIRONMENT
+        + _LINE_BREAK.join(
+            ("GW_API_PORT=28000", "GW_MEDIA_RTSP_PORT=28554", "GW_FIXTURE_RTSP_PORT=38554", "")
+        ),
+        encoding="utf-8",
+    )
+    _ = environment_path.chmod(0o600)
+
+    # When: the operator runs the preflight doctor
+    result = _RUNNER.invoke(app, ["doctor"])
+
+    # Then: the distinct overrides are accepted
+    assert result.exit_code == 0
+    assert _BOOLEAN_REPORT.validate_json(result.stdout)["credentials"] is True
+
+
 def test_doctor_rejects_an_origin_that_names_another_port(fake_runtime: Path) -> None:
     # Given: a moved published port that the browser-facing origin still ignores
     environment_path = fake_runtime.parent / ".env"
@@ -215,9 +262,7 @@ def test_prepare_creates_private_first_run_credentials(fake_runtime: Path) -> No
 def test_compose_does_not_ship_media_gateway_credentials() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     compose = (repository_root / "compose.yaml").read_text(encoding="utf-8")
-    media_config = (repository_root / "deploy/mediamtx.compose.yml").read_text(
-        encoding="utf-8"
-    )
+    media_config = (repository_root / "deploy/mediamtx.compose.yml").read_text(encoding="utf-8")
 
     assert "gw-control-internal-2026" not in compose
     assert "gw-reader-internal-2026" not in compose

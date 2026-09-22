@@ -6,8 +6,8 @@ services:
 
   gateway:
     environment:
+      GW_API_PORT: ${GW_API_PORT:-18000}
       GW_BIND_HOST: ${GW_BIND_HOST:-0.0.0.0}
-      GW_API_PORT: ${GW_API_PORT:-8000}
       GW_PUBLIC_HOST: ${GW_PUBLIC_HOST:?set the LAN host or IP}
       GW_PUBLIC_PORT: ${GW_PUBLIC_PORT:-8080}
       GW_PUBLIC_TLS_PORT: ${GW_PUBLIC_TLS_PORT:-8443}
