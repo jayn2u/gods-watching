@@ -14,8 +14,19 @@ from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
 
+from gods_watching.model_selection import ClipModelRegistry, PreparedModelCatalog
+from gods_watching.setup.model_preparation import (
+    PreparationCommandError,
+    PreparationPaths,
+    invalidate_model_markers,
+    prepare_model_assets,
+    reuse_existing_yolo_asset,
+)
+
 _REPOSITORY_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _ENV_PATH: Path = _REPOSITORY_ROOT / ".env"
+_MODEL_LOCK_PATH: Final[Path] = _REPOSITORY_ROOT / "assets/models.lock.json"
+_MODEL_ASSETS_ROOT: Final[Path] = _REPOSITORY_ROOT / "runtime/assets/models"
 _ENV_MODE: Final = 0o600
 _MODE_MASK: Final = 0o777
 _MIN_OPERATOR_PASSWORD_LENGTH: Final = 4
@@ -68,10 +79,12 @@ class LifecycleCommandError(RuntimeError):
 
     command: tuple[str, ...]
     exit_code: int
+    detail: str | None = None
 
     @override
     def __str__(self) -> str:
-        return f"command failed ({self.exit_code}): {' '.join(self.command)}"
+        message = f"command failed ({self.exit_code}): {' '.join(self.command)}"
+        return f"{message}: {self.detail}" if self.detail else message
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,16 +96,27 @@ class DoctorReport:
     gpu: bool
     configuration: bool
     credentials: bool
+    models: bool | None = None
 
     @property
     def ready(self) -> bool:
         """Return whether every required local capability passed."""
-        return self.docker and self.compose and self.gpu and self.configuration and self.credentials
+        return (
+            self.docker
+            and self.compose
+            and self.gpu
+            and self.configuration
+            and self.credentials
+            and self.models is not False
+        )
 
     def to_json(self) -> str:
         """Serialize the stable operator-facing report."""
+        values = {**asdict(self), "ready": self.ready}
+        if values["models"] is None:
+            del values["models"]
         return json.dumps(
-            {**asdict(self), "ready": self.ready},
+            values,
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -103,10 +127,95 @@ def execute_lifecycle(action: LifecycleAction) -> None:
     match action:
         case LifecycleAction.PREPARE:
             _prepare_environment()
+            _prepare_model_asset_directory()
+            _run_compose("config", "--quiet")
+            _invalidate_model_markers()
+            _reuse_existing_yolo_asset()
+            _run_compose("build")
+            _prepare_model_assets()
+            return
         case LifecycleAction.UP | LifecycleAction.DOWN | LifecycleAction.STATUS:
             pass
     for arguments in _COMPOSE_OPERATIONS[action]:
         _run_compose(*arguments)
+
+
+def _prepare_model_asset_directory() -> None:
+    """Create only the bounded host model directory before Compose validates it."""
+    try:
+        _MODEL_ASSETS_ROOT.mkdir(parents=True, exist_ok=True)
+    except PermissionError as error:
+        try:
+            _ = reuse_existing_yolo_asset(
+                PreparationPaths(
+                    repository_root=_REPOSITORY_ROOT,
+                    lock_path=_MODEL_LOCK_PATH,
+                    assets_root=_MODEL_ASSETS_ROOT,
+                )
+            )
+        except (PreparationCommandError, OSError, ValueError) as helper_error:
+            raise LifecycleCommandError(
+                command=("model directory setup",),
+                exit_code=2,
+                detail=f"cannot create {_MODEL_ASSETS_ROOT}: {helper_error}",
+            ) from helper_error
+        if not _MODEL_ASSETS_ROOT.is_dir():
+            raise LifecycleCommandError(
+                command=("model directory setup",),
+                exit_code=2,
+                detail=f"cannot create {_MODEL_ASSETS_ROOT}: {error}",
+            ) from error
+
+
+def _reuse_existing_yolo_asset() -> None:
+    """Reuse detector weights from the previous image before rebuilding it."""
+    try:
+        _ = reuse_existing_yolo_asset(
+            PreparationPaths(
+                repository_root=_REPOSITORY_ROOT,
+                lock_path=_MODEL_LOCK_PATH,
+                assets_root=_MODEL_ASSETS_ROOT,
+            )
+        )
+    except (PreparationCommandError, OSError, ValueError) as error:
+        raise LifecycleCommandError(
+            command=("model cache copy",), exit_code=2, detail=str(error)
+        ) from error
+
+
+def _invalidate_model_markers() -> None:
+    """Clear stale identities before Compose can build a replacement image."""
+    try:
+        invalidate_model_markers(
+            PreparationPaths(
+                repository_root=_REPOSITORY_ROOT,
+                lock_path=_MODEL_LOCK_PATH,
+                assets_root=_MODEL_ASSETS_ROOT,
+            )
+        )
+    except (PreparationCommandError, OSError, RuntimeError, ValueError) as error:
+        raise LifecycleCommandError(
+            command=("model marker invalidation",), exit_code=2, detail=str(error)
+        ) from error
+
+
+def _prepare_model_assets() -> None:
+    """Run the immutable model preparation gate after the Compose image build."""
+    try:
+        _ = prepare_model_assets(
+            PreparationPaths(
+                repository_root=_REPOSITORY_ROOT,
+                lock_path=_MODEL_LOCK_PATH,
+                assets_root=_MODEL_ASSETS_ROOT,
+                build_image=False,
+                source_image="gods-watching-triton:25.02",
+                clear_markers=False,
+            )
+        )
+    except (PreparationCommandError, OSError, RuntimeError, ValueError) as error:
+        raise LifecycleCommandError(
+            command=("model preparation",), exit_code=2, detail=str(error)
+        ) from error
 
 
 def _prepare_environment() -> None:
@@ -245,12 +354,19 @@ def _environment_ready() -> bool:
 
 def inspect_runtime() -> DoctorReport:
     """Probe Docker, Compose, NVIDIA GPU access, and the packaged configuration."""
+    models: bool | None = None
+    if _ENV_PATH == _REPOSITORY_ROOT / ".env":
+        catalog = PreparedModelCatalog(
+            ClipModelRegistry(), _MODEL_LOCK_PATH, _MODEL_ASSETS_ROOT
+        )
+        models = all(catalog.status(package).prepared for package in catalog.registry.packages)
     return DoctorReport(
         docker=_probe("docker", "version"),
         compose=_probe("docker", "compose", "version"),
         gpu=_probe("nvidia-smi", "--query-gpu=name", "--format=csv,noheader"),
         configuration=_probe("docker", "compose", "config", "--quiet"),
         credentials=_environment_ready(),
+        models=models,
     )
 
 

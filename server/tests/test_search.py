@@ -116,3 +116,28 @@ def test_text_cache_rejects_nonfinite_vector_without_insertion() -> None:
     with pytest.raises(InvalidCachedEmbeddingError):
         _ = cache.put(TextEmbeddingCacheKey("revision", "query"), invalid)
     assert len(cache) == 0
+
+
+def test_text_cache_validates_the_selected_embedding_dimension() -> None:
+    cache = TextEmbeddingCache(dimension=768)
+    key = TextEmbeddingCacheKey("revision-large", "query")
+    embedding = tuple(1.0 if index == 0 else 0.0 for index in range(768))
+
+    assert cache.put(key, embedding) == embedding
+
+    with pytest.raises(InvalidCachedEmbeddingError):
+        _ = cache.put(key, _unit_embedding())
+
+
+def test_text_cache_keeps_same_revision_queries_separate_by_model_id() -> None:
+    cache = TextEmbeddingCache()
+    base = _unit_embedding()
+    alternate = _unit_embedding(1)
+    first = TextEmbeddingCacheKey("same-revision", "query", "model-a")
+    second = TextEmbeddingCacheKey("same-revision", "query", "model-b")
+
+    _ = cache.put(first, base)
+    _ = cache.put(second, alternate)
+
+    assert cache.get(first) == base
+    assert cache.get(second) == alternate

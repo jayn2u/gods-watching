@@ -200,7 +200,11 @@ async def test_postgres_search_returns_only_visible_rows_with_filtered_cosine_ra
     )
     await session.flush()
 
-    service = SearchService(SearchRepository())
+    service = SearchService(
+        SearchRepository(),
+        model_id="fixture/clip",
+        model_revision=_MODEL_REVISION,
+    )
 
     # When: browse is filtered to the primary camera and an inclusive interval
     browse = await service.search(
@@ -258,7 +262,10 @@ async def test_postgres_search_returns_only_visible_rows_with_filtered_cosine_ra
             return _vector((0, 1.0))
 
     text_service = SearchService(
-        SearchRepository(), _FixtureTextTransport(), model_revision=_MODEL_REVISION
+        SearchRepository(),
+        _FixtureTextTransport(),
+        model_id="fixture/clip",
+        model_revision=_MODEL_REVISION,
     )
     text_results = await text_service.search(
         session,

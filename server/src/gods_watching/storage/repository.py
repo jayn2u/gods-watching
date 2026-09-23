@@ -204,6 +204,9 @@ class StorageRepository:
             "sessions",
             "settings",
             "operator_credentials",
+            "active_model_identity",
+            "model_transition_jobs",
+            "model_transition_stages",
         )
         sizes: dict[str, int] = {}
         for relation_name in relation_names:
@@ -252,6 +255,7 @@ class StorageRepository:
             embedded_at=publication.embedded_at,
             model_id=publication.model_id,
             model_revision=publication.model_revision,
+            embedding_dimension=len(publication.embedding),
             embedding="[" + ",".join(str(item) for item in publication.embedding) + "]",
         )
 
@@ -277,4 +281,5 @@ class StorageRepository:
         appearance.embedded_at = publication.embedded_at
         appearance.model_id = publication.model_id
         appearance.model_revision = publication.model_revision
+        appearance.embedding_dimension = len(publication.embedding)
         appearance.embedding = "[" + ",".join(str(item) for item in publication.embedding) + "]"

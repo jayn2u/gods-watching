@@ -18,6 +18,26 @@ output [
 instance_group [{ count: 1 kind: KIND_GPU gpus: [0] }]
 dynamic_batching { max_queue_delay_microseconds: 10000 }
 parameters: {
+  key: "model_id"
+  value: { string_value: "openai/clip-vit-base-patch16" }
+}
+parameters: {
+  key: "snapshot_path"
+  value: { string_value: "/models/clip" }
+}
+parameters: {
   key: "model_revision"
   value: { string_value: "57c216476eefef5ab752ec549e440a49ae4ae5f3" }
+}
+parameters: {
+  key: "embedding_dimension"
+  value: { string_value: "512" }
+}
+parameters: {
+  key: "processor"
+  value: { string_value: "CLIPProcessor" }
+}
+parameters: {
+  key: "runtime"
+  value: { string_value: "transformers" }
 }

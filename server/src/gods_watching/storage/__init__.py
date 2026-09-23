@@ -4,6 +4,7 @@ from .crops import CropObjectStore, CropPathError, StoredCrop
 from .crypto import CredentialCipher, CredentialDecryptionError
 from .database import Database
 from .models import (
+    ActiveModelIdentity,
     Appearance,
     ApplicationSettings,
     Base,
@@ -13,6 +14,8 @@ from .models import (
     CameraSession,
     CropGarbage,
     LoginSession,
+    ModelTransitionJob,
+    ModelTransitionStage,
     WorkerRuntimeStatus,
 )
 from .repository import (
@@ -23,6 +26,7 @@ from .repository import (
 )
 
 __all__ = [
+    "ActiveModelIdentity",
     "Appearance",
     "AppearanceNotFoundError",
     "ApplicationSettings",
@@ -39,6 +43,8 @@ __all__ = [
     "CropPathError",
     "Database",
     "LoginSession",
+    "ModelTransitionJob",
+    "ModelTransitionStage",
     "StaleAppearanceVersionError",
     "StorageRepository",
     "StoredCrop",

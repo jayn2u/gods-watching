@@ -15,6 +15,7 @@ from .camera_routes import AuthenticatedRequest as CameraAuthenticatedRequest
 from .camera_routes import build_camera_router
 from .lifespan import build_lifespan
 from .live_routes import build_live_detection_router
+from .model_routes import build_model_router
 from .search_routes import build_search_router
 from .session_routes import build_session_router
 from .sessionguard import AuthenticatedRequest, require_session
@@ -65,6 +66,13 @@ def _build_api_router(dependencies: ApiDependencies) -> APIRouter:
         build_settings_router(
             database=dependencies.database,
             settings=dependencies.settings,
+            require_session=require_camera_session,
+        )
+    )
+    router.include_router(
+        build_model_router(
+            database=dependencies.database,
+            model_selection=dependencies.model_selection,
             require_session=require_camera_session,
         )
     )

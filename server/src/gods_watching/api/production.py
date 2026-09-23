@@ -10,7 +10,7 @@ from starlette.staticfiles import StaticFiles
 
 from gods_watching.auth import AuthService
 from gods_watching.cameras import CameraRepository, CameraService, RtspSourceProbe
-from gods_watching.inference.clip import ClipAdapter, TritonClipTransport
+from gods_watching.inference.clip import TritonClipTransport
 from gods_watching.media import (
     GenerationEvent,
     HttpMediaControlGateway,
@@ -21,7 +21,9 @@ from gods_watching.media import (
     SourceGenerationCoordinator,
     WhepProxyService,
 )
-from gods_watching.pipeline_worker.settings import locked_clip_model
+from gods_watching.model_selection import ClipModelRegistry
+from gods_watching.model_selection.coordinator import TransitionCoordinator
+from gods_watching.model_selection.service import ModelSelectionService
 from gods_watching.search import AppearanceLookupService, SearchRepository, SearchService
 from gods_watching.settings import SettingsService
 from gods_watching.storage import CredentialCipher, CropObjectStore, Database, StorageRepository
@@ -67,6 +69,7 @@ class _ProductionSettings(BaseSettings):
     media_reader_password: str = Field(default="", repr=False, min_length=1)
     web_root: Path = Path()
     model_lock_path: Path = Path("/opt/gods-watching/assets/models.lock.json")
+    model_assets_root: Path = Path("/models")
 
     @model_validator(mode="after")
     def _require_paths(self) -> _ProductionSettings:
@@ -91,9 +94,26 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
 
     database = Database.connect(configured.database_url)
     clip_transport = TritonClipTransport(configured.triton_grpc_url)
-    _model_id, model_revision = locked_clip_model(configured.model_lock_path)
-    repository = SearchRepository()
     storage = StorageRepository(CredentialCipher(configured.camera_cipher_key.encode()))
+    registry = ClipModelRegistry()
+    # Preparation is an explicit deployment dependency.  Import lazily so
+    # lightweight API contract tests do not need the preparation package.
+    from gods_watching.model_selection.assets import PreparedModelCatalog  # noqa: PLC0415
+
+    prepared = PreparedModelCatalog(
+        registry,
+        configured.model_lock_path,
+        assets_root=configured.model_assets_root,
+    )
+    model_coordinator = TransitionCoordinator(database)
+    model_selection = ModelSelectionService(
+        database=database,
+        registry=registry,
+        prepared=prepared,
+        coordinator=model_coordinator,
+        storage=storage,
+    )
+    repository = SearchRepository()
     auth = AuthService(database, operator_username=configured.operator_username)
     _ = await auth.sync_password(configured.operator_password)
 
@@ -142,14 +162,18 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
         ),
         search=SearchService(
             repository,
-            ClipAdapter(clip_transport),
-            model_revision=model_revision,
+            clip_transport,
+            model_id=registry.default.model_id,
+            model_revision=registry.default.revision,
+            dimension=registry.default.dimension,
+            coordinator=model_coordinator,
         ),
         appearance=AppearanceLookupService(
             repository,
             CropObjectStore(root=configured.crops_root),
         ),
         clip_lifecycle=clip_transport,
+        model_selection=model_selection,
     )
     application = create_app(dependencies)
     application.mount("/", StaticFiles(directory=configured.web_root, html=True), name="web")
