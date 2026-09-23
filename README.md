@@ -15,14 +15,39 @@ GPU 기반 RTSP 인물 검색 서버입니다. 브라우저에서 실시간 카�
 ## 켜기
 
 ```bash
-./gods-watching doctor   # Docker, Compose, NVIDIA GPU, Compose 구성 점검
-./gods-watching prepare  # 최초 자격 증명 생성 및 고정 이미지 빌드
+./gods-watching prepare  # 최초 자격 증명·model assets 준비 및 고정 이미지 빌드
+./gods-watching doctor   # Docker, Compose, NVIDIA GPU와 준비 상태 점검
 ./gods-watching up       # docker compose up -d
 ./gods-watching status   # docker compose ps
 ./gods-watching down     # docker compose down
 ```
 
 첫 실행은 애플리케이션과 Triton 이미지를 빌드하고 모델을 내려받기 때문에 시간이 걸립니다. 모든 서비스가 준비되면 <http://localhost:8080>으로 접속합니다.
+
+## CLIP 모델 준비와 전환
+
+`prepare`가 `assets/models.lock.json`에 고정된 detector와 CLIP snapshot을 검증하고 `runtime/assets/models/` 공유 cache에 준비합니다. 준비 결과와 GPU 검증 정보는 `runtime/assets/models/prepared-manifest.json`에 기록되며, 실행 중인 Triton은 이 cache를 `/models`로 읽기 전용 마운트합니다. 운영 순서는 다음과 같습니다.
+
+```bash
+./gods-watching prepare  # 고정된 model assets 준비 및 검증
+./gods-watching doctor   # Docker, Compose, NVIDIA GPU와 준비 상태 확인
+./gods-watching up       # 준비된 asset만 사용하는 서비스 시작
+```
+
+브라우저의 `Cameras` 화면에 있는 `Person search model`에서 OpenAI CLIP ViT-B/32(512차원), ViT-B/16(512차원, 기본값), ViT-L/14(768차원) 중 준비된 모델을 선택합니다. 준비되지 않은 모델은 선택할 수 없고, 모델 파일을 브라우저에서 업로드하거나 실행 중에 다운로드하지 않습니다. 같은 차원의 모델도 서로 다른 embedding 공간이므로 기존 검색 결과와 새 모델의 vector를 섞지 않습니다.
+
+모델을 적용하기 전에 확인 창이 표시됩니다. 전환 중에는 person analysis와 search가 일시 중지되고, 보존된 person crop을 새 모델로 다시 embedding합니다. 이 시간 동안 원본 영상을 저장하거나 나중에 재생해 누락된 분석을 보충하지 않습니다. 진행 단계와 처리량은 서버의 durable status를 polling하므로 페이지를 새로고침해도 진행 중인 작업과 완료·실패 결과가 다시 표시됩니다.
+
+없거나 읽을 수 없는 crop은 누락 사유별 skip 수로 보고하고 전환을 계속합니다. 활성화 전에 inference, database, filesystem, GPU 또는 용량 오류가 나면 기존 model identity와 vector를 보존하고 이전 모델로 복구합니다. atomic activation 후 worker/pipeline 재시작 오류가 나면 이미 확정된 target model을 기준으로 search와 analysis를 안전하게 복구합니다. 복구가 끝나지 않으면 화면에 `rolling_back` maintenance 상태와 안전한 오류가 남고 analysis/search를 다시 열지 않습니다. 이 상태에서는 `doctor`와 다음 로그를 확인한 뒤 원인을 해결하고 준비·서비스 절차를 다시 실행하십시오.
+
+```bash
+./gods-watching doctor
+docker compose logs --tail=100 api worker triton
+./gods-watching prepare
+./gods-watching up
+```
+
+`runtime/assets/models/`와 `prepared-manifest.json`은 공유 cache의 권위 사본이므로 실행 중 수동 삭제·교체하지 않습니다. 모델 registry는 model ID, immutable revision, embedding dimension, processor와 runtime adapter를 함께 기록합니다. 이후 학습된 model package를 추가할 때도 이 metadata와 검증된 asset을 lock에 등록하는 방식을 사용하며, custom checkpoint 업로드 화면은 현재 제공하지 않습니다.
 
 운영자 로그인 정보는 `.env`의 `GW_OPERATOR_USERNAME`과 `GW_OPERATOR_PASSWORD`가 단일 기준입니다. API는 시작할 때마다 `.env`의 비밀번호를 데이터베이스 credential에 반영하므로, 두 값을 `admin`으로 두면 `admin`/`admin`으로 로그인합니다. 아이디는 앞뒤 공백을 제거하고 대소문자를 구분하지 않으며, 비밀번호는 4~128자만 허용합니다. `.env` 값을 바꾸면 다음 시작 때 기존 세션이 모두 해지되고, `credentials set`으로 바꾼 비밀번호도 `.env` 값으로 되돌아갑니다. `./gods-watching doctor`는 파일 권한, 필수 값, placeholder 사용 여부를 확인하지만 비밀 값은 출력하지 않습니다.
 

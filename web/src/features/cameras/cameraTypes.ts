@@ -8,6 +8,7 @@ export type CameraClient = Pick<
 >
 
 export type SettingsClient = Pick<ApiClient, "patchSettings">
+export type ModelSettingsClient = Pick<ApiClient, "applyModel" | "getModelSettings">
 
 export type RetentionSettingsProps = Readonly<{
   settings: WallSettingsState
@@ -18,7 +19,7 @@ export type RetentionSettingsProps = Readonly<{
 
 export type CameraScreenProps = Readonly<{
   cameras: CameraState
-  client: CameraClient
+  client: CameraClient & ModelSettingsClient
   onRefresh: () => void
   onUnauthorized: () => void
   settings: WallSettingsState

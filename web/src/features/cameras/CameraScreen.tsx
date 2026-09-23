@@ -1,6 +1,7 @@
 import { useRef, useState } from "react"
 import type { CameraResponse } from "../../app/client"
 import { Panel, Status } from "../../components"
+import { ModelSelector } from "../settings/ModelSelector"
 import { RetentionSettings } from "../settings/RetentionSettings"
 import { CameraEditor } from "./CameraEditor"
 import { CameraList } from "./CameraList"
@@ -88,6 +89,7 @@ export function CameraScreen({
           ) : null}
         </div>
         <div className="camera-settings__secondary">
+          <ModelSelector client={client} onUnauthorized={onUnauthorized} />
           <RetentionSettings
             onSettingsSaved={onSettingsSaved}
             onUnauthorized={onUnauthorized}

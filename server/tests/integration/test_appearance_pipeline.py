@@ -153,7 +153,11 @@ async def test_ingest_start_is_searchable_before_track_exit(
             consumer.last_ack.t_searchable_monotonic - consumer.last_ack.t_detect_monotonic
         )
         async with database.transaction() as session:
-            response = await SearchService(SearchRepository()).search(
+            response = await SearchService(
+                SearchRepository(),
+                model_id="synthetic/clip",
+                model_revision="pipeline-fixture",
+            ).search(
                 session,
                 BrowseSearchRequest(mode="browse", camera_ids=(CameraId(camera.id),), limit=10),
             )

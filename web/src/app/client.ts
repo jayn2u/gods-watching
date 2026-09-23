@@ -10,12 +10,18 @@ import {
   parseCameraResponse,
   parseCameraTestResponse,
   parseLiveDetectionsResponse,
+  parseModelSettingsResponse,
   parseSearchResponse,
   parseSettingsResponse,
   type SearchRequest,
   type SearchResponse,
 } from "./clientDomain"
-import type { CameraResponse, SettingsPatch, SettingsResponse } from "./clientTypes"
+import type {
+  CameraResponse,
+  ModelSettingsResponse,
+  SettingsPatch,
+  SettingsResponse,
+} from "./clientTypes"
 
 export type {
   AppearanceResponse,
@@ -41,7 +47,16 @@ export type SessionResponse = Readonly<{
   absolute_expires_at: string | null
 }>
 
-export type { CameraResponse, SettingsPatch, SettingsResponse, WallSlotIds } from "./clientTypes"
+export type {
+  CameraResponse,
+  ClipModelOption,
+  ClipModelTransition,
+  ModelSettingsResponse,
+  ModelTransitionPhase,
+  SettingsPatch,
+  SettingsResponse,
+  WallSlotIds,
+} from "./clientTypes"
 
 type ErrorPayload = Readonly<{
   code: string
@@ -360,6 +375,22 @@ export class ApiClient {
       "/api/settings",
       { method: "PATCH", body: JSON.stringify(patch), signal },
       parseSettingsResponse,
+    )
+  }
+
+  getModelSettings(signal: AbortSignal): Promise<ModelSettingsResponse> {
+    return requestJson(
+      "/api/settings/models",
+      { method: "GET", signal },
+      parseModelSettingsResponse,
+    )
+  }
+
+  applyModel(modelId: string, signal: AbortSignal): Promise<ModelSettingsResponse> {
+    return requestJson(
+      "/api/settings/models/apply",
+      { method: "POST", body: JSON.stringify({ model_id: modelId }), signal },
+      parseModelSettingsResponse,
     )
   }
 

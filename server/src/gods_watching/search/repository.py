@@ -1,5 +1,7 @@
 """Filtered PostgreSQL retrieval over committed appearance representatives."""
 
+# ruff: noqa: PLR0913
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -9,8 +11,8 @@ from sqlalchemy import ColumnElement, Float, Select, cast, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gods_watching.contracts.search import SearchFilters
-from gods_watching.storage import Appearance, Camera
-from gods_watching.storage.vector import Vector512
+from gods_watching.storage import ActiveModelIdentity, Appearance, Camera
+from gods_watching.storage.vector import Vector
 
 from .cache import SearchEmbedding
 from .errors import UnknownCameraError
@@ -75,13 +77,31 @@ class SearchRepository:
         appearance, camera = row
         return AppearanceSeed(appearance=appearance, camera=camera)
 
+    async def active_identity(self, session: AsyncSession) -> tuple[str, str, int] | None:
+        """Read the singleton model identity used by all committed retrieval."""
+        row = await session.scalar(
+            select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+        )
+        if row is None:
+            return None
+        return row.model_id, row.model_revision, row.embedding_dimension
+
     async def browse(
         self,
         session: AsyncSession,
         filters: SearchFilters,
+        *,
+        model_id: str | None = None,
+        model_revision: str | None = None,
+        dimension: int | None = None,
     ) -> tuple[SearchCandidate, ...]:
         """Return visible rows newest by first-seen time with deterministic ID ties."""
-        statement = self._base_statement(filters).order_by(
+        statement = self._base_statement(
+            filters,
+            model_id=model_id,
+            model_revision=model_revision,
+            dimension=dimension,
+        ).order_by(
             Appearance.first_seen.desc(),
             Appearance.id.asc(),
         )
@@ -95,6 +115,8 @@ class SearchRepository:
         *,
         embedding: SearchEmbedding,
         model_revision: str,
+        model_id: str | None = None,
+        dimension: int = 512,
         exclude_appearance_id: UUID | None,
     ) -> tuple[SearchCandidate, ...]:
         """Run strict filtered HNSW retrieval and exact filtered fallback when needed."""
@@ -102,12 +124,16 @@ class SearchRepository:
             filters,
             embedding=embedding,
             model_revision=model_revision,
+            model_id=model_id,
+            dimension=dimension,
             exclude_appearance_id=exclude_appearance_id,
         )
         eligible = await self._eligible_count(
             session,
             filters,
             model_revision=model_revision,
+            model_id=model_id,
+            dimension=dimension,
             exclude_appearance_id=exclude_appearance_id,
         )
         _ = await session.execute(text("SET LOCAL hnsw.iterative_scan = 'strict_order'"))
@@ -136,8 +162,22 @@ class SearchRepository:
         fresh_statement = statement.execution_options(populate_existing=True)
         return (await session.execute(fresh_statement)).tuples().one_or_none()
 
-    def _base_statement(self, filters: SearchFilters) -> Select[tuple[Appearance, Camera]]:
+    def _base_statement(
+        self,
+        filters: SearchFilters,
+        *,
+        model_id: str | None,
+        model_revision: str | None,
+        dimension: int | None,
+    ) -> Select[tuple[Appearance, Camera]]:
         predicates = self._filter_predicates(filters)
+        predicates.extend(
+            self._model_predicates(
+                model_id=model_id,
+                model_revision=model_revision,
+                dimension=dimension,
+            )
+        )
         return (
             select(Appearance, Camera)
             .join(Camera, Camera.id == Appearance.camera_id)
@@ -154,16 +194,22 @@ class SearchRepository:
         *,
         embedding: SearchEmbedding,
         model_revision: str,
+        model_id: str | None = None,
+        dimension: int = 512,
         exclude_appearance_id: UUID | None,
     ) -> Select[tuple[Appearance, Camera, float]]:
         vector = "[" + ",".join(format(value, ".9g") for value in embedding) + "]"
-        query_vector = cast(literal(vector), Vector512())
-        distance: ColumnElement[float] = Appearance.embedding.op("<=>")(query_vector).cast(Float)
+        query_vector = cast(literal(vector), Vector(dimension))
+        typed_embedding = cast(Appearance.embedding, Vector(dimension))
+        distance: ColumnElement[float] = typed_embedding.op("<=>")(query_vector).cast(Float)
         similarity = (literal(1.0) - distance).label("similarity")
         predicates = [
             *self._filter_predicates(filters),
-            Appearance.model_revision == model_revision,
-            Appearance.embedding.is_not(None),
+            *self._model_predicates(
+                model_id=model_id,
+                model_revision=model_revision,
+                dimension=dimension,
+            ),
         ]
         if exclude_appearance_id is not None:
             predicates.append(Appearance.id != exclude_appearance_id)
@@ -180,12 +226,17 @@ class SearchRepository:
         filters: SearchFilters,
         *,
         model_revision: str,
+        model_id: str | None = None,
+        dimension: int = 512,
         exclude_appearance_id: UUID | None,
     ) -> int:
         predicates = [
             *self._filter_predicates(filters),
-            Appearance.model_revision == model_revision,
-            Appearance.embedding.is_not(None),
+            *self._model_predicates(
+                model_id=model_id,
+                model_revision=model_revision,
+                dimension=dimension,
+            ),
         ]
         if exclude_appearance_id is not None:
             predicates.append(Appearance.id != exclude_appearance_id)
@@ -217,4 +268,20 @@ class SearchRepository:
             predicates.append(Appearance.last_seen >= filters.from_)
         if filters.to is not None:
             predicates.append(Appearance.first_seen <= filters.to)
+        return predicates
+
+    @staticmethod
+    def _model_predicates(
+        *,
+        model_id: str | None,
+        model_revision: str | None,
+        dimension: int | None,
+    ) -> list[ColumnElement[bool]]:
+        predicates: list[ColumnElement[bool]] = [Appearance.embedding.is_not(None)]
+        if model_id is not None:
+            predicates.append(Appearance.model_id == model_id)
+        if model_revision:
+            predicates.append(Appearance.model_revision == model_revision)
+        if dimension is not None:
+            predicates.append(Appearance.embedding_dimension == dimension)
         return predicates

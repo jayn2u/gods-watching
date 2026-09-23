@@ -8,8 +8,16 @@ import typer
 from pydantic import ValidationError
 from typer.models import OptionInfo
 
+from gods_watching.model_selection.registry import ClipModelRegistry
+
 from .model_preparation import PreparationPaths, prepare_model_assets
-from .models import AssetValidationError, load_models_lock, validate_model_assets
+from .models import (
+    AssetValidationError,
+    LockRegistryMismatchError,
+    load_models_lock,
+    validate_model_assets,
+    validate_registry_agreement,
+)
 
 app = typer.Typer(add_completion=False)
 
@@ -27,12 +35,21 @@ def validate(
     """Validate an existing model cache without network access."""
     try:
         lock = load_models_lock(lock_path)
+        validate_registry_agreement(lock, ClipModelRegistry())
         validated = validate_model_assets(lock, assets)
     except AssetValidationError as error:
         typer.echo(str(error))
         raise typer.Exit(code=2) from error
     except ValidationError as error:
         typer.echo('{"code":"invalid_lock"}')
+        raise typer.Exit(code=2) from error
+    except LockRegistryMismatchError as error:
+        typer.echo(
+            json.dumps(
+                {"code": "lock_registry_mismatch", "mismatches": error.mismatches},
+                separators=(",", ":"),
+            )
+        )
         raise typer.Exit(code=2) from error
     except OSError as error:
         typer.echo('{"code":"lock_unreadable"}')

@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .base import ContractModel
 from .identifiers import AppearanceId, CameraId, CameraSessionId
@@ -10,7 +10,10 @@ from .primitives import UtcDatetime
 
 PositiveInt = Annotated[int, Field(gt=0)]
 UnitScore = Annotated[float, Field(ge=0.0, le=1.0)]
-Embedding = Annotated[tuple[float, ...], Field(min_length=512, max_length=512)]
+# The initial catalog contains 512- and 768-dimensional CLIP packages.  The
+# model identity carried alongside every publication keeps equal-width spaces
+# distinct at the retrieval boundary.
+Embedding = Annotated[tuple[float, ...], Field(min_length=1, max_length=4096)]
 
 
 class BoundingBox(ContractModel):
@@ -44,6 +47,15 @@ class AppearancePublication(ContractModel):
     model_id: str
     model_revision: str
     embedding: Embedding
+
+    @field_validator("embedding")
+    @classmethod
+    def require_supported_dimension(cls, value: tuple[float, ...]) -> tuple[float, ...]:
+        """Keep publication vectors within the deployed CLIP dimensions."""
+        if len(value) not in {512, 768}:
+            error_message = "embedding dimension must be 512 or 768"
+            raise ValueError(error_message)
+        return value
 
 
 class AppearanceResponse(ContractModel):

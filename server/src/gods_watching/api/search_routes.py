@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gods_watching.contracts.search import SearchRequest, SearchResponse
+from gods_watching.model_selection.models import MaintenanceModeError
 from gods_watching.search import (
     SearchInferenceUnavailableError,
     SearchSeedNotFoundError,
@@ -56,6 +57,8 @@ class _SearchHandlers:
             _raise_api_error(422, "invalid_text", "search text is invalid")
         except SearchInferenceUnavailableError:
             _raise_api_error(503, "inference_unavailable", "search inference is unavailable")
+        except MaintenanceModeError:
+            _raise_api_error(503, "maintenance", "search is temporarily unavailable")
 
 
 def build_search_router(

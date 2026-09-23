@@ -22,3 +22,39 @@ export type SettingsPatch = Readonly<{
   quota_bytes?: number
   wall_slot_ids?: WallSlotIds
 }>
+
+export type ModelTransitionPhase =
+  | "queued"
+  | "preparing"
+  | "reindexing"
+  | "activating"
+  | "rolling_back"
+  | "succeeded"
+  | "failed"
+
+export type ClipModelOption = Readonly<{
+  model_id: string
+  display_name: string
+  dimension: number
+  prepared: boolean
+  reason: string | null
+}>
+
+export type ClipModelTransition = Readonly<{
+  id: string
+  source_model_id: string
+  target_model_id: string
+  phase: ModelTransitionPhase
+  processed: number
+  total: number
+  skipped: number
+  skip_reasons: Readonly<Record<string, number>>
+  error: string | null
+}>
+
+export type ModelSettingsResponse = Readonly<{
+  active_model_id: string
+  maintenance: boolean
+  models: readonly ClipModelOption[]
+  transition: ClipModelTransition | null
+}>

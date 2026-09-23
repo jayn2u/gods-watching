@@ -44,6 +44,10 @@ def fake_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("PATH", str(tmp_path))
     monkeypatch.setenv("GW_TEST_COMMAND_LOG", str(log_path))
     monkeypatch.setattr("gods_watching.lifecycle._ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr("gods_watching.lifecycle._prepare_model_asset_directory", lambda: None)
+    monkeypatch.setattr("gods_watching.lifecycle._invalidate_model_markers", lambda: None)
+    monkeypatch.setattr("gods_watching.lifecycle._reuse_existing_yolo_asset", lambda: None)
+    monkeypatch.setattr("gods_watching.lifecycle._prepare_model_assets", lambda: None)
     return log_path
 
 

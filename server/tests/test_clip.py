@@ -32,6 +32,10 @@ def _unit_embedding() -> tuple[float, ...]:
     return (1.0, *([0.0] * 511))
 
 
+def _unit_embedding_768() -> tuple[float, ...]:
+    return (1.0, *([0.0] * 767))
+
+
 @pytest.mark.anyio
 async def test_text_embedding_when_query_is_valid_and_normalized() -> None:
     # Given: a typed transport that returns a valid unit CLIP vector
@@ -77,5 +81,20 @@ async def test_embedding_rejected_when_transport_breaks_vector_contract(
     # Given: a transport response with a malformed CLIP vector
     adapter = ClipAdapter(FakeClipTransport(embedding))
     # When / Then: dimensions, finite values, and unit norm are enforced
+    with pytest.raises(ClipInferenceError, match="clip_embedding_invalid"):
+        _ = await adapter.embed_text("a person")
+
+
+@pytest.mark.anyio
+async def test_clip_adapter_accepts_the_selected_768_dimension() -> None:
+    adapter = ClipAdapter(FakeClipTransport(_unit_embedding_768()), dimension=768)
+
+    assert await adapter.embed_text("a person") == _unit_embedding_768()
+
+
+@pytest.mark.anyio
+async def test_clip_adapter_rejects_a_vector_from_the_wrong_selected_dimension() -> None:
+    adapter = ClipAdapter(FakeClipTransport(_unit_embedding()), dimension=768)
+
     with pytest.raises(ClipInferenceError, match="clip_embedding_invalid"):
         _ = await adapter.embed_text("a person")

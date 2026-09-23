@@ -1,4 +1,12 @@
-import type { CameraResponse, SettingsResponse, WallSlotIds } from "./clientTypes"
+import type {
+  CameraResponse,
+  ClipModelOption,
+  ClipModelTransition,
+  ModelSettingsResponse,
+  ModelTransitionPhase,
+  SettingsResponse,
+  WallSlotIds,
+} from "./clientTypes"
 
 export type SearchFilters = Readonly<{
   camera_ids?: readonly string[]
@@ -160,6 +168,11 @@ function positiveIntegerField(record: Record<string, unknown>, key: string): num
   return value !== undefined && value > 0 ? value : undefined
 }
 
+function nonNegativeIntegerField(record: Record<string, unknown>, key: string): number | undefined {
+  const value = integerField(record, key)
+  return value !== undefined && value >= 0 ? value : undefined
+}
+
 function nullableNumberField(
   record: Record<string, unknown>,
   key: string,
@@ -258,6 +271,126 @@ export function parseSettingsResponse(value: unknown): SettingsResponse {
     slots[3] ?? null,
   ]
   return { retention_days: retentionDays, quota_bytes: quotaBytes, wall_slot_ids: wallSlotIds }
+}
+
+const MODEL_TRANSITION_PHASES: readonly ModelTransitionPhase[] = [
+  "queued",
+  "preparing",
+  "reindexing",
+  "activating",
+  "rolling_back",
+  "succeeded",
+  "failed",
+]
+
+function parseModelOption(value: unknown): ClipModelOption {
+  if (!isRecord(value)) {
+    throw new Error("model settings response has an invalid model")
+  }
+  const modelId = stringField(value, "model_id")
+  const displayName = stringField(value, "display_name")
+  const dimension = positiveIntegerField(value, "dimension")
+  const prepared = unknownField(value, "prepared")
+  const reason = nullableStringField(value, "reason")
+  if (
+    modelId === undefined ||
+    modelId.length === 0 ||
+    displayName === undefined ||
+    displayName.length === 0 ||
+    dimension === undefined ||
+    typeof prepared !== "boolean" ||
+    reason === undefined
+  ) {
+    throw new Error("model settings response has an invalid model")
+  }
+  return {
+    model_id: modelId,
+    display_name: displayName,
+    dimension,
+    prepared,
+    reason,
+  }
+}
+
+function parseSkipReasons(value: unknown): Readonly<Record<string, number>> {
+  if (!isRecord(value)) {
+    throw new Error("model settings response has an invalid transition")
+  }
+  const reasons: Record<string, number> = {}
+  for (const [reason, count] of Object.entries(value)) {
+    if (reason.length === 0 || typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      throw new Error("model settings response has an invalid transition")
+    }
+    reasons[reason] = count
+  }
+  return reasons
+}
+
+function parseModelTransition(value: unknown): ClipModelTransition {
+  if (!isRecord(value)) {
+    throw new Error("model settings response has an invalid transition")
+  }
+  const id = stringField(value, "id")
+  const sourceModelId = stringField(value, "source_model_id")
+  const targetModelId = stringField(value, "target_model_id")
+  const phase = unknownField(value, "phase")
+  const processed = nonNegativeIntegerField(value, "processed")
+  const total = nonNegativeIntegerField(value, "total")
+  const skipped = nonNegativeIntegerField(value, "skipped")
+  const error = nullableStringField(value, "error")
+  if (
+    id === undefined ||
+    id.length === 0 ||
+    sourceModelId === undefined ||
+    sourceModelId.length === 0 ||
+    targetModelId === undefined ||
+    targetModelId.length === 0 ||
+    !MODEL_TRANSITION_PHASES.includes(phase as ModelTransitionPhase) ||
+    processed === undefined ||
+    total === undefined ||
+    skipped === undefined ||
+    processed > total ||
+    skipped > total ||
+    error === undefined
+  ) {
+    throw new Error("model settings response has an invalid transition")
+  }
+  return {
+    id,
+    source_model_id: sourceModelId,
+    target_model_id: targetModelId,
+    phase: phase as ModelTransitionPhase,
+    processed,
+    total,
+    skipped,
+    skip_reasons: parseSkipReasons(unknownField(value, "skip_reasons")),
+    error,
+  }
+}
+
+export function parseModelSettingsResponse(value: unknown): ModelSettingsResponse {
+  if (!isRecord(value)) {
+    throw new Error("model settings response is not an object")
+  }
+  const activeModelId = stringField(value, "active_model_id")
+  const maintenance = unknownField(value, "maintenance")
+  const models = unknownField(value, "models")
+  const transitionValue = unknownField(value, "transition")
+  if (
+    activeModelId === undefined ||
+    activeModelId.length === 0 ||
+    typeof maintenance !== "boolean" ||
+    !Array.isArray(models) ||
+    (transitionValue !== null && !isRecord(transitionValue))
+  ) {
+    throw new Error("model settings response has an invalid shape")
+  }
+  return {
+    active_model_id: activeModelId,
+    maintenance,
+    models: models.map(parseModelOption),
+    transition: transitionValue === null ? null : parseModelTransition(transitionValue),
+  }
 }
 
 export function parseAppearanceResponse(value: unknown): AppearanceResponse {

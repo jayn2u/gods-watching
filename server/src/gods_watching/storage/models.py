@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from .vector import Vector512
+from .vector import Vector
 
 
 class Base(DeclarativeBase):
@@ -153,6 +153,10 @@ class Appearance(Base):
         ),
         CheckConstraint("crop_quality >= 0", name="ck_appearances_crop_quality"),
         CheckConstraint("byte_size > 0", name="ck_appearances_byte_size"),
+        CheckConstraint(
+            "embedding IS NULL OR embedding_dimension = vector_dims(embedding)",
+            name="ck_appearances_embedding_dimension",
+        ),
         Index("ix_appearances_camera_time", "camera_id", "first_seen", "last_seen"),
     )
 
@@ -177,7 +181,13 @@ class Appearance(Base):
     embedded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     model_id: Mapped[str] = mapped_column(String(255))
     model_revision: Mapped[str] = mapped_column(String(255))
-    embedding: Mapped[str | None] = mapped_column(Vector512)
+    # Unconstrained at the storage boundary: 512 and 768 dimensional model
+    # spaces coexist while a transition stages its replacement vectors.
+    embedding_dimension: Mapped[int] = mapped_column(
+        Integer,
+        server_default="512",
+    )
+    embedding: Mapped[str | None] = mapped_column(Vector())
     tombstoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -236,3 +246,98 @@ class ApplicationSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ActiveModelIdentity(Base):
+    """The one model identity whose vectors are currently searchable."""
+
+    __tablename__: str = "active_model_identity"
+    __table_args__: tuple[CheckConstraint, ...] = (
+        CheckConstraint("singleton", name="ck_active_model_identity_singleton"),
+        CheckConstraint("embedding_dimension > 0", name="ck_active_model_identity_dimension"),
+    )
+
+    singleton: Mapped[bool] = mapped_column(Boolean, primary_key=True, default=True)
+    model_id: Mapped[str] = mapped_column(String(255))
+    model_revision: Mapped[str] = mapped_column(String(255))
+    embedding_dimension: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ModelTransitionJob(Base):
+    """Durable state and bounded counters for one global model switch."""
+
+    __tablename__: str = "model_transition_jobs"
+    __table_args__: tuple[CheckConstraint, ...] = (
+        CheckConstraint("total >= 0", name="ck_model_transition_total"),
+        CheckConstraint(
+            "processed >= 0 AND processed <= total",
+            name="ck_model_transition_processed",
+        ),
+        CheckConstraint(
+            "skipped >= 0 AND skipped <= processed",
+            name="ck_model_transition_skipped",
+        ),
+        CheckConstraint("source_dimension > 0", name="ck_model_transition_source_dimension"),
+        CheckConstraint("target_dimension > 0", name="ck_model_transition_target_dimension"),
+    )
+
+    id: Mapped[UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    source_model_id: Mapped[str] = mapped_column(String(255))
+    source_model_revision: Mapped[str] = mapped_column(String(255))
+    source_dimension: Mapped[int] = mapped_column(Integer)
+    target_model_id: Mapped[str] = mapped_column(String(255))
+    target_model_revision: Mapped[str] = mapped_column(String(255))
+    target_dimension: Mapped[int] = mapped_column(Integer)
+    phase: Mapped[str] = mapped_column(String(32))
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    processed: Mapped[int] = mapped_column(Integer, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, default=0)
+    skip_reasons: Mapped[dict[str, int]] = mapped_column(
+        postgresql.JSONB, default=dict, server_default="{}"
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ModelTransitionStage(Base):
+    """One staged crop vector keyed by transition and appearance identity."""
+
+    __tablename__: str = "model_transition_stages"
+    __table_args__: tuple[CheckConstraint, ...] = (
+        CheckConstraint(
+            "processed_at IS NULL OR embedding IS NOT NULL OR skip_reason IS NOT NULL",
+            name="ck_model_transition_stage_result",
+        ),
+        CheckConstraint(
+            "embedding_dimension > 0",
+            name="ck_model_transition_stage_dimension",
+        ),
+        CheckConstraint(
+            "embedding IS NULL OR embedding_dimension = vector_dims(embedding)",
+            name="ck_model_transition_stage_embedding_dimension",
+        ),
+        CheckConstraint(
+            "source_representative_version >= 1",
+            name="ck_model_transition_stage_version",
+        ),
+    )
+
+    job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_transition_jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    appearance_id: Mapped[UUID] = mapped_column(
+        ForeignKey("appearances.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_crop_object_key: Mapped[str] = mapped_column(String(80))
+    source_representative_version: Mapped[int] = mapped_column(Integer)
+    embedding_dimension: Mapped[int] = mapped_column(Integer)
+    embedding: Mapped[str | None] = mapped_column(Vector())
+    skip_reason: Mapped[str | None] = mapped_column(String(64))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

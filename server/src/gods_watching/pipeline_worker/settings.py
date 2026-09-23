@@ -25,6 +25,8 @@ class PipelineWorkerSettings(BaseSettings):
     crops_root: Path
     camera_cipher_key: str = Field(repr=False)
     worker_poll_seconds: float = Field(default=1.0, gt=0.0)
+    model_lock_path: Path = Path("/opt/gods-watching/assets/models.lock.json")
+    model_assets_root: Path = Path("/models")
 
 
 class LockedClipModelError(RuntimeError):

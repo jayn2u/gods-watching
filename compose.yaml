@@ -11,6 +11,7 @@ x-application-environment: &application-environment
   GW_MEDIA_READER_USER: reader
   GW_MEDIA_WHEP_HOST: 127.0.0.1
   GW_MEDIA_WHEP_PORT: ${GW_MEDIA_WHEP_PORT:-18889}
+  GW_MODEL_ASSETS_ROOT: /models
   GW_OPERATOR_PASSWORD: ${GW_OPERATOR_PASSWORD:?run ./gods-watching prepare first}
   GW_OPERATOR_USERNAME: ${GW_OPERATOR_USERNAME:-admin}
   GW_PUBLIC_ORIGIN: ${GW_PUBLIC_ORIGIN:-http://localhost:${GW_PUBLIC_PORT:-8080}}
@@ -90,6 +91,8 @@ services:
       - tritonserver
       - --model-repository=/models-repository
       - --strict-readiness=true
+      - --model-control-mode=explicit
+      - --load-model=detector
       - --http-address=127.0.0.1
       - --http-port=${GW_TRITON_HTTP_PORT:-18010}
       - --grpc-address=127.0.0.1
@@ -105,6 +108,13 @@ services:
       retries: 60
       start_period: 30s
     restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./runtime/assets/models
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
     network_mode: host
 
   api:
@@ -136,6 +146,12 @@ services:
     tmpfs: [/tmp]
     volumes:
       - crops:/var/lib/gods-watching/crops
+      - type: bind
+        source: ./runtime/assets/models
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
     network_mode: host
 
   worker:
@@ -153,6 +169,12 @@ services:
     tmpfs: [/tmp]
     volumes:
       - crops:/var/lib/gods-watching/crops
+      - type: bind
+        source: ./runtime/assets/models
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
     network_mode: host
 
   gateway:
