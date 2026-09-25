@@ -1,6 +1,6 @@
 """Evaluate fixed real-crop retrieval cases against built-in and imported CLIP."""
 
-# ruff: noqa: INP001, C901, PLR0912, PLR0915, TRY003, EM101, EM102, T201, PLR2004
+# ruff: noqa: INP001, C901, PLR0912, PLR0915, TRY003, EM101, EM102, T201, PLR2004, TC001
 
 from __future__ import annotations
 
@@ -10,9 +10,67 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from gods_watching.model_selection.quality import QualityPolicy
+from gods_watching.model_selection.registry import BUILTIN_CLIP_MODELS
+from gods_watching.setup.models import load_models_lock, stream_sha256
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _verify_baseline(baseline: Path, policy: QualityPolicy, lock_path: Path) -> None:
+    """Bind evaluated baseline bytes and processor to the trusted built-in lock."""
+    package = next(
+        (
+            item
+            for item in BUILTIN_CLIP_MODELS
+            if (item.model_id, item.revision)
+            == (policy.baseline_model_id, policy.baseline_revision)
+        ),
+        None,
+    )
+    if package is None or baseline.is_symlink() or not baseline.is_dir():
+        raise ValueError("baseline identity or directory invalid")
+    expected_root = package.snapshot_path.relative_to(Path("/models"))
+    if baseline.name != expected_root.name:
+        raise ValueError("baseline directory does not match registered built-in")
+    lock = load_models_lock(lock_path)
+    matches = [item for item in lock.models if item.model_id == package.model_id]
+    if len(matches) != 1 or matches[0].revision != package.revision or not matches[0].files:
+        raise ValueError("baseline identity does not match trusted lock")
+    expected_names: set[str] = set()
+    for item in matches[0].files:
+        try:
+            relative = item.path.relative_to(expected_root)
+        except ValueError as error:
+            raise ValueError("baseline lock path invalid") from error
+        if not relative.parts or ".." in relative.parts:
+            raise ValueError("baseline lock path invalid")
+        candidate = baseline / relative
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ValueError("baseline file missing or linked")
+        if candidate.stat().st_size != item.size or stream_sha256(candidate) != item.sha256:
+            raise ValueError("baseline file hash mismatch")
+        expected_names.add(str(relative))
+    marker = baseline / "gods-watching-model.json"
+    try:
+        identity = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
+        raise ValueError("baseline identity marker invalid") from error
+    if marker.is_symlink() or identity != {
+        "model_id": package.model_id,
+        "revision": package.revision,
+        "dimension": package.dimension,
+        "processor": package.processor,
+        "runtime": package.runtime,
+    }:
+        raise ValueError("baseline identity marker mismatch")
+    actual_names = {
+        str(path.relative_to(baseline)) for path in baseline.rglob("*") if path.is_file()
+    }
+    if actual_names != expected_names | {marker.name}:
+        raise ValueError("baseline has unexpected or missing files")
 
 
 def _cases(path: Path, expected_hash: str) -> dict:
@@ -156,6 +214,11 @@ def main() -> int:
         parser.error("candidate model path must match installed manifest directory")
     try:
         cases = _cases(args.cases, policy.product_cases_sha256)
+        _verify_baseline(
+            args.baseline,
+            policy,
+            Path(__file__).resolve().parents[2] / "assets/models.lock.json",
+        )
         from gods_watching.model_selection.registry import _load_installed_manifest  # noqa: PLC0415
 
         manifest = _load_installed_manifest(args.manifest.parent)

@@ -1,16 +1,33 @@
 """Fail-closed eligibility checks for imported CLIP packages."""
 
+# ruff: noqa: SLF001
+
 import hashlib
 import json
 import runpy
 from dataclasses import asdict, replace
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from gods_watching.model_selection.assets import PreparedModelStatus
 from gods_watching.model_selection.imported_manifest import ImportedClipManifest, ImportedFile
 from gods_watching.model_selection.quality import QualityEvidence, QualityPolicy, assess_quality
-from gods_watching.model_selection.registry import DEFAULT_CLIP_MODEL
+from gods_watching.model_selection.registry import (
+    DEFAULT_CLIP_MODEL,
+    ClipModelPackage,
+    ClipModelRegistry,
+)
+from gods_watching.model_selection.service import ModelSelectionService
+
+if TYPE_CHECKING:
+    from gods_watching.storage import Database
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
 
 
 def _fixture() -> tuple[ImportedClipManifest, QualityEvidence, QualityPolicy]:
@@ -189,3 +206,124 @@ def test_product_cases_require_exact_fixed_ids_and_crop_bytes(tmp_path: Path) ->
     (tmp_path / "crop-0.jpg").write_bytes(b"altered")
     with pytest.raises(ValueError, match="crop hash mismatch"):
         validate_cases(path, hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def test_baseline_snapshot_must_match_trusted_lock(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[2] / "qa/clip/evaluate_product_cases.py"
+    verify_baseline = runpy.run_path(str(script))["_verify_baseline"]
+    _, _, policy = _fixture()
+    baseline = tmp_path / "clip"
+    baseline.mkdir()
+    (baseline / "config.json").write_bytes(b"trusted config")
+    (baseline / "pytorch_model.bin").write_bytes(b"trusted weights")
+    (baseline / "gods-watching-model.json").write_text(
+        json.dumps(
+            {
+                "model_id": policy.baseline_model_id,
+                "revision": policy.baseline_revision,
+                "dimension": DEFAULT_CLIP_MODEL.dimension,
+                "processor": DEFAULT_CLIP_MODEL.processor,
+                "runtime": DEFAULT_CLIP_MODEL.runtime,
+            }
+        ),
+        encoding="utf-8",
+    )
+    files = [
+        {
+            "path": f"clip/{name}",
+            "sha256": hashlib.sha256((baseline / name).read_bytes()).hexdigest(),
+            "size": (baseline / name).stat().st_size,
+        }
+        for name in ("config.json", "pytorch_model.bin")
+    ]
+    lock_path = tmp_path / "models.lock.json"
+    lock_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "container": {
+                    "base_image": "test",
+                    "base_digest": "sha256:test",
+                    "built_image": "test",
+                    "python_abi": "cp312",
+                },
+                "models": [
+                    {
+                        "model_id": policy.baseline_model_id,
+                        "revision": policy.baseline_revision,
+                        "license": "MIT",
+                        "source": "test",
+                        "files": files,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    verify_baseline(baseline, policy, lock_path)
+    (baseline / "config.json").write_bytes(b"altered processor config")
+    with pytest.raises(ValueError, match="baseline"):
+        verify_baseline(baseline, policy, lock_path)
+    (baseline / "config.json").write_bytes(b"trusted config")
+    (baseline / "pytorch_model.bin").write_bytes(b"altered weights")
+    with pytest.raises(ValueError, match="baseline"):
+        verify_baseline(baseline, policy, lock_path)
+    (baseline / "pytorch_model.bin").write_bytes(b"trusted weights")
+    wrong_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    wrong_lock["models"][0]["revision"] = "untrusted-revision"
+    lock_path.write_text(json.dumps(wrong_lock), encoding="utf-8")
+    with pytest.raises(ValueError, match="baseline identity"):
+        verify_baseline(baseline, policy, lock_path)
+    wrong = tmp_path / "different" / "clip"
+    wrong.mkdir(parents=True)
+    for name in ("config.json", "pytorch_model.bin"):
+        (wrong / name).write_bytes((baseline / name).read_bytes())
+    with pytest.raises(ValueError, match="baseline"):
+        verify_baseline(tmp_path / "different", policy, lock_path)
+
+
+def test_malformed_cuhk_unicode_fails_closed() -> None:
+    manifest, evidence, policy = _fixture()
+    malformed = replace(evidence, cuhk_report_json="\ud800")
+    assert not assess_quality(manifest, malformed, policy).passed
+
+
+@pytest.mark.anyio
+async def test_catalog_survives_malformed_imported_report(tmp_path: Path) -> None:
+    manifest, evidence, policy = _fixture()
+    imported_root = tmp_path / "imported"
+    package_dir = imported_root / manifest.package_sha256
+    package_dir.mkdir(parents=True)
+    (package_dir / "manifest.json").write_text(json.dumps(manifest.to_dict()), encoding="utf-8")
+    evidence_root = tmp_path / "quality-evidence"
+    evidence_root.mkdir()
+    (evidence_root / f"{manifest.package_sha256}.json").write_text(
+        json.dumps(asdict(replace(evidence, cuhk_report_json="\ud800"))), encoding="utf-8"
+    )
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(asdict(policy)), encoding="utf-8")
+    imported = ClipModelPackage(
+        model_id=manifest.model_id,
+        revision=manifest.revision,
+        snapshot_path=Path("/models/imported") / manifest.package_sha256,
+        dimension=512,
+        processor="CLIPProcessor",
+        runtime="transformers",
+    )
+
+    class Prepared:
+        def status(self, package: ClipModelPackage) -> PreparedModelStatus:
+            del package
+            return PreparedModelStatus(prepared=True)
+
+    service = ModelSelectionService(
+        database=cast("Database", object()),
+        registry=ClipModelRegistry((DEFAULT_CLIP_MODEL, imported)),
+        prepared=Prepared(),
+        imported_assets_root=imported_root,
+        quality_policy_path=policy_path,
+        quality_evidence_root=evidence_root,
+    )
+    catalog = await service._response(DEFAULT_CLIP_MODEL.model_id, None)
+    assert catalog.models[0].quality_passed
+    assert not catalog.models[1].quality_passed

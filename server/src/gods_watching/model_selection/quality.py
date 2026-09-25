@@ -81,6 +81,10 @@ class QualityEvidence:
                 return None
         if not isinstance(raw["cuhk_report_json"], str):
             return None
+        try:
+            raw["cuhk_report_json"].encode("utf-8")
+        except UnicodeEncodeError:
+            return None
         for key in (
             "text_baseline_recall_at_5",
             "text_candidate_recall_at_5",
