@@ -96,6 +96,26 @@ def _runtime_settings(model_config: Mapping[str, object]) -> RuntimeSettings:
     )
 
 
+def _load_model(settings: RuntimeSettings) -> CLIPModel:
+    imported = settings.snapshot_path.parent == Path("/models/imported")
+    if imported:
+        model, diagnostics = CLIPModel.from_pretrained(
+            settings.snapshot_path,
+            local_files_only=True,
+            trust_remote_code=False,
+            output_loading_info=True,
+        )
+        if any(
+            diagnostics.get(key)
+            for key in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+        ):
+            _fail("clip_checkpoint_incomplete")
+        return model
+    return CLIPModel.from_pretrained(
+        settings.snapshot_path, local_files_only=True, trust_remote_code=False
+    )
+
+
 class TritonPythonModel:
     """Own one GPU CLIP image model for its Triton instance."""
 
@@ -130,9 +150,7 @@ class TritonPythonModel:
                 f"clip_processor_mismatch: expected {settings.processor}, "
                 f"actual {self._processor.__class__.__name__}"
             )
-        self._model = CLIPModel.from_pretrained(
-            settings.snapshot_path, local_files_only=True, trust_remote_code=False
-        )
+        self._model = _load_model(settings)
         self._model = self._model.to("cuda").eval()
 
     def execute(

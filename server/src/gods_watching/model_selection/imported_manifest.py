@@ -239,10 +239,23 @@ def _read_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def parse_source_manifest(source: Path) -> ImportedClipManifest:  # noqa: C901, PLR0912, PLR0915
+def parse_source_manifest(  # noqa: C901, PLR0912, PLR0915
+    source: Path, *, installed_manifest: ImportedClipManifest | None = None
+) -> ImportedClipManifest:
     """Validate metadata and every payload before producing its immutable identity."""
-    _require_regular(source, source / "package.json")
-    meta = _read_json(source / "package.json")
+    if installed_manifest is None:
+        _require_regular(source, source / "package.json")
+        meta = _read_json(source / "package.json")
+    else:
+        _require_regular(source, source / "manifest.json")
+        meta = {
+            "model_id": installed_manifest.model_id,
+            "display_name": installed_manifest.display_name,
+            "base_model_id": installed_manifest.base_model_id,
+            "dimension": installed_manifest.dimension,
+            "files": [vars_file(item) for item in installed_manifest.files],
+            "cuhk_report": installed_manifest.cuhk_report,
+        }
     if set(meta) != {
         "model_id",
         "display_name",
@@ -299,7 +312,8 @@ def parse_source_manifest(source: Path) -> ImportedClipManifest:  # noqa: C901, 
         files.append(ImportedFile(name, size, digest))
     names = {item.path for item in files}
     actual = {str(p.relative_to(source)) for p in source.rglob("*") if not p.is_dir()}
-    if actual != names | {"package.json"}:
+    metadata_name = "manifest.json" if installed_manifest is not None else "package.json"
+    if actual != names | {metadata_name}:
         code = "unlisted_package_file"
         raise ClipPackageImportError(code)
     required = {

@@ -103,6 +103,9 @@ class PreparedManifest(BaseModel):
     processor: str
     clip_class: str
     yolo_class: str
+    cuda_available: bool = False
+    cuda_operation: float = 0.0
+    detector_resident: bool = False
     files_validated: int
     model_proofs: tuple[GpuModelProof, ...] = ()
 
@@ -267,6 +270,9 @@ def prepare_model_assets(paths: PreparationPaths) -> PreparedManifest:
         processor=proof.processor,
         clip_class=proof.clip_class,
         yolo_class=proof.yolo_class,
+        cuda_available=proof.cuda_available,
+        cuda_operation=proof.cuda_operation,
+        detector_resident=proof.detector_resident,
         files_validated=len(validated),
         model_proofs=proof.models,
     )
@@ -440,8 +446,7 @@ def _download_clip_snapshot(
     model_root = _model_root(model)
     files = tuple(Path(item.path).relative_to(model_root).as_posix() for item in invalid_files)
     force_download = any(
-        (paths.assets_root / locked_file.path).is_file()
-        for locked_file in invalid_files
+        (paths.assets_root / locked_file.path).is_file() for locked_file in invalid_files
     )
     download_options = ("--force-download",) if force_download else ()
     command = (
@@ -545,6 +550,7 @@ def _publish_identity_markers(
             "model_id": package.model_id,
             "revision": package.revision,
             "dimension": package.dimension,
+            "imported": package.snapshot_path.parent == Path("/models/imported"),
             "processor": package.processor,
             "runtime": package.runtime,
         }
@@ -622,9 +628,16 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         """    processor = AutoProcessor.from_pretrained(
         spec['path'], local_files_only=True, trust_remote_code=False
     )""",
-        """    clip = CLIPModel.from_pretrained(
-        spec['path'], local_files_only=True, trust_remote_code=False
-    ).to('cuda').eval()""",
+        """    loaded = CLIPModel.from_pretrained(
+        spec['path'], local_files_only=True, trust_remote_code=False,
+        output_loading_info=spec['imported']
+    )""",
+        "    clip, diagnostics = loaded if spec['imported'] else (loaded, {})",
+        "    if any(diagnostics.get(key) for key in (",
+        "        'missing_keys', 'unexpected_keys', 'mismatched_keys', 'error_msgs'",
+        "    )):",
+        "        raise RuntimeError('clip_checkpoint_incomplete')",
+        "    clip = clip.to('cuda').eval()",
         """    image_inputs = {
         key: value.to('cuda')
         for key, value in processor(images=image, return_tensors='pt').items()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# ruff: noqa: PLC0415, TRY003, EM101, E501, PLR0915, SLF001
+# ruff: noqa: PLC0415, TRY003, EM101, PLR0915, SLF001
 # pyright: reportPrivateUsage=false, reportUnusedCallResult=false
 import asyncio
 from datetime import UTC, datetime
@@ -227,17 +227,23 @@ async def test_transition_stages_and_activates_768_without_materializing_rows(
         job.id,
         expected_source=("openai/clip-vit-base-patch16", _SOURCE, 512),
     )
-    assert await session.scalar(
-        select(ActiveModelIdentity.model_id).where(ActiveModelIdentity.singleton.is_(True))
-    ) == target.model_id
+    assert (
+        await session.scalar(
+            select(ActiveModelIdentity.model_id).where(ActiveModelIdentity.singleton.is_(True))
+        )
+        == target.model_id
+    )
     refreshed = await session.scalar(select(Appearance).where(Appearance.id == appearance.id))
     assert refreshed is not None
     assert refreshed.embedding_dimension == 768
     assert refreshed.model_id == target.model_id
     assert refreshed.embedding is not None
-    assert await session.scalar(
-        select(ModelTransitionStage.job_id).where(ModelTransitionStage.job_id == job.id)
-    ) is None
+    assert (
+        await session.scalar(
+            select(ModelTransitionStage.job_id).where(ModelTransitionStage.job_id == job.id)
+        )
+        is None
+    )
 
 
 @pytest.mark.anyio
@@ -255,6 +261,32 @@ async def test_768_search_query_keeps_dimension_specific_identity_filter() -> No
     assert "vector(768)" in sql
     assert "embedding_dimension" in sql
     assert "model_id" in sql
+
+
+def test_equal_512_dimensional_revisions_keep_separate_search_predicates() -> None:
+    repository = SearchRepository()
+    request = SimilarSearchRequest(mode="similar", appearance_id=AppearanceId(uuid4()))
+    first = repository._similar_statement(
+        request,
+        embedding=_unit(512),
+        model_revision="revision-a",
+        model_id="local/clip",
+        dimension=512,
+        exclude_appearance_id=None,
+    )
+    second = repository._similar_statement(
+        request,
+        embedding=_unit(512),
+        model_revision="revision-b",
+        model_id="local/clip",
+        dimension=512,
+        exclude_appearance_id=None,
+    )
+    first_sql = first.compile()
+    second_sql = second.compile()
+    assert "revision-a" in first_sql.params.values()
+    assert "revision-b" in second_sql.params.values()
+    assert "revision-b" not in first_sql.params.values()
 
 
 @pytest.mark.anyio
@@ -287,7 +319,7 @@ async def test_inference_failure_restores_source_identity_and_pipeline(
             camera = await storage.add_camera(
                 setup,
                 name=f"selector-failure-{uuid4().hex[:8]}",
-                    source_url=_source("selector-failure"),
+                source_url=_source("selector-failure"),
             )
             camera_session = await storage.start_camera_session(setup, camera.id, cause="test")
             crop = crop_store.write(b"jpeg")
@@ -323,7 +355,9 @@ async def test_inference_failure_restores_source_identity_and_pipeline(
         assert runtime.loaded == [default.model_id]
         assert pipeline.starts == [default.model_id]
         async with database.transaction() as check:
-            active = await check.scalar(select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True)))
+            active = await check.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
             assert active is not None
             assert active.model_id == default.model_id
     finally:
@@ -367,7 +401,7 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
             camera = await storage.add_camera(
                 setup,
                 name=f"selector-after-{uuid4().hex[:8]}",
-                    source_url=_source("selector-after"),
+                source_url=_source("selector-after"),
             )
             camera_session = await storage.start_camera_session(setup, camera.id, cause="test")
             crop = crop_store.write(b"jpeg")
@@ -402,7 +436,9 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
         assert result.activated
         assert result.state.phase == TransitionPhase.ROLLING_BACK
         async with database.transaction() as check:
-            active = await check.scalar(select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True)))
+            active = await check.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
             assert active is not None
             assert (active.model_id, active.model_revision, active.embedding_dimension) == (
                 target.model_id,
@@ -417,7 +453,9 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
                 await cleanup.execute(delete(CameraSession).where(CameraSession.id == session_id))
             if camera_id is not None:
                 await cleanup.execute(delete(Camera).where(Camera.id == camera_id))
-            active = await cleanup.scalar(select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True)))
+            active = await cleanup.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
             if active is not None:
                 active.model_id = default.model_id
                 active.model_revision = default.revision

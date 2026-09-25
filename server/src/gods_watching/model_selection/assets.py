@@ -87,6 +87,9 @@ class PreparedModelCatalog:
         self._lock_reason: str | None = None
         self._digests: dict[Path, _DigestCacheEntry] = {}
         self._markers: dict[Path, _MarkerCacheEntry] = {}
+        self._imported: dict[
+            Path, tuple[tuple[tuple[str, _PathMetadata], ...], PreparedModelStatus]
+        ] = {}
 
     def status(self, package: ClipModelPackage) -> PreparedModelStatus:
         """Return immutable local readiness for ``package``.
@@ -98,21 +101,7 @@ class PreparedModelCatalog:
         """
         with self._lock:
             if package.snapshot_path.parts[:3] == ("/", "models", "imported"):
-                from .registry import _load_installed_manifest  # noqa: PLC0415
-
-                try:
-                    manifest = _load_installed_manifest(self._snapshot_path(package))
-                    valid = (
-                        manifest["model_id"] == package.model_id
-                        and manifest["revision"] == package.revision
-                        and manifest["dimension"] == package.dimension
-                    )
-                except ValueError:
-                    valid = False
-                return PreparedModelStatus(
-                    prepared=valid,
-                    reason=None if valid else "imported_package_invalid",
-                )
+                return self._imported_status(package)
             lock = self._refresh_lock()
             reason: str | None = None
             if lock is None:
@@ -155,6 +144,74 @@ class PreparedModelCatalog:
             self._lock_reason = None
             self._digests.clear()
             self._markers.clear()
+            self._imported.clear()
+
+    def _imported_status(self, package: ClipModelPackage) -> PreparedModelStatus:
+        from gods_watching.setup.model_preparation import (  # noqa: PLC0415
+            GpuProof,
+            PreparedManifest,
+            validate_gpu_proof,
+        )
+
+        from .registry import _load_installed_manifest  # noqa: PLC0415
+
+        directory = self._snapshot_path(package)
+        proof_path = self.assets_root / "prepared-manifest.json"
+        fingerprint = (
+            *(
+                (str(path.relative_to(self.assets_root)), _metadata(path))
+                for path in sorted(directory.rglob("*"))
+            ),
+            ("prepared-manifest.json", _metadata(proof_path)),
+            ("models.lock.json", _metadata(self.lock_path)),
+        )
+        cached = self._imported.get(directory)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        try:
+            manifest = _load_installed_manifest(directory)
+            if (
+                manifest["model_id"] != package.model_id
+                or manifest["revision"] != package.revision
+                or manifest["dimension"] != package.dimension
+            ):
+                result = PreparedModelStatus(prepared=False, reason="imported_package_invalid")
+            elif not proof_path.is_file():
+                result = PreparedModelStatus(prepared=False, reason="imported_proof_missing")
+            else:
+                record = PreparedManifest.model_validate_json(
+                    proof_path.read_text(encoding="utf-8")
+                )
+                matching = tuple(
+                    proof for proof in record.model_proofs if proof.model_id == package.model_id
+                )
+                if (
+                    len(matching) != 1
+                    or not record.image_id
+                    or record.lock_sha256 != _stream_sha256(self.lock_path)
+                ):
+                    result = PreparedModelStatus(prepared=False, reason="imported_proof_invalid")
+                else:
+                    proof = GpuProof(
+                        python_abi=record.python_abi,
+                        torch_version=record.torch_version,
+                        torchvision_version=record.torchvision_version,
+                        cuda_version=record.cuda_version,
+                        cuda_device=record.cuda_device,
+                        cuda_available=record.cuda_available,
+                        cuda_operation=record.cuda_operation,
+                        processor=record.processor,
+                        clip_class=record.clip_class,
+                        yolo_class=record.yolo_class,
+                        detector_resident=record.detector_resident,
+                        models=matching,
+                    )
+                    validate_gpu_proof(proof, (package,))
+                    result = PreparedModelStatus(prepared=True)
+        except (OSError, UnicodeError, ValueError, RuntimeError):
+            result = PreparedModelStatus(prepared=False, reason="imported_proof_invalid")
+        self._imported[directory] = (fingerprint, result)
+        return result
 
     def _refresh_lock(self) -> ModelsLock | None:
         metadata = _metadata(self.lock_path)

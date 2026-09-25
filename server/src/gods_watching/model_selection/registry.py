@@ -213,7 +213,12 @@ def load_clip_registry(assets_root: Path) -> ClipModelRegistry:
 
 def _load_installed_manifest(directory: Path) -> dict[str, object]:  # noqa: C901, PLR0912
     """Validate an installed manifest and every byte it binds."""
-    from .imported_manifest import ClipPackageImportError  # noqa: PLC0415
+    from .imported_manifest import (  # noqa: PLC0415
+        ClipPackageImportError,
+        ImportedClipManifest,
+        ImportedFile,
+        parse_source_manifest,
+    )
 
     def invalid() -> None:
         code = "invalid_installed_package"
@@ -296,6 +301,18 @@ def _load_installed_manifest(directory: Path) -> dict[str, object]:  # noqa: C90
             sorted(files, key=lambda f: f["path"]), sort_keys=True, separators=(",", ":")
         ).encode()
         if hashlib.sha256(canonical).hexdigest() != digest:
+            invalid()
+        installed = ImportedClipManifest(
+            model_id=value["model_id"],
+            revision=value["revision"],
+            display_name=value["display_name"],
+            base_model_id=value["base_model_id"],
+            dimension=value["dimension"],
+            files=tuple(ImportedFile(**item) for item in files),
+            package_sha256=value["package_sha256"],
+            cuhk_report=value["cuhk_report"],
+        )
+        if parse_source_manifest(directory, installed_manifest=installed) != installed:
             invalid()
     except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
         code = "invalid_installed_package"
