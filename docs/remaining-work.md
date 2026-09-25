@@ -286,5 +286,5 @@ to be rerun.
 ## 학습된 CLIP 가져오기 release gate (2026-09-25)
 
 - 실제 CUHK-PEDES held-out 보고서와 dataset SHA-256에 맞는 deployment policy, 같은 package에 결속된 실사용 crop 검색 증거를 준비하고 두 quality gate 결과를 확인한다. 실제 checkpoint와 검색 사례는 이 작업 공간에 제공되지 않았다.
-- 배포 GPU에서 detector를 함께 올린 전체 전환 rehearsal 증거 생성기를 구현하고, target package 및 현재 보존 corpus에 대해 900초 이내 gate를 실측한다. 현재 embedding-only benchmark는 이 증거를 생성하지 않는다.
+- 전체 전환 rehearsal 생산자 `models rehearse-switch`와 `full_transition_rehearsal_v2` 소비자는 구현됐다. 실제 fine-tuned checkpoint, 오프라인 DB dump·crop snapshot·카메라 암호화 키 파일이 제공되지 않아 배포 GPU에서 detector를 함께 올린 target package·현재 보존 corpus의 실측 증거와 900초 이내 gate는 아직 확인하지 못했다. embedding-only benchmark는 이 증거를 생성하지 않는다.
 - API/worker 재시작 중 reindex 및 activation 후 복구, 이전 package로의 rollback, exact package identity 재발견을 통합 환경에서 검증한다. 4대 카메라 15분 부하 gate도 실제 target GPU에서 별도로 실행해야 한다.
