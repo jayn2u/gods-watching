@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # ruff: noqa: EM101, PLR0913
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -12,15 +13,17 @@ import shutil
 import stat
 import subprocess
 import tempfile
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import anyio
 
+from gods_watching.setup.model_preparation import GpuProof, PreparedManifest, validate_gpu_proof
 from gods_watching.storage.crops import CropObjectStore, CropPathError
 
+from .assets import PreparedModelCatalog
 from .registry import load_clip_registry
 
 if TYPE_CHECKING:
@@ -44,6 +47,7 @@ class RehearsalInputs:
     assets: Path
     gpu_uuid: str
     target_model_id: str
+    model_lock: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +94,8 @@ class DockerRunner:
             # Wait for any in-flight Docker create/remove to finish before teardown.
             await task
             raise
-        if check and result.returncode:
+        _ = check
+        if result.returncode:
             raise RehearsalStackError("docker_command_failed")
         return result.stdout.strip()
 
@@ -102,7 +107,7 @@ def _directory(path: Path) -> bool:
         return False
 
 
-def validate_rehearsal_inputs(inputs: RehearsalInputs) -> None:  # noqa: C901, PLR0912
+def validate_rehearsal_inputs(inputs: RehearsalInputs) -> PreparedManifest:  # noqa: C901, PLR0912
     """Reject absent, aliased, or inconsistent inputs before Docker access."""
     try:
         dump_mode = inputs.database_dump.lstat().st_mode
@@ -128,19 +133,50 @@ def validate_rehearsal_inputs(inputs: RehearsalInputs) -> None:  # noqa: C901, P
     try:
         if not stat.S_ISREG(manifest.lstat().st_mode):
             raise RehearsalStackError("preparation_manifest_unavailable")
-        prepared = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        prepared = PreparedManifest.model_validate_json(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
         raise RehearsalStackError("preparation_manifest_unavailable") from error
-    if not isinstance(prepared, dict) or prepared.get("cuda_device_uuid") != inputs.gpu_uuid:
+    if prepared.cuda_device_uuid != inputs.gpu_uuid:
         raise RehearsalStackError("gpu_uuid_mismatch")
-    if prepared.get("detector_resident") is not True:
+    if not prepared.detector_resident:
         raise RehearsalStackError("detector_preparation_unverified")
-    package = load_clip_registry(inputs.assets).get(inputs.target_model_id)
-    if package is None:
-        raise RehearsalStackError("target_package_unavailable")
-    relative = package.snapshot_path.relative_to("/models")
-    if not _directory(inputs.assets / relative):
-        raise RehearsalStackError("target_package_unavailable")
+    lock_path = inputs.model_lock or Path(__file__).resolve().parents[4] / "assets/models.lock.json"
+    try:
+        registry = load_clip_registry(inputs.assets)
+        package = registry.get(inputs.target_model_id)
+        if (
+            package is None
+            or not PreparedModelCatalog(registry, lock_path, inputs.assets).status(package).prepared
+        ):
+            raise RehearsalStackError("target_package_unavailable")
+        matching = tuple(
+            proof for proof in prepared.model_proofs if proof.model_id == package.model_id
+        )
+        if (
+            len(matching) != 1
+            or prepared.lock_sha256 != hashlib.sha256(lock_path.read_bytes()).hexdigest()
+            or not prepared.image_id
+        ):
+            raise RehearsalStackError("target_package_unavailable")
+        proof = GpuProof(
+            python_abi=prepared.python_abi,
+            torch_version=prepared.torch_version,
+            torchvision_version=prepared.torchvision_version,
+            cuda_version=prepared.cuda_version,
+            cuda_device=prepared.cuda_device,
+            cuda_device_uuid=prepared.cuda_device_uuid,
+            cuda_available=prepared.cuda_available,
+            cuda_operation=prepared.cuda_operation,
+            processor=prepared.processor,
+            clip_class=prepared.clip_class,
+            yolo_class=prepared.yolo_class,
+            detector_resident=prepared.detector_resident,
+            models=matching,
+        )
+        validate_gpu_proof(proof, (package,))
+    except (OSError, UnicodeError, ValueError, RuntimeError) as error:
+        raise RehearsalStackError("target_package_unavailable") from error
+    return prepared
 
 
 def _copy_crops(source: Path, target: Path) -> None:
@@ -186,10 +222,26 @@ async def _verify_docker_isolation(
     runner: CommandRunner, network: str, pg_name: str, triton_name: str
 ) -> None:
     """Verify Docker actually created the requested internal, unpublished topology."""
-    details = await runner.run(
-        ["docker", "network", "inspect", "--format", "{{json .Internal}}", network]
+    raw_network = await runner.run(
+        ["docker", "network", "inspect", "--format", "{{json .}}", network]
     )
-    if details != "true":
+    try:
+        details = json.loads(raw_network)
+    except json.JSONDecodeError as error:
+        raise RehearsalStackError("network_isolation_unverified") from error
+    if (
+        not isinstance(details, dict)
+        or details.get("Internal") is not True
+        or details.get("EnableIPv6") is not False
+        or not isinstance(details.get("Options"), dict)
+        or details["Options"].get("com.docker.network.bridge.gateway_mode_ipv4") != "isolated"
+        or not isinstance(details.get("IPAM"), dict)
+        or not isinstance(details["IPAM"].get("Config"), list)
+        or any(
+            not isinstance(config, dict) or config.get("Gateway")
+            for config in details["IPAM"]["Config"]
+        )
+    ):
         raise RehearsalStackError("network_isolation_unverified")
     for name in (pg_name, triton_name):
         raw = await runner.run(["docker", "inspect", "--format", "{{json .HostConfig}}", name])
@@ -312,8 +364,13 @@ async def isolated_rehearsal_stack(
     runner: CommandRunner | None = None,
 ) -> AsyncIterator[RehearsalStack]:
     """Yield a verified disposable stack and always remove its Docker resources."""
-    validate_rehearsal_inputs(inputs)
+    prepared = validate_rehearsal_inputs(inputs)
     command = runner or DockerRunner()
+    observed_image = await command.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", TRITON_IMAGE]
+    )
+    if observed_image != prepared.image_id:
+        raise RehearsalStackError("triton_image_mismatch")
     suffix = secrets.token_hex(8)
     network = f"gw-rehearsal-{suffix}"
     pg_name = f"{network}-pg"
@@ -324,7 +381,18 @@ async def isolated_rehearsal_stack(
         _copy_crops(inputs.crop_snapshot, crops)
         try:
             await command.run(
-                ["docker", "network", "create", "--internal", "--driver", "bridge", network]
+                [
+                    "docker",
+                    "network",
+                    "create",
+                    "--internal",
+                    "--ipv6=false",
+                    "--driver",
+                    "bridge",
+                    "--opt",
+                    "com.docker.network.bridge.gateway_mode_ipv4=isolated",
+                    network,
+                ]
             )
             await command.run(
                 [
@@ -382,10 +450,15 @@ async def isolated_rehearsal_stack(
             yield stack
         finally:
             with anyio.CancelScope(shield=True):
+                failures: list[Exception] = []
                 for resource in (
                     ["docker", "rm", "--force", "--volumes", triton_name],
                     ["docker", "rm", "--force", "--volumes", pg_name],
                     ["docker", "network", "rm", network],
                 ):
-                    with suppress(OSError, RehearsalStackError, subprocess.TimeoutExpired):
-                        await command.run(resource, check=False)
+                    try:
+                        await command.run(resource)
+                    except (OSError, RehearsalStackError, subprocess.TimeoutExpired) as error:
+                        failures.append(error)
+                if failures:
+                    raise RehearsalStackError("cleanup_failed") from failures[0]
