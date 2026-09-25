@@ -756,6 +756,7 @@ class ModelSelectionService:
                 ModelCatalogEntry(
                     model_id=package.model_id,
                     display_name=package.display_name or package.model_id,
+                    revision=package.revision,
                     dimension=package.dimension,
                     prepared=status.prepared,
                     reason=status.reason,

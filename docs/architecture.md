@@ -185,3 +185,9 @@ offline proof는 preloaded image와 prepared asset을 가진 `internal:true` iso
 4. Task 23은 production browser fidelity/accessibility/leak/performance QA, Task 24는 선행 gate를 포함하는 installed `full` scenario와 최종 operator handoff가 남아 있다.
 
 완료 판정은 문서가 아니라 해당 task evidence의 명령, exit code, artifact, asset/model revision, fixture/synthetic/real label에 근거해야 한다. 과거 `gods-eye` fixture test는 이 시스템의 RTSP, YOLO, Triton, retention, LAN auth, live browser, retrieval quality를 증명하지 않는다.
+
+## 학습된 CLIP package 경계와 전환 증거 (2026-09-25)
+
+외부 학습 과정의 CUHK-PEDES 원본 데이터는 제품 데이터가 아니다. 로컬 CLI가 검증된 image/text `safetensors` package와 평가 보고서만 content-addressed model cache에 원자적으로 가져온다. API와 worker는 cache의 immutable manifest로 같은 registry를 구성하고, catalog는 model ID·revision·preparation·quality 상태를 노출한다. 배포에 고정된 `assets/retrieval-quality-policy.json`과 package별 product retrieval evidence를 함께 검사한다. 미확인 증거는 적용 불가 상태로 표시한다.
+
+선택기는 `GET /api/settings/models/preflight`에서 보존 crop 수, 예상 누락, 측정된 전체 전환 rate·고정 시간, 예상 초, 900초 허용 여부를 받는다. `POST /api/settings/models/apply`만 상태를 바꾸며 서버는 직전에 preflight를 다시 수행한다. 전환은 기존 durable staging/atomic activation/rollback 경로를 사용한다. 전체 전환 rehearsal 생산자는 아직 없으며 embedding-only benchmark는 적용 승인 근거가 아니다.

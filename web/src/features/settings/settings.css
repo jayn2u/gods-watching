@@ -263,3 +263,12 @@
     text-align: left;
   }
 }
+
+.model-preflight {
+  display: grid;
+  gap: var(--gw-space-2);
+  padding: var(--gw-space-3);
+  background: var(--gw-color-step-bg);
+  border-left: var(--gw-focus-offset) solid var(--gw-color-accent);
+}
+.model-preflight p { margin: 0; }

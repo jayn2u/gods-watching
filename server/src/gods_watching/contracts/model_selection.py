@@ -26,6 +26,7 @@ class ModelCatalogEntry(ContractModel):
 
     model_id: str
     display_name: str
+    revision: str
     dimension: Annotated[int, Field(gt=0)]
     prepared: bool
     reason: str | None = None

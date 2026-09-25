@@ -35,8 +35,23 @@ export type ModelTransitionPhase =
 export type ClipModelOption = Readonly<{
   model_id: string
   display_name: string
+  revision: string
   dimension: number
   prepared: boolean
+  reason: string | null
+  quality_passed: boolean
+  quality_reason: string | null
+}>
+
+export type SwitchPreflight = Readonly<{
+  target_model_id: string
+  retained_count: number
+  estimated_missing_count: number
+  measured_crops_per_second: number | null
+  measured_fixed_seconds: number | null
+  estimated_seconds: number | null
+  max_seconds: number
+  eligible: boolean
   reason: string | null
 }>
 

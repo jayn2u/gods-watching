@@ -6,6 +6,7 @@ import {
   isAbortError,
   type ModelSettingsResponse,
   NetworkError,
+  type SwitchPreflight,
 } from "../../app/client"
 import { Button, Dialog, Panel, Status } from "../../components"
 import type { ModelSettingsClient } from "../cameras/cameraTypes"
@@ -142,7 +143,7 @@ function apiErrorMessage(error: unknown, operation: "load" | "apply"): string {
 }
 
 function optionDescription(option: ClipModelOption): string {
-  return `${option.dimension}-dimensional embeddings`
+  return `${option.dimension}-dimensional embeddings · revision ${option.revision}`
 }
 
 export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
@@ -150,6 +151,9 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
   const [selectedModelId, setSelectedModelId] = useState("")
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [applying, setApplying] = useState(false)
+  const [preflight, setPreflight] = useState<SwitchPreflight | null>(null)
+  const [preflightLoading, setPreflightLoading] = useState(false)
+  const preflightGeneration = useRef(0)
   const [formError, setFormError] = useState<string | undefined>(undefined)
   const requestGeneration = useRef(0)
   const activeController = useRef<AbortController | null>(null)
@@ -237,6 +241,55 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
     }
   }, [])
 
+  async function refreshPreflight(modelId: string): Promise<SwitchPreflight | null> {
+    const generation = ++preflightGeneration.current
+    setPreflightLoading(true)
+    try {
+      const result = await client.getModelPreflight(modelId, new AbortController().signal)
+      if (generation === preflightGeneration.current) setPreflight(result)
+      return generation === preflightGeneration.current ? result : null
+    } catch (error) {
+      if (generation === preflightGeneration.current) {
+        setPreflight(null)
+        setFormError(
+          error instanceof HttpError && error.status === 401
+            ? "Session expired. Sign in again."
+            : "Model preflight is unavailable. Try again.",
+        )
+        if (error instanceof HttpError && error.status === 401) onUnauthorized()
+      }
+      return null
+    } finally {
+      if (generation === preflightGeneration.current) setPreflightLoading(false)
+    }
+  }
+
+  const refreshPreflightRef = useRef<(modelId: string) => Promise<SwitchPreflight | null>>(() =>
+    Promise.resolve(null),
+  )
+  refreshPreflightRef.current = refreshPreflight
+
+  const pollCandidate =
+    state.kind === "ready"
+      ? state.response.models.find((model) => model.model_id === selectedModelId)
+      : undefined
+  const shouldPollPreflight =
+    state.kind === "ready" &&
+    selectedModelId !== "" &&
+    selectedModelId !== state.response.active_model_id &&
+    !state.response.maintenance &&
+    !isActiveTransition(state.response.transition) &&
+    pollCandidate?.prepared === true &&
+    pollCandidate.quality_passed
+
+  useEffect(() => {
+    if (!shouldPollPreflight) return
+    const timer = window.setInterval(() => {
+      void refreshPreflightRef.current(selectedModelId)
+    }, 5_000)
+    return () => window.clearInterval(timer)
+  }, [selectedModelId, shouldPollPreflight])
+
   function chooseModel(modelId: string): void {
     if (
       state.kind !== "ready" ||
@@ -248,7 +301,9 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
     }
     selectionTouched.current = true
     setSelectedModelId(modelId)
+    setPreflight(null)
     setFormError(undefined)
+    if (modelId !== state.response.active_model_id) void refreshPreflight(modelId)
   }
 
   function selectedOption(): ClipModelOption | undefined {
@@ -258,12 +313,13 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
     return state.response.models.find((model) => model.model_id === selectedModelId)
   }
 
-  function openConfirmation(): void {
+  async function openConfirmation(): Promise<void> {
     const option = selectedOption()
     if (
       state.kind !== "ready" ||
       option === undefined ||
       !option.prepared ||
+      !option.quality_passed ||
       selectedModelId === state.response.active_model_id ||
       applying ||
       state.response.maintenance ||
@@ -271,6 +327,8 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
     ) {
       return
     }
+    const refreshed = await refreshPreflight(selectedModelId)
+    if (refreshed === null || !refreshed.eligible) return
     setFormError(undefined)
     setConfirmOpen(true)
   }
@@ -281,6 +339,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
       state.kind !== "ready" ||
       option === undefined ||
       !option.prepared ||
+      !option.quality_passed ||
       selectedModelId === state.response.active_model_id ||
       applying ||
       state.response.maintenance ||
@@ -289,6 +348,21 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
       return
     }
 
+    const refreshed = await refreshPreflight(selectedModelId)
+    if (refreshed === null || !refreshed.eligible) {
+      setConfirmOpen(false)
+      return
+    }
+    if (
+      preflight === null ||
+      refreshed.estimated_seconds !== preflight.estimated_seconds ||
+      refreshed.retained_count !== preflight.retained_count ||
+      refreshed.estimated_missing_count !== preflight.estimated_missing_count
+    ) {
+      setFormError("The estimate changed. Review the updated preflight and confirm again.")
+      setConfirmOpen(false)
+      return
+    }
     setConfirmOpen(false)
     clearPoll()
     setApplying(true)
@@ -340,6 +414,10 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
   const canApply =
     response !== undefined &&
     selected?.prepared === true &&
+    selected.quality_passed === true &&
+    preflight?.target_model_id === selected.model_id &&
+    preflight.eligible &&
+    !preflightLoading &&
     selected.model_id !== response.active_model_id &&
     !applying &&
     !maintenance &&
@@ -375,14 +453,16 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
                 const reasonId = `${inputId}-reason`
                 return (
                   <label
-                    className={`model-option${model.model_id === selectedModelId ? " model-option--selected" : ""}${model.prepared ? "" : " model-option--disabled"}`}
+                    className={`model-option${model.model_id === selectedModelId ? " model-option--selected" : ""}${model.prepared && model.quality_passed ? "" : " model-option--disabled"}`}
                     htmlFor={inputId}
                     key={model.model_id}
                   >
                     <input
-                      aria-describedby={model.prepared ? undefined : reasonId}
+                      aria-describedby={
+                        model.prepared && model.quality_passed ? undefined : reasonId
+                      }
                       checked={model.model_id === selectedModelId}
-                      disabled={!model.prepared}
+                      disabled={!model.prepared || !model.quality_passed}
                       id={inputId}
                       name="clip-model"
                       onChange={() => chooseModel(model.model_id)}
@@ -399,6 +479,12 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
                         ) : null}
                       </span>
                       <span className="model-option__meta">{optionDescription(model)}</span>
+                      {model.prepared && !model.quality_passed ? (
+                        <span className="model-option__reason" id={reasonId}>
+                          Quality blocked:{" "}
+                          {model.quality_reason ?? "Required quality evidence is unavailable."}
+                        </span>
+                      ) : null}
                       {model.prepared ? null : (
                         <span className="model-option__reason" id={reasonId}>
                           Unavailable: {preparedReasonMessage(model.reason)}
@@ -409,6 +495,39 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
                 )
               })}
             </fieldset>
+            {selected !== undefined &&
+            selected.model_id !== response.active_model_id &&
+            selected.prepared &&
+            selected.quality_passed ? (
+              <div className="model-preflight" role="status">
+                {preflightLoading ? <p>Refreshing model preflight…</p> : null}
+                {preflight?.target_model_id === selected.model_id ? (
+                  <>
+                    <p>
+                      Retained crops: {preflight.retained_count}. Expected skips:{" "}
+                      {preflight.estimated_missing_count} missing crops.
+                    </p>
+                    <p>
+                      Estimated pause:{" "}
+                      {preflight.estimated_seconds === null
+                        ? "unavailable"
+                        : `${Math.ceil(preflight.estimated_seconds)} seconds`}{" "}
+                      (limit {preflight.max_seconds} seconds).
+                    </p>
+                    <p>
+                      {preflight.eligible
+                        ? "Ready to confirm."
+                        : `Unavailable: ${preflight.reason?.replaceAll("_", " ") ?? "preflight failed"}`}
+                    </p>
+                    {preflight.eligible ? (
+                      <Button onClick={() => void refreshPreflight(selected.model_id)}>
+                        Refresh estimate
+                      </Button>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             {maintenance ? (
               <p className="model-settings__maintenance" role="status">
                 Person analysis and search are paused while this model change completes.
@@ -423,7 +542,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
             <div className="model-settings__actions">
               <Button
                 disabled={!canApply}
-                onClick={openConfirmation}
+                onClick={() => void openConfirmation()}
                 ref={applyTriggerRef}
                 loading={applying}
                 variant="primary"
@@ -443,6 +562,13 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
         returnFocusRef={applyTriggerRef}
         title="Pause person analysis and search?"
       >
+        {preflight !== null ? (
+          <p>
+            Retained crops: {preflight.retained_count}; expected missing crops:{" "}
+            {preflight.estimated_missing_count}; estimated pause:{" "}
+            {Math.ceil(preflight.estimated_seconds ?? 0)} seconds.
+          </p>
+        ) : null}
         <p>
           Transition state stays durable while the service restores a safe committed model. The
           settings page will show the outcome when recovery finishes.

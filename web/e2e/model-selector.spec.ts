@@ -22,6 +22,9 @@ function catalog(
       {
         model_id: B16,
         display_name: "OpenAI CLIP ViT-B/16",
+        revision: "fixture-revision",
+        quality_passed: true,
+        quality_reason: null,
         dimension: 512,
         prepared: true,
         reason: null,
@@ -29,6 +32,9 @@ function catalog(
       {
         model_id: B32,
         display_name: "OpenAI CLIP ViT-B/32",
+        revision: "fixture-revision",
+        quality_passed: true,
+        quality_reason: null,
         dimension: 512,
         prepared: false,
         reason: "Model assets are not prepared.",
@@ -36,6 +42,9 @@ function catalog(
       {
         model_id: L14,
         display_name: "OpenAI CLIP ViT-L/14",
+        revision: "fixture-revision",
+        quality_passed: true,
+        quality_reason: null,
         dimension: 768,
         prepared: true,
         reason: null,
@@ -66,6 +75,23 @@ function transition(
 }
 
 async function installAuthenticatedShell(page: Page) {
+  await page.route("**/api/settings/models/preflight?*", async (route) => {
+    const modelId = new URL(route.request().url()).searchParams.get("model_id")
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        target_model_id: modelId,
+        retained_count: 40,
+        estimated_missing_count: 2,
+        measured_crops_per_second: 10,
+        measured_fixed_seconds: 20,
+        estimated_seconds: 23.8,
+        max_seconds: 900,
+        eligible: true,
+        reason: null,
+      }),
+    })
+  })
   await page.route("**/api/session", async (route) => {
     if (route.request().method() === "DELETE") {
       await route.fulfill({ status: 204, body: "" })
@@ -106,7 +132,7 @@ test.describe("model selector", () => {
     let accepted = false
     let pollCount = 0
     const applyBodies: string[] = []
-    await page.route("**/api/settings/models**", async (route) => {
+    await page.route(/\/api\/settings\/models(?:\/apply)?(?:\?.*)?$/, async (route) => {
       if (route.request().method() === "POST") {
         applyBodies.push(route.request().postData() ?? "")
         accepted = true
@@ -168,7 +194,7 @@ test.describe("model selector", () => {
     let statusReads = 0
     let applyStarted = false
     let applyCalls = 0
-    await page.route("**/api/settings/models**", async (route) => {
+    await page.route(/\/api\/settings\/models(?:\/apply)?(?:\?.*)?$/, async (route) => {
       if (route.request().method() === "POST") {
         applyCalls += 1
         applyStarted = true
@@ -207,7 +233,7 @@ test.describe("model selector", () => {
   test("shows failed outcome after reload from durable status", async ({ page }) => {
     await installAuthenticatedShell(page)
     let reads = 0
-    await page.route("**/api/settings/models**", async (route) => {
+    await page.route(/\/api\/settings\/models(?:\/apply)?(?:\?.*)?$/, async (route) => {
       reads += 1
       await route.fulfill({
         contentType: "application/json",
@@ -231,4 +257,46 @@ test.describe("model selector", () => {
     await expect(page.locator(".model-transition")).toContainText("Model change failed")
     expect(reads).toBeGreaterThan(initialReads)
   })
+})
+
+test("quality-blocked package shows reason and cannot apply", async ({ page }) => {
+  await installAuthenticatedShell(page)
+  const blocked = catalog()
+  blocked.models[2].quality_passed = false
+  blocked.models[2].quality_reason = "product quality evidence missing"
+  await page.route(/\/api\/settings\/models$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(blocked) })
+  })
+  await openSettings(page)
+  await expect(page.locator(`input[value="${L14}"]`)).toBeDisabled()
+  await expect(page.locator(".model-option--disabled")).toContainText(
+    "product quality evidence missing",
+  )
+})
+
+test("over-limit preflight blocks confirmation", async ({ page }) => {
+  await installAuthenticatedShell(page)
+  await page.route(/\/api\/settings\/models$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog()) })
+  })
+  await page.route("**/api/settings/models/preflight?*", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        target_model_id: L14,
+        retained_count: 10_000,
+        estimated_missing_count: 0,
+        measured_crops_per_second: 10,
+        measured_fixed_seconds: 20,
+        estimated_seconds: 1020,
+        max_seconds: 900,
+        eligible: false,
+        reason: "estimate_exceeds_limit",
+      }),
+    })
+  })
+  await openSettings(page)
+  await page.locator(`input[value="${L14}"]`).check()
+  await expect(page.locator(".model-preflight")).toContainText("1020 seconds")
+  await expect(page.getByRole("button", { name: "Apply model" })).toBeDisabled()
 })

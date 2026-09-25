@@ -63,6 +63,7 @@ def _catalog_response() -> ModelSettingsResponse:
             ModelCatalogEntry(
                 model_id="openai/clip-vit-base-patch16",
                 display_name="OpenAI CLIP ViT-B/16",
+                revision="fixture-b16",
                 dimension=512,
                 prepared=True,
                 reason=None,
@@ -70,6 +71,7 @@ def _catalog_response() -> ModelSettingsResponse:
             ModelCatalogEntry(
                 model_id="openai/clip-vit-base-patch32",
                 display_name="OpenAI CLIP ViT-B/32",
+                revision="fixture-b32",
                 dimension=512,
                 prepared=False,
                 reason="identity marker missing",
@@ -77,6 +79,7 @@ def _catalog_response() -> ModelSettingsResponse:
             ModelCatalogEntry(
                 model_id="openai/clip-vit-large-patch14",
                 display_name="OpenAI CLIP ViT-L/14",
+                revision="fixture-l14",
                 dimension=768,
                 prepared=True,
                 reason=None,
@@ -246,6 +249,7 @@ async def test_get_models_returns_the_frozen_catalog_and_transition_shape() -> N
     assert models[1] == {
         "model_id": "openai/clip-vit-base-patch32",
         "display_name": "OpenAI CLIP ViT-B/32",
+        "revision": "fixture-b32",
         "dimension": 512,
         "prepared": False,
         "reason": "identity marker missing",
