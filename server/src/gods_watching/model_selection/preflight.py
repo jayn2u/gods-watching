@@ -12,37 +12,35 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final, Protocol, cast
 
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import select
+from sqlalchemy import Row, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gods_watching.model_selection.registry import ClipModelPackage
 from gods_watching.storage import CropObjectStore
 from gods_watching.storage.models import Appearance
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from uuid import UUID
+
 MAX_SWITCH_SECONDS: Final[int] = 900
 MIN_SAMPLE_COUNT: Final[int] = 16
 MEASUREMENT_MAX_AGE: Final = timedelta(hours=24)
-RUNTIME_SOURCE_FILES: Final = (
-    "preflight.py",
-    "service.py",
-    "rehearsal.py",
-    "repository.py",
-    "coordinator.py",
-    "transition_observer.py",
-    "rehearsal_stack.py",
-)
-
-
 def runtime_code_sha256() -> str | None:
-    """Fingerprint installed model-transition runtime sources in a fixed order."""
+    """Fingerprint every installed server module in a fixed order."""
     digest = hashlib.sha256()
     try:
-        for name in RUNTIME_SOURCE_FILES:
-            data = (Path(__file__).parent / name).read_bytes()
-            digest.update(name.encode("ascii") + b"\0" + len(data).to_bytes(8, "big") + data)
+        root = Path(__file__).resolve().parents[1]
+        files = sorted(root.rglob("*.py"), key=lambda path: path.relative_to(root).as_posix())
+        if not files:
+            return None
+        for path in files:
+            name = path.relative_to(root).as_posix().encode()
+            data = path.read_bytes()
+            digest.update(name + b"\0" + len(data).to_bytes(8, "big") + data)
     except OSError:
         return None
     return digest.hexdigest()
@@ -81,25 +79,43 @@ async def scan_retained_snapshot(
             .order_by(Appearance.id)
         )
         async for batch in rows.partitions(128):
-            for appearance_id, key in batch:
-                count += 1
-                identity = f"{appearance_id}\0{key}".encode()
-                digest.update(len(identity).to_bytes(8, "big") + identity)
-                try:
-                    payload = await asyncio.to_thread(crop_store.read, key)
-                except (FileNotFoundError, ValueError):
-                    missing += 1
-                    digest.update(b"missing\0")
-                    continue
-                digest.update(len(payload).to_bytes(8, "big") + payload)
-                try:
-                    with Image.open(BytesIO(payload)) as image:
-                        image.load()
-                except (OSError, ValueError, UnidentifiedImageError):
-                    missing += 1
+            count, missing = await asyncio.to_thread(
+                _scan_batch, batch, crop_store, digest, count, missing
+            )
     except (OSError, ValueError, TypeError):
         return count, missing, None
     return count, missing, digest.hexdigest()
+
+
+class _Digest(Protocol):
+    def update(self, data: bytes, /) -> None: ...
+
+
+def _scan_batch(
+    batch: Sequence[Row[tuple[UUID, str]]],
+    crop_store: CropObjectStore,
+    digest: _Digest,
+    count: int,
+    missing: int,
+) -> tuple[int, int]:
+    for row in batch:
+        appearance_id, key = cast("tuple[UUID, str]", tuple(row))
+        count += 1
+        identity = f"{appearance_id}\0{key}".encode()
+        digest.update(len(identity).to_bytes(8, "big") + identity)
+        try:
+            payload = crop_store.read(key)
+        except (FileNotFoundError, ValueError):
+            missing += 1
+            digest.update(b"missing\0")
+            continue
+        digest.update(len(payload).to_bytes(8, "big") + payload)
+        try:
+            with Image.open(BytesIO(payload)) as image:
+                _ = image.load()
+        except (OSError, ValueError, UnidentifiedImageError):
+            missing += 1
+    return count, missing
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +225,7 @@ def measured_rehearsal(
             or record["dimension"] != package.dimension
             or record["device"] != device
             or record["device_uuid"] != device_uuid
+            or record.get("triton_image_id") != manifest["image_id"]
             or not device
             or not isinstance(device_uuid, str)
             or not device_uuid.startswith("GPU-")

@@ -129,14 +129,15 @@ async def test_apply_recounts_after_preview_and_rejects_growth(
     target = _target_package()
     counts = iter(((900, 0), (901, 0)))
 
-    async def count_crops(session: object, store: object) -> tuple[int, int]:
+    async def count_crops(session: object, store: object) -> tuple[int, int, str]:
         del session, store
-        return next(counts)
+        retained, missing = next(counts)
+        return retained, missing, "a" * 64
 
-    monkeypatch.setattr("gods_watching.model_selection.service.scan_retained", count_crops)
+    monkeypatch.setattr("gods_watching.model_selection.service.scan_retained_snapshot", count_crops)
     monkeypatch.setattr(
         "gods_watching.model_selection.service.measured_rehearsal",
-        lambda *_: (1.0, 0.0),
+        lambda *_, **__: (1.0, 0.0),
     )
     database = Database.connect(database_url)
     service = ModelSelectionService(
@@ -156,6 +157,110 @@ async def test_apply_recounts_after_preview_and_rejects_growth(
             assert state.transition is None
             assert state.maintenance is False
     finally:
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_worker_rechecks_corpus_after_terminal_handoff(
+    database_url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from io import BytesIO
+
+    from PIL import Image
+
+    from gods_watching.model_selection.preflight import scan_retained_snapshot
+    from gods_watching.storage import Camera, CameraSession, Database
+
+    database = Database.connect(database_url)
+    store = CropObjectStore(tmp_path / "crops")
+    source = DEFAULT_CLIP_MODEL
+    target = _target_package()
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    service = ModelSelectionService(
+        database, ClipModelRegistry((source, target)), _Prepared(), storage=storage,
+        preflight_assets_root=tmp_path, preflight_crop_store=store,
+    )
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    appearance_ids: list[UUID] = []
+    try:
+        async with database.transaction() as session:
+            camera = await storage.add_camera(
+                session, name=f"late-crop-{uuid4().hex[:8]}", source_url=_source("late-crop")
+            )
+            camera_session = await storage.start_camera_session(session, camera.id, cause="test")
+            camera_id, session_id = camera.id, camera_session.id
+            image = BytesIO()
+            Image.new("RGB", (2, 2), "red").save(image, format="PNG")
+            crop = store.write(image.getvalue())
+            first_id = uuid4()
+            appearance_ids.append(first_id)
+            await storage.publish_appearance(
+                session,
+                _publication(
+                    appearance_id=first_id, camera_id=camera.id,
+                    session_id=camera_session.id, embedding=_unit(512),
+                    crop_object_key=crop.object_key,
+                ),
+            )
+        async with database.transaction() as session:
+            _, _, bound_digest = await scan_retained_snapshot(session, store)
+        monkeypatch.setattr(
+            "gods_watching.model_selection.service.measured_rehearsal",
+            lambda *_, corpus_sha256=None: (1.0, 0.0)
+            if corpus_sha256 == bound_digest else None,
+        )
+        async with database.transaction() as session:
+            await service.apply(session, target.model_id)
+
+        class PublishingPipeline:
+            def __init__(self) -> None:
+                self.starts: list[str] = []
+
+            async def stop_and_join(self) -> None:
+                assert camera_id is not None
+                assert session_id is not None
+                async with database.transaction() as session:
+                    crop = store.write(image.getvalue())
+                    second_id = uuid4()
+                    appearance_ids.append(second_id)
+                    await storage.publish_appearance(
+                        session,
+                        _publication(
+                            appearance_id=second_id, camera_id=camera_id,
+                            session_id=session_id, embedding=_unit(512),
+                            crop_object_key=crop.object_key, track_id=2,
+                        ),
+                    )
+
+            async def start(self, package: ClipModelPackage) -> None:
+                self.starts.append(package.model_id)
+
+        pipeline = PublishingPipeline()
+        runtime = _Runtime()
+        result = await service.run_pending(
+            crop_store=store, runtime=runtime,
+            clip_factory=lambda _package: pytest.fail("target clip was loaded"),
+            pipeline=pipeline,
+        )
+        assert result is not None
+        assert result.state.phase == TransitionPhase.FAILED
+        assert not result.activated
+        assert runtime.loaded == [source.model_id]
+        assert pipeline.starts == [source.model_id]
+        async with database.transaction() as session:
+            active = await session.scalar(select(ActiveModelIdentity))
+            assert active is not None
+            assert active.model_id == source.model_id
+            assert await session.scalar(select(ModelTransitionStage).limit(1)) is None
+    finally:
+        async with database.transaction() as session:
+            await session.execute(delete(ModelTransitionJob))
+            await session.execute(delete(Appearance).where(Appearance.id.in_(appearance_ids)))
+            if session_id is not None:
+                await session.execute(delete(CameraSession).where(CameraSession.id == session_id))
+            if camera_id is not None:
+                await session.execute(delete(Camera).where(Camera.id == camera_id))
         await database.close()
 
 

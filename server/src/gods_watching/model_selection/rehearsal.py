@@ -589,6 +589,7 @@ async def rehearse_switch(
                 "database_system_id": stack.database_system_id,
                 "database_oid": stack.database_oid,
                 "app_image_id": app_image_id,
+                "triton_image_id": prepared.image_id,
                 "retained_corpus_sha256": measurement["retained_corpus_sha256"],
                 "runtime_code_sha256": measurement["runtime_code_sha256"],
                 "database_dump_sha256": dump_sha256,

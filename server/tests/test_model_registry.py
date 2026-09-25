@@ -92,11 +92,17 @@ def _installed_package(root: Path, model_id: str, content: bytes) -> Path:
     weight = source / "model.safetensors"
     payload = weight.read_bytes()
     weight.write_bytes(payload[:-1] + content[:1])
+    report = source / "cuhk-report.json"
+    report_data = json.loads(report.read_text())
+    report_data["candidate_weights_sha256"] = hashlib.sha256(weight.read_bytes()).hexdigest()
+    report.write_text(json.dumps(report_data))
     metadata = json.loads((source / "package.json").read_text())
     metadata["model_id"] = model_id
     for item in metadata["files"]:
-        if item["path"] == "model.safetensors":
-            item["sha256"] = hashlib.sha256(weight.read_bytes()).hexdigest()
+        if item["path"] in {"model.safetensors", "cuhk-report.json"}:
+            file = source / item["path"]
+            item["sha256"] = hashlib.sha256(file.read_bytes()).hexdigest()
+            item["size"] = file.stat().st_size
     (source / "package.json").write_text(json.dumps(metadata))
     manifest = import_clip_package(source, root)
     return root / "imported" / manifest.package_sha256

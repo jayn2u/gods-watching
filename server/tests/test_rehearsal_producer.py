@@ -158,7 +158,7 @@ async def test_outer_only_publishes_after_successful_observation(tmp_path: Path)
     lock = tmp_path / "models.lock.json"
     lock.write_text("{}")
     (assets / "prepared-manifest.json").write_text(
-        json.dumps({"cuda_device": "GPU", "cuda_device_uuid": GPU})
+        json.dumps({"cuda_device": "GPU", "cuda_device_uuid": GPU, "image_id": "sha256:triton"})
     )
     key = tmp_path / "camera.key"
     key.write_text("test key")
@@ -192,7 +192,10 @@ async def test_outer_only_publishes_after_successful_observation(tmp_path: Path)
     with (
         patch(
             "gods_watching.model_selection.rehearsal.validate_rehearsal_inputs",
-            return_value=type("Manifest", (), {"cuda_device": "GPU", "cuda_device_uuid": GPU})(),
+            return_value=type(
+                "Manifest", (),
+                {"cuda_device": "GPU", "cuda_device_uuid": GPU, "image_id": "sha256:triton"},
+            )(),
         ),
         patch("gods_watching.model_selection.rehearsal.isolated_rehearsal_stack", fake_stack),
     ):
@@ -343,7 +346,10 @@ async def test_no_stack_does_not_publish(tmp_path: Path) -> None:
     with (
         patch(
             "gods_watching.model_selection.rehearsal.validate_rehearsal_inputs",
-            return_value=type("Manifest", (), {"cuda_device": "GPU", "cuda_device_uuid": GPU})(),
+            return_value=type(
+                "Manifest", (),
+                {"cuda_device": "GPU", "cuda_device_uuid": GPU, "image_id": "sha256:triton"},
+            )(),
         ),
         patch("gods_watching.model_selection.rehearsal.isolated_rehearsal_stack", no_stack),
         pytest.raises(RehearsalError, match="stack_creation_failed"),

@@ -2,7 +2,9 @@
 
 # ruff: noqa: PLC0415
 
+import asyncio
 import math
+import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -99,6 +101,7 @@ def test_rehearsal_requires_exact_fresh_gpu_uuid_and_full_path(tmp_path: Path) -
             {
                 "cuda_device": "GPU model",
                 "cuda_device_uuid": "GPU-actual",
+                "image_id": "sha256:triton",
             }
         )
     )
@@ -122,6 +125,7 @@ def test_rehearsal_requires_exact_fresh_gpu_uuid_and_full_path(tmp_path: Path) -
         "measured_at": datetime.now(UTC).isoformat(),
         "retained_corpus_sha256": "a" * 64,
         "runtime_code_sha256": runtime_code_sha256(),
+        "triton_image_id": "sha256:triton",
     }
     path.write_text(json.dumps(record))
     assert measured_rehearsal(tmp_path, package, corpus_sha256="a" * 64) == (4.0, 5.0)
@@ -130,6 +134,11 @@ def test_rehearsal_requires_exact_fresh_gpu_uuid_and_full_path(tmp_path: Path) -
     path.write_text(json.dumps(record))
     assert measured_rehearsal(tmp_path, package, corpus_sha256="a" * 64) is None
     record["runtime_code_sha256"] = runtime_code_sha256()
+    path.write_text(json.dumps(record))
+    record["triton_image_id"] = "sha256:other"
+    path.write_text(json.dumps(record))
+    assert measured_rehearsal(tmp_path, package, corpus_sha256="a" * 64) is None
+    record["triton_image_id"] = "sha256:triton"
     path.write_text(json.dumps(record))
     record["device_uuid"] = "GPU-other"
     path.write_text(json.dumps(record))
@@ -179,6 +188,72 @@ async def test_snapshot_hash_changes_with_retained_crop_bytes() -> None:
         assert (count, missing) == (1, 0)
         digests.append(digest)
     assert digests[0] != digests[1]
+
+
+def test_runtime_hash_includes_modules_outside_model_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gods_watching.model_selection import preflight
+
+    package_root = tmp_path / "gods_watching"
+    module = package_root / "pipeline_worker" / "service.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("VALUE = 1\n")
+    marker = package_root / "model_selection" / "preflight.py"
+    marker.parent.mkdir()
+    marker.write_text("pass\n")
+    monkeypatch.setattr(preflight, "__file__", str(marker))
+    before = preflight.runtime_code_sha256()
+    module.write_text("VALUE = 2\n")
+    assert preflight.runtime_code_sha256() != before
+
+
+@pytest.mark.anyio
+async def test_snapshot_decode_does_not_block_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    from io import BytesIO
+
+    from PIL import Image
+
+    from gods_watching.model_selection.preflight import scan_retained_snapshot
+
+    image = BytesIO()
+    Image.new("RGB", (2, 2), "red").save(image, format="PNG")
+    entered = threading.Event()
+    release = threading.Event()
+    original_load = Image.Image.load
+
+    def slow_load(self: Image.Image) -> object:
+        entered.set()
+        assert release.wait(timeout=2)
+        return original_load(self)
+
+    monkeypatch.setattr(Image.Image, "load", slow_load)
+
+    class Rows:
+        async def partitions(self, size: int) -> AsyncIterator[list[tuple[str, str]]]:
+            assert size == 128
+            yield [("one", "key")]
+
+    class Session:
+        async def stream(self, statement: object) -> Rows:
+            del statement
+            return Rows()
+
+    class Store:
+        def read(self, key: str) -> bytes:
+            assert key == "key"
+            return image.getvalue()
+
+    scan = asyncio.create_task(scan_retained_snapshot(Session(), Store()))  # type: ignore[arg-type]
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        await asyncio.wait_for(asyncio.sleep(0), timeout=1)
+        assert not scan.done()
+    finally:
+        release.set()
+    count, missing, digest = await scan
+    assert (count, missing) == (1, 0)
+    assert digest is not None
 
 
 def test_benchmark_refuses_insufficient_samples_without_publishing(tmp_path: Path) -> None:
