@@ -550,7 +550,6 @@ def _publish_identity_markers(
             "model_id": package.model_id,
             "revision": package.revision,
             "dimension": package.dimension,
-            "imported": package.snapshot_path.parent == Path("/models/imported"),
             "processor": package.processor,
             "runtime": package.runtime,
         }
@@ -601,6 +600,7 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
             "revision": package.revision,
             "path": str(_snapshot_path(Path("/models"), package)),
             "dimension": package.dimension,
+            "imported": package.snapshot_path.parent == Path("/models/imported"),
         }
         for package in packages
     ]
