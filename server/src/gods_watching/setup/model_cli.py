@@ -8,6 +8,7 @@ import typer
 from pydantic import ValidationError
 from typer.models import OptionInfo
 
+from gods_watching.model_selection.importer import ClipPackageImportError, import_clip_package
 from gods_watching.model_selection.registry import ClipModelRegistry
 
 from .model_preparation import PreparationPaths, prepare_model_assets
@@ -25,6 +26,29 @@ app = typer.Typer(add_completion=False)
 @app.callback()
 def main() -> None:
     """Manage pinned model assets."""
+
+
+@app.command("import")
+def import_package(
+    source: Annotated[Path, OptionInfo(default=..., param_decls=("--source",))],
+    assets: Annotated[Path, OptionInfo(default=..., param_decls=("--assets",))],
+) -> None:
+    """Import one immutable local CLIP package."""
+    try:
+        manifest = import_clip_package(source, assets)
+    except ClipPackageImportError as error:
+        typer.echo(json.dumps({"code": error.code}, separators=(",", ":")), err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(
+        json.dumps(
+            {
+                "model_id": manifest.model_id,
+                "revision": manifest.revision,
+                "package_sha256": manifest.package_sha256,
+            },
+            separators=(",", ":"),
+        )
+    )
 
 
 @app.command()

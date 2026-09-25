@@ -40,6 +40,7 @@ from gods_watching.lifecycle import (  # noqa: E402
     execute_lifecycle,
     inspect_runtime,
 )
+from gods_watching.setup.model_cli import app as models_app  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -54,6 +55,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(credentials_app, name="credentials")
+app.add_typer(models_app, name="models")
 
 
 def execute_scenario(
