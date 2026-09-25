@@ -1,6 +1,6 @@
 """Command boundary for pinned model asset preparation and validation."""
 
-# ruff: noqa: TRY003, EM101
+# ruff: noqa: TRY003, EM101, PLR0913
 
 import json
 from pathlib import Path
@@ -127,6 +127,100 @@ def prepare(
         )
     )
     typer.echo(manifest.model_dump_json())
+
+
+@app.command("rehearse-switch")
+def rehearse_switch_command(
+    database_dump: Annotated[Path, OptionInfo(default=..., param_decls=("--database-dump",))],
+    crop_snapshot: Annotated[Path, OptionInfo(default=..., param_decls=("--crop-snapshot",))],
+    assets: Annotated[Path, OptionInfo(default=..., param_decls=("--assets",))],
+    target_model_id: Annotated[str, OptionInfo(default=..., param_decls=("--target-model-id",))],
+    source_model_id: Annotated[str, OptionInfo(default=..., param_decls=("--source-model-id",))],
+    source_revision: Annotated[str, OptionInfo(default=..., param_decls=("--source-revision",))],
+    source_dimension: Annotated[int, OptionInfo(default=..., param_decls=("--source-dimension",))],
+    gpu_uuid: Annotated[str, OptionInfo(default=..., param_decls=("--gpu-uuid",))],
+    app_image: Annotated[str, OptionInfo(default=..., param_decls=("--app-image",))],
+    camera_cipher_key_file: Annotated[
+        Path, OptionInfo(default=..., param_decls=("--camera-cipher-key-file",))
+    ],
+    model_lock: Annotated[Path, OptionInfo(default=..., param_decls=("--lock",))],
+) -> None:
+    """Measure one full switch on disposable offline PostgreSQL and Triton."""
+    import anyio  # noqa: PLC0415
+
+    from gods_watching.model_selection.rehearsal import (  # noqa: PLC0415
+        rehearse_switch,
+    )
+    from gods_watching.model_selection.rehearsal_stack import (  # noqa: PLC0415
+        RehearsalInputs,
+    )
+
+    inputs = RehearsalInputs(
+        database_dump=database_dump,
+        crop_snapshot=crop_snapshot,
+        assets=assets,
+        gpu_uuid=gpu_uuid,
+        target_model_id=target_model_id,
+        model_lock=model_lock,
+    )
+    try:
+        path = anyio.run(
+            lambda: rehearse_switch(
+                inputs,
+                source_model_id=source_model_id,
+                source_revision=source_revision,
+                source_dimension=source_dimension,
+                app_image=app_image,
+                camera_cipher_key_file=camera_cipher_key_file,
+            )
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        typer.echo(json.dumps({"code": "rehearsal_failed", "message": str(error)}), err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(str(path))
+
+
+@app.command("rehearse-inner", hidden=True)
+def rehearse_inner_command(
+    database_url: Annotated[str, OptionInfo(default=..., param_decls=("--database-url",))],
+    triton_url: Annotated[str, OptionInfo(default=..., param_decls=("--triton-url",))],
+    crops: Annotated[Path, OptionInfo(default=..., param_decls=("--crops",))],
+    assets: Annotated[Path, OptionInfo(default=..., param_decls=("--assets",))],
+    model_lock: Annotated[Path, OptionInfo(default=..., param_decls=("--lock",))],
+    target_model_id: Annotated[str, OptionInfo(default=..., param_decls=("--target-model-id",))],
+    source_model_id: Annotated[str, OptionInfo(default=..., param_decls=("--source-model-id",))],
+    source_revision: Annotated[str, OptionInfo(default=..., param_decls=("--source-revision",))],
+    source_dimension: Annotated[int, OptionInfo(default=..., param_decls=("--source-dimension",))],
+    output: Annotated[Path, OptionInfo(default=..., param_decls=("--output",))],
+    camera_cipher_key_file: Annotated[
+        Path, OptionInfo(default=..., param_decls=("--camera-cipher-key-file",))
+    ],
+) -> None:
+    """Run only inside the network created by rehearse-switch."""
+    import anyio  # noqa: PLC0415
+
+    from gods_watching.model_selection.rehearsal import InnerInputs, run_inner  # noqa: PLC0415
+
+    try:
+        _ = anyio.run(
+            run_inner,
+            InnerInputs(
+                database_url,
+                triton_url,
+                crops,
+                assets,
+                model_lock,
+                target_model_id,
+                source_model_id,
+                source_revision,
+                source_dimension,
+                output,
+                camera_cipher_key_file,
+            ),
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        typer.echo(json.dumps({"code": "inner_rehearsal_failed", "message": str(error)}), err=True)
+        raise typer.Exit(code=2) from error
 
 
 if __name__ == "__main__":

@@ -224,17 +224,29 @@ class OneShotTransition:
     crop_store: CropObjectStore
     triton_grpc_url: str
 
-    async def run_pending(self, *, observer: TransitionObserver) -> TransitionResult | None:
-        """Run one queued transition, then join its generation and close transport."""
+    async def run_pending(
+        self,
+        *,
+        observer: TransitionObserver,
+        restart_probe: Callable[[], Awaitable[None]] | None = None,
+    ) -> TransitionResult | None:
+        """Run one queued transition, optionally inspect restart, then join generation."""
         transport = TritonClipTransport(self.triton_grpc_url)
         try:
-            return await self.selection.run_pending(
+            result = await self.selection.run_pending(
                 crop_store=self.crop_store,
                 runtime=self.runtime,
                 clip_factory=lambda package: ClipAdapter(transport, package=package),
                 pipeline=self.lifecycle,
                 observer=observer,
             )
+            if result is not None and result.activated and restart_probe is not None:
+                try:
+                    await restart_probe()
+                except BaseException:
+                    observer.complete = False
+                    raise
+            return result
         finally:
             with anyio.CancelScope(shield=True):
                 try:

@@ -94,7 +94,7 @@ class DockerRunner:
                 capture_output=True,
                 check=False,
                 text=True,
-                timeout=3600 if "pg_restore" in argv else 120,
+                timeout=3600 if "pg_restore" in argv or "rehearse-inner" in argv else 120,
             )
 
         task = asyncio.create_task(asyncio.to_thread(execute))
@@ -228,7 +228,7 @@ async def _wait_triton(runner: CommandRunner, name: str) -> None:
     raise RehearsalStackError("detector_not_ready")
 
 
-async def _verify_docker_isolation(
+async def verify_docker_isolation(
     runner: CommandRunner, network: str, pg_name: str, triton_name: str
 ) -> None:
     """Verify Docker actually created the requested internal, unpublished topology."""
@@ -343,7 +343,7 @@ async def _verified_stack(
     if missing:
         code = f"missing_crops:{','.join(missing)}"
         raise RehearsalStackError(code)
-    await _verify_docker_isolation(runner, network, pg_name, triton_name)
+    await verify_docker_isolation(runner, network, pg_name, triton_name)
     pg_id = await runner.run(["docker", "inspect", "--format", "{{.Id}}", pg_name])
     triton_id = await runner.run(["docker", "inspect", "--format", "{{.Id}}", triton_name])
     if not pg_id or not triton_id or pg_id == triton_id:
