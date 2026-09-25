@@ -153,6 +153,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
   const [applying, setApplying] = useState(false)
   const [preflight, setPreflight] = useState<SwitchPreflight | null>(null)
   const [preflightLoading, setPreflightLoading] = useState(false)
+  const confirmationPreflight = useRef<SwitchPreflight | null>(null)
   const preflightGeneration = useRef(0)
   const [formError, setFormError] = useState<string | undefined>(undefined)
   const requestGeneration = useRef(0)
@@ -329,6 +330,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
     }
     const refreshed = await refreshPreflight(selectedModelId)
     if (refreshed === null || !refreshed.eligible) return
+    confirmationPreflight.current = refreshed
     setFormError(undefined)
     setConfirmOpen(true)
   }
@@ -353,11 +355,12 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
       setConfirmOpen(false)
       return
     }
+    const confirmed = confirmationPreflight.current
     if (
-      preflight === null ||
-      refreshed.estimated_seconds !== preflight.estimated_seconds ||
-      refreshed.retained_count !== preflight.retained_count ||
-      refreshed.estimated_missing_count !== preflight.estimated_missing_count
+      confirmed === null ||
+      refreshed.estimated_seconds !== confirmed.estimated_seconds ||
+      refreshed.retained_count !== confirmed.retained_count ||
+      refreshed.estimated_missing_count !== confirmed.estimated_missing_count
     ) {
       setFormError("The estimate changed. Review the updated preflight and confirm again.")
       setConfirmOpen(false)
@@ -479,6 +482,9 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
                         ) : null}
                       </span>
                       <span className="model-option__meta">{optionDescription(model)}</span>
+                      {model.prepared && model.quality_passed ? (
+                        <span className="model-option__quality">Quality approved</span>
+                      ) : null}
                       {model.prepared && !model.quality_passed ? (
                         <span className="model-option__reason" id={reasonId}>
                           Quality blocked:{" "}
@@ -504,8 +510,8 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
                 {preflight?.target_model_id === selected.model_id ? (
                   <>
                     <p>
-                      Retained crops: {preflight.retained_count}. Expected skips:{" "}
-                      {preflight.estimated_missing_count} missing crops.
+                      Retained crops: {preflight.retained_count}. Expected skipped crops:{" "}
+                      {preflight.estimated_missing_count}.
                     </p>
                     <p>
                       Estimated pause:{" "}
@@ -564,7 +570,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
       >
         {preflight !== null ? (
           <p>
-            Retained crops: {preflight.retained_count}; expected missing crops:{" "}
+            Retained crops: {preflight.retained_count}; expected skipped crops:{" "}
             {preflight.estimated_missing_count}; estimated pause:{" "}
             {Math.ceil(preflight.estimated_seconds ?? 0)} seconds.
           </p>

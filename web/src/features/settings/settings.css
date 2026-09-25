@@ -272,3 +272,8 @@
   border-left: var(--gw-focus-offset) solid var(--gw-color-accent);
 }
 .model-preflight p { margin: 0; }
+
+.model-option__quality {
+  color: var(--gw-color-progress-done);
+  font-size: var(--gw-text-sm);
+}

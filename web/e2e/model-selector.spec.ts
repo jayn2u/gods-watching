@@ -166,6 +166,10 @@ test.describe("model selector", () => {
     }
 
     await page.locator(`input[value="${L14}"]`).check()
+    await expect(
+      page.locator(`label[for="model-option-${L14.replaceAll("/", "-")}"]`),
+    ).toContainText("Quality approved")
+    await expect(page.locator(".model-preflight")).toContainText("Expected skipped crops: 2")
     await page.getByRole("button", { name: "Apply model" }).click()
     await expect(page.getByRole("dialog")).toBeVisible()
     await expect(page.getByRole("dialog")).toContainText("pauses person analysis and search")
@@ -269,7 +273,7 @@ test("quality-blocked package shows reason and cannot apply", async ({ page }) =
   })
   await openSettings(page)
   await expect(page.locator(`input[value="${L14}"]`)).toBeDisabled()
-  await expect(page.locator(".model-option--disabled")).toContainText(
+  await expect(page.locator(`label[for="model-option-${L14.replaceAll("/", "-")}"]`)).toContainText(
     "product quality evidence missing",
   )
 })
@@ -299,4 +303,69 @@ test("over-limit preflight blocks confirmation", async ({ page }) => {
   await page.locator(`input[value="${L14}"]`).check()
   await expect(page.locator(".model-preflight")).toContainText("1020 seconds")
   await expect(page.getByRole("button", { name: "Apply model" })).toBeDisabled()
+})
+
+test("missing full-transition measurement prevents apply", async ({ page }) => {
+  await installAuthenticatedShell(page)
+  await page.route(/\/api\/settings\/models$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog()) })
+  })
+  await page.route("**/api/settings/models/preflight?*", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        target_model_id: L14,
+        retained_count: 40,
+        estimated_missing_count: 2,
+        measured_crops_per_second: null,
+        measured_fixed_seconds: null,
+        estimated_seconds: null,
+        max_seconds: 900,
+        eligible: false,
+        reason: "throughput_unavailable",
+      }),
+    })
+  })
+  await openSettings(page)
+  await page.locator(`input[value="${L14}"]`).check()
+  await expect(page.locator(".model-preflight")).toContainText("unavailable")
+  await expect(page.getByRole("button", { name: "Apply model" })).toBeDisabled()
+})
+
+test("estimate change at confirmation requires another review", async ({ page }) => {
+  await installAuthenticatedShell(page)
+  let preflightReads = 0
+  let applyCalls = 0
+  await page.route(/\/api\/settings\/models(?:\/apply)?$/, async (route) => {
+    if (route.request().method() === "POST") applyCalls += 1
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog()) })
+  })
+  await page.route("**/api/settings/models/preflight?*", async (route) => {
+    preflightReads += 1
+    const estimate = preflightReads >= 3 ? 50 : 40
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        target_model_id: L14,
+        retained_count: estimate,
+        estimated_missing_count: 2,
+        measured_crops_per_second: 10,
+        measured_fixed_seconds: 20,
+        estimated_seconds: 20 + (estimate - 2) / 10,
+        max_seconds: 900,
+        eligible: true,
+        reason: null,
+      }),
+    })
+  })
+  await openSettings(page)
+  await page.locator(`input[value="${L14}"]`).check()
+  await expect(page.getByRole("button", { name: "Apply model" })).toBeEnabled()
+  await page.getByRole("button", { name: "Apply model" }).click()
+  await expect(page.getByRole("dialog")).toBeVisible()
+  await page.getByRole("dialog").getByRole("button", { name: "Start model change" }).click()
+  await expect(page.getByRole("dialog")).not.toBeVisible()
+  await expect(page.getByRole("alert")).toContainText("estimate changed")
+  await expect(page.locator(".model-preflight")).toContainText("Retained crops: 50")
+  expect(applyCalls).toBe(0)
 })

@@ -24,7 +24,12 @@ from gods_watching.inference.clip import (
 )
 from gods_watching.model_selection.assets import PreparedModelStatus
 from gods_watching.model_selection.coordinator import TransitionCoordinator
-from gods_watching.model_selection.models import ModelNotPreparedError, TransitionPhase
+from gods_watching.model_selection.models import (
+    ModelNotPreparedError,
+    TransitionPhase,
+    TransitionRecoveryError,
+)
+from gods_watching.model_selection.quality import QualityStatus
 from gods_watching.model_selection.registry import (
     DEFAULT_CLIP_MODEL,
     ClipModelPackage,
@@ -185,12 +190,15 @@ class _Prepared:
 class _Runtime:
     def __init__(self) -> None:
         self.loaded: list[str] = []
+        self.loaded_packages: list[ClipModelPackage] = []
 
     async def unload_model(self) -> None:
         self.loaded.clear()
+        self.loaded_packages.clear()
 
     async def load_model(self, package: ClipModelPackage) -> ClipRuntimeIdentity:
         self.loaded.append(package.model_id)
+        self.loaded_packages.append(package)
         return ClipRuntimeIdentity.from_package(package)
 
     async def inspect_identity(self) -> ClipRuntimeIdentity:
@@ -482,7 +490,21 @@ async def test_inference_failure_restores_source_identity_and_pipeline(
                 select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
             )
             assert active is not None
-            assert active.model_id == default.model_id
+            assert (active.model_id, active.model_revision, active.embedding_dimension) == (
+                default.model_id, default.revision, default.dimension,
+            )
+        restarted_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, target)),
+            prepared=_Prepared(), storage=storage,
+        )
+        recovered_runtime = _Runtime()
+        recovered_pipeline = _Pipeline()
+        recovered = await restarted_service.recover_startup(
+            runtime=recovered_runtime, pipeline=recovered_pipeline,
+        )
+        assert recovered_runtime.loaded == [default.model_id]
+        assert recovered_pipeline.starts == [default.model_id]
+        assert recovered is None or not recovered.activated
     finally:
         async with database.transaction() as cleanup:
             await cleanup.execute(delete(ModelTransitionJob))
@@ -563,6 +585,28 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
         assert observer.measurement is not None
         assert not observer.measurement.complete
         assert "pipeline_restart" not in observer.measurement.phase_spans
+        restarted_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, target)),
+            prepared=_Prepared(), storage=storage,
+        )
+        recovered_runtime = _Runtime()
+        recovered_pipeline = _Pipeline()
+        recovered = await restarted_service.recover_startup(
+            runtime=recovered_runtime, pipeline=recovered_pipeline,
+        )
+        assert recovered is not None
+        assert recovered.activated
+        assert recovered.state.phase == TransitionPhase.SUCCEEDED
+        assert recovered_runtime.loaded == [target.model_id]
+        assert recovered_pipeline.starts == [target.model_id]
+        async with database.transaction() as readback:
+            status = await restarted_service.get(readback)
+            assert status.active_model_id == target.model_id
+            assert not status.maintenance
+            assert (
+                next(m for m in status.models if m.model_id == target.model_id).revision
+                == target.revision
+            )
         async with database.transaction() as check:
             active = await check.scalar(
                 select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
@@ -609,7 +653,20 @@ async def test_recovery_keeps_staged_source_pipeline_stopped_until_resume(
         return SimpleNamespace(free=0)
 
     monkeypatch.setattr("gods_watching.model_selection.service.shutil.disk_usage", _no_headroom)
-    target = _target_package()
+    target = ClipModelPackage(
+        model_id="fixture/imported-restart",
+        revision="a" * 64,
+        snapshot_path=tmp_path / "imported" / ("a" * 64),
+        dimension=768,
+        processor="CLIPProcessor",
+        runtime="transformers",
+    )
+    # This recovery test supplies a synthetic approved package descriptor;
+    # quality evidence validation has separate fail-closed tests.
+    monkeypatch.setattr(
+        ModelSelectionService, "_quality_status",
+        lambda _self, _package: QualityStatus(passed=True, reason=None),
+    )
     default = ClipModelPackage(
         model_id="openai/clip-vit-base-patch16",
         revision=_SOURCE,
@@ -658,14 +715,46 @@ async def test_recovery_keeps_staged_source_pipeline_stopped_until_resume(
             assert await repository.populate_stages(interrupted, job) == 1
             job.phase = TransitionPhase.REINDEXING.value
             await interrupted.flush()
+        # A new worker process reconstructs the service from the same durable registry.
+        restarted_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, target)),
+            prepared=_Prepared(), storage=storage,
+        )
+        async with database.transaction() as readback:
+            pending = await restarted_service.get(readback)
+            assert pending.maintenance
+            assert pending.transition is not None
+            assert pending.transition.phase == TransitionPhase.REINDEXING
+            assert pending.transition.target_model_id == target.model_id
+            assert (
+                next(m for m in pending.models if m.model_id == target.model_id).revision
+                == target.revision
+            )
+        wrong_revision = ClipModelPackage(
+            model_id=target.model_id,
+            revision="b" * 64,
+            snapshot_path=tmp_path / "imported" / ("b" * 64),
+            dimension=target.dimension,
+            processor=target.processor,
+            runtime=target.runtime,
+        )
+        mismatched_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, wrong_revision)),
+            prepared=_Prepared(), storage=storage,
+        )
+        with pytest.raises(TransitionRecoveryError):
+            await mismatched_service.run_pending(
+                crop_store=crop_store, runtime=_Runtime(),
+                clip_factory=_working_clip_factory, pipeline=_Pipeline(),
+            )
         runtime = _Runtime()
         pipeline = _Pipeline()
-        recovery = await service.recover_startup(runtime=runtime, pipeline=pipeline)
+        recovery = await restarted_service.recover_startup(runtime=runtime, pipeline=pipeline)
         assert recovery is not None
         assert recovery.activated is False
         assert pipeline.starts == []
         observer = TransitionObserver()
-        result = await service.run_pending(
+        result = await restarted_service.run_pending(
             crop_store=crop_store,
             runtime=runtime,
             clip_factory=_working_clip_factory,
@@ -675,6 +764,15 @@ async def test_recovery_keeps_staged_source_pipeline_stopped_until_resume(
         assert result is not None
         assert result.state.phase == TransitionPhase.SUCCEEDED
         assert pipeline.starts == [target.model_id]
+        assert runtime.loaded_packages == [target]
+        async with database.transaction() as readback:
+            active = await readback.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
+            assert active is not None
+            assert (active.model_id, active.model_revision, active.embedding_dimension) == (
+                target.model_id, target.revision, target.dimension,
+            )
         assert observer.measurement is not None
         assert not observer.measurement.complete
         assert set(observer.measurement.phase_seconds) == set(PHASES) - {"stage_population"}
