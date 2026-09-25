@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -28,7 +27,9 @@ def test_gpu_proof_specs_identify_builtin_and_imported_packages() -> None:
     )
     program = _gpu_proof_program((builtin, imported))
     spec_line = next(line for line in program.splitlines() if line.startswith("specs = "))
-    specs = json.loads(spec_line.removeprefix("specs = "))
+    namespace: dict[str, object] = {}
+    exec(spec_line, namespace)  # noqa: S102
+    specs = namespace["specs"]
     assert [spec["imported"] for spec in specs] == [False, True]
 
 

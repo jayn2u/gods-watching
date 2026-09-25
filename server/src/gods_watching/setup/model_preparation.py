@@ -609,7 +609,7 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         "from PIL import Image",
         "from transformers import AutoProcessor,CLIPModel",
         "from ultralytics import YOLO",
-        f"specs = {json.dumps(specs, separators=(',', ':'))}",
+        f"specs = {specs!r}",
         "available = torch.cuda.is_available()",
         "detector = YOLO('/models/yolo/yolo11s.pt').to('cuda') if available else None",
         "proofs = []",
