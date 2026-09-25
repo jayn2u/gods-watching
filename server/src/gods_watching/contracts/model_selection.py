@@ -69,6 +69,7 @@ class ModelPreflightResponse(ContractModel):
     retained_count: Annotated[int, Field(ge=0)]
     estimated_missing_count: Annotated[int, Field(ge=0)]
     measured_crops_per_second: float | None
+    measured_fixed_seconds: float | None
     estimated_seconds: float | None
     max_seconds: int = 900
     eligible: bool

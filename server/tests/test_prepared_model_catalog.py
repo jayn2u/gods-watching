@@ -183,6 +183,7 @@ def test_imported_proof_binds_revision_modalities_and_detector(
         torchvision_version="0.22.1+cu128",
         cuda_version="12.8",
         cuda_device="test GPU",
+        cuda_device_uuid="GPU-test-uuid",
         processor="CLIPProcessor",
         clip_class="CLIPModel",
         yolo_class="YOLO",

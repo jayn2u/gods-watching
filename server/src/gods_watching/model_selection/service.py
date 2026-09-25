@@ -44,7 +44,7 @@ from gods_watching.model_selection.models import (
 from gods_watching.model_selection.preflight import (
     SwitchPreflight,
     estimate_switch,
-    measured_rate,
+    measured_rehearsal,
     scan_retained,
 )
 from gods_watching.model_selection.quality import (
@@ -210,8 +210,12 @@ class ModelSelectionService:
                 0, None, 0, target_model_id=package.model_id
             )
         retained, missing = await scan_retained(session, self.preflight_crop_store)
-        rate = measured_rate(self.preflight_assets_root, package)
-        return estimate_switch(retained, rate, missing, target_model_id=package.model_id)
+        rehearsal = measured_rehearsal(self.preflight_assets_root, package)
+        return estimate_switch(
+            retained, rehearsal[0] if rehearsal else None, missing,
+            target_model_id=package.model_id,
+            measured_fixed_seconds=rehearsal[1] if rehearsal else None,
+        )
 
     async def run_pending(
         self,

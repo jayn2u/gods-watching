@@ -100,6 +100,7 @@ class PreparedManifest(BaseModel):
     torchvision_version: str
     cuda_version: str
     cuda_device: str
+    cuda_device_uuid: str = ""
     processor: str
     clip_class: str
     yolo_class: str
@@ -120,6 +121,7 @@ class GpuProof(BaseModel):
     torchvision_version: str
     cuda_version: str
     cuda_device: str
+    cuda_device_uuid: str = ""
     cuda_available: bool
     cuda_operation: float = 0.0
     processor: str = ""
@@ -151,6 +153,11 @@ def validate_gpu_proof(  # noqa: C901
         ("torchvision_version must equal 0.22.1+cu128", proof.torchvision_version, "0.22.1+cu128"),
         ("cuda_version must equal 12.8", proof.cuda_version, "12.8"),
         ("cuda_device must be nonempty", bool(proof.cuda_device.strip()), True),
+        (
+            "cuda_device_uuid must identify an exact GPU",
+            proof.cuda_device_uuid.startswith("GPU-"),
+            True,
+        ),
         ("processor must equal CLIPProcessor", proof.processor, "CLIPProcessor"),
         ("clip_class must equal CLIPModel", proof.clip_class, "CLIPModel"),
         ("yolo_class must equal YOLO", proof.yolo_class, "YOLO"),
@@ -267,6 +274,7 @@ def prepare_model_assets(paths: PreparationPaths) -> PreparedManifest:
         torchvision_version=proof.torchvision_version,
         cuda_version=proof.cuda_version,
         cuda_device=proof.cuda_device,
+        cuda_device_uuid=proof.cuda_device_uuid,
         processor=proof.processor,
         clip_class=proof.clip_class,
         yolo_class=proof.yolo_class,
@@ -605,12 +613,21 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         for package in packages
     ]
     lines = [
-        "import json,sys,torch,torchvision",
+        "import json,subprocess,sys,torch,torchvision",
         "from PIL import Image",
         "from transformers import AutoProcessor,CLIPModel",
         "from ultralytics import YOLO",
         f"specs = {specs!r}",
         "available = torch.cuda.is_available()",
+        "def _gpu_uuid():",
+        "    if not available: return ''",
+        "    value = getattr(torch.cuda.get_device_properties(0), 'uuid', '')",
+        "    if value: return str(value)",
+        "    result = subprocess.run(",
+        "        ['nvidia-smi', '--query-gpu=uuid', '--format=csv,noheader', '-i', '0'],",
+        "        capture_output=True, text=True, check=False, timeout=10",
+        "    )",
+        "    return result.stdout.strip() if result.returncode == 0 else ''",
         "detector = YOLO('/models/yolo/yolo11s.pt').to('cuda') if available else None",
         "proofs = []",
         "image = Image.new('RGB', (224, 224), (31, 47, 61))",
@@ -672,6 +689,7 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         "    'torchvision_version': torchvision.__version__,",
         "    'cuda_version': torch.version.cuda,",
         "    'cuda_device': torch.cuda.get_device_name(0) if available else '',",
+        "    'cuda_device_uuid': _gpu_uuid(),",
         "    'cuda_available': available,",
         "    'cuda_operation': torch.ones(1, device='cuda').item() if available else 0.0,",
         "    'processor': 'CLIPProcessor',",

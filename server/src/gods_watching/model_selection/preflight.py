@@ -1,14 +1,16 @@
 """Measured duration estimate for a manual model transition."""
 
-# ruff: noqa: TC001, TC002, TC003, PLC0415, TRY003, EM101
+# ruff: noqa: TC001, TC002, TC003, TRY003, EM101
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Final
 
@@ -33,6 +35,7 @@ class SwitchPreflight:
     retained_count: int
     estimated_missing_count: int
     measured_crops_per_second: float | None
+    measured_fixed_seconds: float | None
     estimated_seconds: float | None
     max_seconds: int
     eligible: bool
@@ -45,8 +48,9 @@ def estimate_switch(
     estimated_missing_count: int,
     *,
     target_model_id: str,
+    measured_fixed_seconds: float | None = None,
 ) -> SwitchPreflight:
-    """Bound a switch by the measured rate for available retained crops."""
+    """Bound a switch by full-path crop rate and measured fixed overhead."""
     if retained_count < 0 or not 0 <= estimated_missing_count <= retained_count:
         msg = "retained and missing counts are inconsistent"
         raise ValueError(msg)
@@ -54,6 +58,9 @@ def estimate_switch(
         measured_crops_per_second is not None
         and math.isfinite(measured_crops_per_second)
         and measured_crops_per_second > 0
+        and measured_fixed_seconds is not None
+        and math.isfinite(measured_fixed_seconds)
+        and measured_fixed_seconds >= 0
     )
 
     if not valid_rate:
@@ -62,6 +69,7 @@ def estimate_switch(
             retained_count=retained_count,
             estimated_missing_count=estimated_missing_count,
             measured_crops_per_second=None,
+            measured_fixed_seconds=None,
             estimated_seconds=None,
             max_seconds=MAX_SWITCH_SECONDS,
             eligible=False,
@@ -69,13 +77,19 @@ def estimate_switch(
         )
     if measured_crops_per_second is None:
         raise ValueError("missing measured rate")
-    estimated_seconds = (retained_count - estimated_missing_count) / measured_crops_per_second
+    if measured_fixed_seconds is None:
+        raise ValueError("missing measured overhead")
+    estimated_seconds = (
+        measured_fixed_seconds
+        + (retained_count - estimated_missing_count) / measured_crops_per_second
+    )
     eligible = math.isfinite(estimated_seconds) and estimated_seconds <= MAX_SWITCH_SECONDS
     return SwitchPreflight(
         target_model_id=target_model_id,
         retained_count=retained_count,
         estimated_missing_count=estimated_missing_count,
         measured_crops_per_second=measured_crops_per_second,
+        measured_fixed_seconds=measured_fixed_seconds,
         estimated_seconds=estimated_seconds if math.isfinite(estimated_seconds) else None,
         max_seconds=MAX_SWITCH_SECONDS,
         eligible=eligible,
@@ -84,30 +98,47 @@ def estimate_switch(
 
 
 def measurement_path(assets_root: Path, package: ClipModelPackage) -> Path:
-    """Name a record by immutable package identity without trusting model IDs as paths."""
+    """Name a diagnostic embedding-only benchmark by immutable identity."""
     digest = hashlib.sha256(f"{package.model_id}\0{package.revision}".encode()).hexdigest()
     return assets_root / "switch-throughput" / f"{digest}.json"
 
 
-def measured_rate(
+def rehearsal_path(assets_root: Path, package: ClipModelPackage) -> Path:
+    """Name an independent full-transition rehearsal proof."""
+    digest = hashlib.sha256(f"{package.model_id}\0{package.revision}".encode()).hexdigest()
+    return assets_root / "switch-rehearsal" / f"{digest}.json"
+
+
+def measured_rehearsal(
     assets_root: Path, package: ClipModelPackage, *, now: datetime | None = None
-) -> float | None:
-    """Accept only a fresh exact-package measurement on the deployment GPU."""
+) -> tuple[float, float] | None:
+    """Accept only a fresh full-path proof on the exact deployment GPU UUID."""
     try:
         manifest = json.loads((assets_root / "prepared-manifest.json").read_text())
-        record = json.loads(measurement_path(assets_root, package).read_text())
+        record = json.loads(rehearsal_path(assets_root, package).read_text())
         device = manifest["cuda_device"]
+        device_uuid = manifest["cuda_device_uuid"]
         at = datetime.fromisoformat(record["measured_at"])
         elapsed = (now or datetime.now(UTC)) - at
         count = record["sample_count"]
         seconds = record["measured_seconds"]
+        fixed_seconds = record["measured_fixed_seconds"]
         if (
+            record["kind"] != "full_transition_rehearsal_v1"
+            or
             record["model_id"] != package.model_id
             or record["revision"] != package.revision
             or record["dimension"] != package.dimension
             or record["device"] != device
+            or record["device_uuid"] != device_uuid
             or not device
+            or not isinstance(device_uuid, str)
+            or not device_uuid.startswith("GPU-")
             or record["detector_resident"] is not True
+            or record["triton_rpc_measured"] is not True
+            or record["database_staging_measured"] is not True
+            or record["activation_measured"] is not True
+            or record["pipeline_restart_measured"] is not True
             or at.tzinfo is None
             or not timedelta(0) <= elapsed <= MEASUREMENT_MAX_AGE
             or type(count) is not int
@@ -115,9 +146,12 @@ def measured_rate(
             or not isinstance(seconds, (int, float))
             or not math.isfinite(seconds)
             or seconds <= 0
+            or not isinstance(fixed_seconds, (int, float))
+            or not math.isfinite(fixed_seconds)
+            or fixed_seconds < 0
         ):
             return None
-        return count / seconds
+        return count / seconds, float(fixed_seconds)
     except (OSError, ValueError, TypeError, KeyError, OverflowError):
         return None
 
@@ -126,16 +160,30 @@ async def scan_retained(
     session: AsyncSession, crop_store: CropObjectStore
 ) -> tuple[int, int]:
     """Count retained appearances and crops that staging will skip."""
-    keys = (await session.scalars(
+    rows = await session.stream_scalars(
         select(Appearance.crop_object_key).where(Appearance.tombstoned_at.is_(None))
-    )).all()
+    )
+    retained = 0
+    missing = 0
+    async for keys in rows.partitions(128):
+        retained += len(keys)
+        missing += await asyncio.to_thread(_count_missing, crop_store, keys)
+    return retained, missing
+
+
+def _count_missing(crop_store: CropObjectStore, keys: list[str]) -> int:
+    """Decode a bounded crop batch outside the API event loop."""
     missing = 0
     for key in keys:
         try:
-            from io import BytesIO
-
-            with Image.open(BytesIO(crop_store.read(key))) as image:
-                image.verify()
+            payload = crop_store.read(key)
+        except (FileNotFoundError, ValueError):
+            missing += 1
+            continue
+        # Other object-store I/O errors abort apply, as they do during staging.
+        try:
+            with Image.open(BytesIO(payload)) as image:
+                image.load()
         except (OSError, ValueError, UnidentifiedImageError):
             missing += 1
-    return len(keys), missing
+    return missing

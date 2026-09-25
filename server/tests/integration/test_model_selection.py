@@ -73,7 +73,7 @@ def _isolate_existing_transition_tests_from_offline_gpu_proof(
         self: ModelSelectionService, session: object, model_id: str
     ) -> object:
         del self, session
-        return estimate_switch(0, 1.0, 0, target_model_id=model_id)
+        return estimate_switch(0, 1.0, 0, target_model_id=model_id, measured_fixed_seconds=0.0)
 
     monkeypatch.setattr(ModelSelectionService, "preflight", approved_preflight)
 
@@ -128,7 +128,10 @@ async def test_apply_recounts_after_preview_and_rejects_growth(
         return next(counts)
 
     monkeypatch.setattr("gods_watching.model_selection.service.scan_retained", count_crops)
-    monkeypatch.setattr("gods_watching.model_selection.service.measured_rate", lambda *_: 1.0)
+    monkeypatch.setattr(
+        "gods_watching.model_selection.service.measured_rehearsal",
+        lambda *_: (1.0, 0.0),
+    )
     database = Database.connect(database_url)
     service = ModelSelectionService(
         database, ClipModelRegistry((source, target), default_model_id=source.model_id),

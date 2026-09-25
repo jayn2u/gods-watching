@@ -123,6 +123,7 @@ class _ModelSelection:
             "retained_count": 10,
             "estimated_missing_count": 2,
             "measured_crops_per_second": 2.0,
+            "measured_fixed_seconds": 0.0,
             "estimated_seconds": 4.0,
             "max_seconds": 900,
             "eligible": True,

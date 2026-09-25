@@ -26,6 +26,8 @@ def test_gpu_proof_specs_identify_builtin_and_imported_packages() -> None:
         runtime="transformers",
     )
     program = _gpu_proof_program((builtin, imported))
+    assert "cuda_device_uuid" in program
+    assert "--query-gpu=uuid" in program
     spec_line = next(line for line in program.splitlines() if line.startswith("specs = "))
     namespace: dict[str, object] = {}
     exec(spec_line, namespace)  # noqa: S102

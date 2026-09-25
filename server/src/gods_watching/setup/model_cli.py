@@ -25,17 +25,15 @@ from .models import (
 app = typer.Typer(add_completion=False)
 
 
-@app.command("benchmark-switch")
+@app.command("benchmark-embedding")
 def benchmark_switch(
     model_id: Annotated[str, OptionInfo(default=..., param_decls=("--model-id",))],
     assets: Annotated[Path, OptionInfo(default=..., param_decls=("--assets",))],
     crops: Annotated[Path, OptionInfo(default=..., param_decls=("--crops",))],
     sample_keys_file: Annotated[Path, OptionInfo(default=..., param_decls=("--sample-keys",))],
-    detector: Annotated[
-        Path, OptionInfo(default=Path("/models/yolo/yolo11s.pt"), param_decls=("--detector",))
-    ],
+    detector: Annotated[Path, OptionInfo(default=..., param_decls=("--detector",))],
 ) -> None:
-    """Measure exact target image embeddings offline with YOLO resident on CUDA."""
+    """Record diagnostic image throughput; this does not authorize a switch."""
     from gods_watching.model_selection.benchmark import benchmark_package  # noqa: PLC0415
 
     package = load_clip_registry(assets).get(model_id)

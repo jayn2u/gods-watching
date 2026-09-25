@@ -198,6 +198,7 @@ class PreparedModelCatalog:
                         torchvision_version=record.torchvision_version,
                         cuda_version=record.cuda_version,
                         cuda_device=record.cuda_device,
+                        cuda_device_uuid=record.cuda_device_uuid,
                         cuda_available=record.cuda_available,
                         cuda_operation=record.cuda_operation,
                         processor=record.processor,
