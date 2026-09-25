@@ -229,9 +229,10 @@ def write_playwright_mcp_config(
                     str(cli_path),
                     "--headless",
                     "--isolated",
+                    "--browser",
+                    "chromium",
                     "--output-dir",
                     str(output_dir),
-                    "--save-trace",
                 ],
             }
         }
@@ -261,6 +262,7 @@ def run_command(command: Sequence[str], cwd: Path) -> CompletedCommand:
         text=True,
         check=False,
         cwd=cwd,
+        stdin=subprocess.DEVNULL,
     )
     return CompletedCommand(result.returncode, result.stdout, result.stderr)
 

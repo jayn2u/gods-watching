@@ -1,6 +1,7 @@
 """Behavioral tests for the constrained Claude CLI adapters."""
 
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
@@ -15,6 +16,7 @@ from gods_watching.journeys.agents import (
     build_judge_command,
     parse_cli_result,
     redacted_command,
+    run_command,
     write_playwright_mcp_config,
 )
 from gods_watching.journeys.models import (
@@ -185,9 +187,10 @@ def test_executor_prompt_contains_journey_url_and_credentials_without_log_secret
                     str(tmp_path / "playwright-cli.js"),
                     "--headless",
                     "--isolated",
+                    "--browser",
+                    "chromium",
                     "--output-dir",
                     str(evidence_dir / "browser"),
-                    "--save-trace",
                 ],
             }
         }
@@ -420,10 +423,22 @@ def test_playwright_mcp_config_has_the_isolated_headless_server_shape(tmp_path: 
                     "web/node_modules/@playwright/mcp/cli.js",
                     "--headless",
                     "--isolated",
+                    "--browser",
+                    "chromium",
                     "--output-dir",
                     str(tmp_path / "browser-output"),
-                    "--save-trace",
                 ],
             }
         }
     }
+
+
+def test_run_command_closes_stdin(tmp_path: Path) -> None:
+    """Commands receive EOF immediately instead of waiting for interactive input."""
+    result = run_command(
+        (sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"),
+        tmp_path,
+    )
+
+    assert result.stdout == "''\n"
+    assert result.returncode == 0
