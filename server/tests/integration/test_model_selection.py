@@ -24,8 +24,12 @@ from gods_watching.inference.clip import (
 )
 from gods_watching.model_selection.assets import PreparedModelStatus
 from gods_watching.model_selection.coordinator import TransitionCoordinator
-from gods_watching.model_selection.models import TransitionPhase
-from gods_watching.model_selection.registry import ClipModelPackage
+from gods_watching.model_selection.models import ModelNotPreparedError, TransitionPhase
+from gods_watching.model_selection.registry import (
+    DEFAULT_CLIP_MODEL,
+    ClipModelPackage,
+    ClipModelRegistry,
+)
 from gods_watching.model_selection.repository import StageResult, TransitionRepository
 from gods_watching.model_selection.service import ModelSelectionService
 from gods_watching.search import SearchRepository
@@ -51,9 +55,30 @@ if TYPE_CHECKING:
     from gods_watching.live_detections import LiveDetectionPublisher
     from gods_watching.pipeline_worker.service import PipelineWorker
     from gods_watching.retention import RetentionService
+    from gods_watching.storage import Database
 
 _AT = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
 _SOURCE = "57c216476eefef5ab752ec549e440a49ae4ae5f3"
+
+
+@pytest.mark.anyio
+async def test_imported_model_apply_fails_without_real_product_cases() -> None:
+    imported = ClipModelPackage(
+        model_id="fixture/imported",
+        revision="a" * 64,
+        snapshot_path=Path("/models/imported") / ("a" * 64),
+        dimension=512,
+        processor="CLIPProcessor",
+        runtime="transformers",
+    )
+    service = ModelSelectionService(
+        database=cast("Database", object()),
+        registry=ClipModelRegistry((DEFAULT_CLIP_MODEL, imported)),
+        prepared=_Prepared(),
+    )
+    with pytest.raises(ModelNotPreparedError, match="quality evidence store unavailable") as error:
+        await service.apply(cast("AsyncSession", object()), imported.model_id)
+    assert error.value.code == "model_quality_ineligible"
 
 
 @final

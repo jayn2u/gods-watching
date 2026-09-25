@@ -29,6 +29,8 @@ class ModelCatalogEntry(ContractModel):
     dimension: Annotated[int, Field(gt=0)]
     prepared: bool
     reason: str | None = None
+    quality_passed: bool = True
+    quality_reason: str | None = None
 
 
 class ModelTransitionResponse(ContractModel):

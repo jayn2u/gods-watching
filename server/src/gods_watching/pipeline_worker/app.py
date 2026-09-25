@@ -1,6 +1,6 @@
 """Compose the pipeline worker and durable CLIP transition lifecycle."""
 
-# ruff: noqa: TC001, TC003, PLR0913, SIM117, E501
+# ruff: noqa: TC001, TC003, PLR0913, SIM117
 
 from __future__ import annotations
 
@@ -235,6 +235,9 @@ async def run_pipeline_worker(
         prepared=prepared,
         coordinator=coordinator,
         storage=storage,
+        imported_assets_root=settings.model_assets_root / "imported",
+        quality_policy_path=Path("/opt/gods-watching/assets/retrieval-quality-policy.json"),
+        quality_evidence_root=settings.model_assets_root / "quality-evidence",
     )
     runtime = ClipRuntimeManager(settings.triton_grpc_url)
     try:
@@ -295,7 +298,8 @@ async def _run_model_transitions(
                         _ = await selection.run_pending(
                             crop_store=crop_store,
                             runtime=runtime,
-                            clip_factory=lambda package, transport=transition_transport: ClipAdapter(
+                            clip_factory=lambda package,
+                            transport=transition_transport: ClipAdapter(
                                 transport,
                                 package=package,
                             ),
@@ -305,10 +309,9 @@ async def _run_model_transitions(
                         with anyio.CancelScope(shield=True):
                             await transition_transport.__aexit__(None, None, None)
                 except TransitionRecoveryError as error:
-                    if (
-                        "durable identity unavailable" in str(error)
-                        or "does not match transition endpoints" in str(error)
-                    ):
+                    if "durable identity unavailable" in str(
+                        error
+                    ) or "does not match transition endpoints" in str(error):
                         raise
                 # Pace both idle polling and rolling_back retry.  A failed
                 # restore remains visible in maintenance and must not hammer

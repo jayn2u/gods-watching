@@ -1,15 +1,17 @@
 """Application and worker services for durable CLIP model transitions."""
 
-# ruff: noqa: TRY003, EM101, TRY301, BLE001, E501, TC001, TC002, TC003, C901, PLR0913
+# ruff: noqa: TRY003, EM101, TRY301, BLE001, TC001, TC002, TC003, C901, PLR0913
 
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
@@ -30,6 +32,7 @@ from gods_watching.inference.clip import (
 )
 from gods_watching.model_selection.assets import PreparedModelStatus
 from gods_watching.model_selection.coordinator import TransitionCoordinator
+from gods_watching.model_selection.imported_manifest import ImportedClipManifest, ImportedFile
 from gods_watching.model_selection.models import (
     CropSkipReason,
     ModelNotPreparedError,
@@ -37,6 +40,12 @@ from gods_watching.model_selection.models import (
     TransitionPhase,
     TransitionRecoveryError,
     TransitionResult,
+)
+from gods_watching.model_selection.quality import (
+    QualityStatus,
+    assess_quality,
+    load_quality_evidence,
+    load_quality_policy,
 )
 from gods_watching.model_selection.registry import ClipModelPackage, ClipModelRegistry
 from gods_watching.model_selection.repository import (
@@ -60,9 +69,7 @@ if TYPE_CHECKING:
 class PreparedModelCatalogPort(Protocol):
     """Read-only preparation status supplied by deployment preparation."""
 
-    def status(
-        self, package: ClipModelPackage
-    ) -> PreparedModelStatus:
+    def status(self, package: ClipModelPackage) -> PreparedModelStatus:
         """Return a cached local package check without downloading weights."""
         ...
 
@@ -121,6 +128,9 @@ class ModelSelectionService:
     repository: TransitionRepository = field(default_factory=TransitionRepository)
     coordinator: TransitionCoordinator | None = None
     storage: StorageRepository | None = None
+    imported_assets_root: Path | None = None
+    quality_policy_path: Path | None = None
+    quality_evidence_root: Path | None = None
 
     def __post_init__(self) -> None:
         """Bind the database advisory coordinator when one is not injected."""
@@ -144,6 +154,12 @@ class ModelSelectionService:
             raise ModelNotPreparedError(
                 status.reason or "selected model is not prepared",
                 code="model_not_prepared",
+            )
+        quality = await asyncio.to_thread(self._quality_status, package)
+        if not quality.passed:
+            raise ModelNotPreparedError(
+                quality.reason or "selected model has no qualifying evidence",
+                code="model_quality_ineligible",
             )
         active, job = await self.repository.state(session, default=self.registry.default)
         if (
@@ -187,7 +203,9 @@ class ModelSelectionService:
             source_package = self.registry.get(job.source_model_id)
             target_package = self.registry.get(job.target_model_id)
             if source_package is None or target_package is None:
-                raise TransitionRecoveryError("transition references an unavailable registry package")
+                raise TransitionRecoveryError(
+                    "transition references an unavailable registry package"
+                )
             _require_identity(source_package, job.source_model_revision, job.source_dimension)
             _require_identity(target_package, job.target_model_revision, job.target_dimension)
             job_id = job.id
@@ -465,13 +483,19 @@ class ModelSelectionService:
             active_package = self.registry.get(active.model_id)
             if active_package is None:
                 raise TransitionRecoveryError("active model is absent from the registry")
-            pending = job if job is not None and TransitionPhase(job.phase) in {
-                TransitionPhase.QUEUED,
-                TransitionPhase.PREPARING,
-                TransitionPhase.REINDEXING,
-                TransitionPhase.ACTIVATING,
-                TransitionPhase.ROLLING_BACK,
-            } else None
+            pending = (
+                job
+                if job is not None
+                and TransitionPhase(job.phase)
+                in {
+                    TransitionPhase.QUEUED,
+                    TransitionPhase.PREPARING,
+                    TransitionPhase.REINDEXING,
+                    TransitionPhase.ACTIVATING,
+                    TransitionPhase.ROLLING_BACK,
+                }
+                else None
+            )
         _require_identity(
             active_package,
             active.model_revision,
@@ -500,15 +524,20 @@ class ModelSelectionService:
                 if row is None:
                     return None
                 return TransitionResult(state=transition_state(row), activated=True)
-        if pending is not None and (
-            active.model_id,
-            active.model_revision,
-            active.embedding_dimension,
-        ) == (
-            pending.source_model_id,
-            pending.source_model_revision,
-            pending.source_dimension,
-        ) and pending.phase != TransitionPhase.ROLLING_BACK.value:
+        if (
+            pending is not None
+            and (
+                active.model_id,
+                active.model_revision,
+                active.embedding_dimension,
+            )
+            == (
+                pending.source_model_id,
+                pending.source_model_revision,
+                pending.source_dimension,
+            )
+            and pending.phase != TransitionPhase.ROLLING_BACK.value
+        ):
             # The source identity is still authoritative.  Reload it and let
             # the worker resume the queued/staged job from its last durable
             # batch rather than discarding progress. A staged job keeps
@@ -586,13 +615,21 @@ class ModelSelectionService:
         try:
             payload = crop_store.read(crop_key)
         except FileNotFoundError:
-            return StageResult(appearance_id=appearance_id, embedding=None, skip_reason=CropSkipReason.MISSING.value)
+            return StageResult(
+                appearance_id=appearance_id,
+                embedding=None,
+                skip_reason=CropSkipReason.MISSING.value,
+            )
         except OSError:
             # Permission, I/O, and capacity errors are infrastructure failures.
             raise
         except ValueError:
             # A key that cannot be parsed is a missing/invalid crop reference.
-            return StageResult(appearance_id=appearance_id, embedding=None, skip_reason=CropSkipReason.MISSING.value)
+            return StageResult(
+                appearance_id=appearance_id,
+                embedding=None,
+                skip_reason=CropSkipReason.MISSING.value,
+            )
         if not payload:
             return StageResult(
                 appearance_id=appearance_id,
@@ -602,7 +639,11 @@ class ModelSelectionService:
         try:
             embedding = await clip.embed_image(payload)
         except ClipImageDecodeError:
-            return StageResult(appearance_id=appearance_id, embedding=None, skip_reason=CropSkipReason.UNDECODABLE.value)
+            return StageResult(
+                appearance_id=appearance_id,
+                embedding=None,
+                skip_reason=CropSkipReason.UNDECODABLE.value,
+            )
         except ClipInputError as error:
             if error.code == "clip_image_empty":
                 return StageResult(
@@ -627,6 +668,7 @@ class ModelSelectionService:
         entries: list[ModelCatalogEntry] = []
         for package in self.registry.packages:
             status = await self._prepared_status(package)
+            quality = await asyncio.to_thread(self._quality_status, package)
             entries.append(
                 ModelCatalogEntry(
                     model_id=package.model_id,
@@ -634,6 +676,8 @@ class ModelSelectionService:
                     dimension=package.dimension,
                     prepared=status.prepared,
                     reason=status.reason,
+                    quality_passed=quality.passed,
+                    quality_reason=quality.reason,
                 )
             )
         transition = None
@@ -663,6 +707,33 @@ class ModelSelectionService:
             models=tuple(entries),
             transition=transition,
         )
+
+    def _quality_status(self, package: ClipModelPackage) -> QualityStatus:
+        if not package.snapshot_path.parts or "imported" not in package.snapshot_path.parts:
+            return QualityStatus(passed=True, reason=None)
+        if self.imported_assets_root is None or self.quality_evidence_root is None:
+            return QualityStatus(passed=False, reason="quality evidence store unavailable")
+        if self.quality_policy_path is None:
+            return QualityStatus(passed=False, reason="trusted quality policy missing")
+        package_dir = self.imported_assets_root / package.revision
+        try:
+            raw = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest = ImportedClipManifest(
+                model_id=raw["model_id"],
+                revision=raw["revision"],
+                display_name=raw["display_name"],
+                base_model_id=raw["base_model_id"],
+                dimension=raw["dimension"],
+                files=tuple(ImportedFile(**item) for item in raw["files"]),
+                package_sha256=raw["package_sha256"],
+                cuhk_report=raw["cuhk_report"],
+            )
+        except (OSError, ValueError, TypeError, KeyError):
+            return QualityStatus(passed=False, reason="installed quality manifest invalid")
+        if manifest.package_sha256 != package.revision or manifest.model_id != package.model_id:
+            return QualityStatus(passed=False, reason="installed package identity mismatch")
+        evidence = load_quality_evidence(self.quality_evidence_root / f"{package.revision}.json")
+        return assess_quality(manifest, evidence, load_quality_policy(self.quality_policy_path))
 
     async def _prepared_status(self, package: ClipModelPackage) -> PreparedModelStatus:
         try:

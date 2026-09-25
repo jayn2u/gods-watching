@@ -233,6 +233,8 @@ async def test_get_models_returns_the_frozen_catalog_and_transition_shape() -> N
         "dimension": 512,
         "prepared": False,
         "reason": "identity marker missing",
+        "quality_passed": True,
+        "quality_reason": None,
     }
     transition = payload["transition"]
     assert isinstance(transition, dict)
@@ -255,9 +257,7 @@ async def test_apply_returns_202_and_catalog_status_for_accepted_transition() ->
     )
 
     assert status_code == 202
-    assert _JSON_OBJECT.validate_json(body)["active_model_id"] == (
-        "openai/clip-vit-base-patch16"
-    )
+    assert _JSON_OBJECT.validate_json(body)["active_model_id"] == ("openai/clip-vit-base-patch16")
     assert service.applied_model_ids == ["openai/clip-vit-base-patch32"]
 
 
@@ -267,6 +267,10 @@ async def test_apply_returns_202_and_catalog_status_for_accepted_transition() ->
     [
         (ModelNotPreparedError("unknown", code="unknown_model"), "unknown_model"),
         (ModelNotPreparedError("marker missing", code="model_not_prepared"), "model_not_prepared"),
+        (
+            ModelNotPreparedError("quality evidence missing", code="model_quality_ineligible"),
+            "model_quality_ineligible",
+        ),
     ],
 )
 async def test_apply_maps_unknown_and_unprepared_models_to_structured_422(

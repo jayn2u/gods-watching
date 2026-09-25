@@ -112,6 +112,9 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
         prepared=prepared,
         coordinator=model_coordinator,
         storage=storage,
+        imported_assets_root=configured.model_assets_root / "imported",
+        quality_policy_path=Path("/opt/gods-watching/assets/retrieval-quality-policy.json"),
+        quality_evidence_root=configured.model_assets_root / "quality-evidence",
     )
     repository = SearchRepository()
     auth = AuthService(database, operator_username=configured.operator_username)
