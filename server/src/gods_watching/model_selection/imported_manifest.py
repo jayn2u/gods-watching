@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import stat
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any
 CLIP_DIMENSION = 512
 CLIP_PATCH_SIZE = 16
 MIN_SAFETENSORS_HEADER_SIZE = 2
+PAIR_SIZE = 2
 
 
 class ClipPackageImportError(ValueError):
@@ -78,6 +80,120 @@ def _safe_relative(name: str) -> Path:
     return path
 
 
+def _require_regular(source: Path, path: Path) -> None:
+    """Reject links and special files before any payload is opened."""
+    try:
+        relative = path.relative_to(source)
+        current = source
+        for component in relative.parts:
+            current = current / component
+            mode = current.lstat().st_mode
+            if current == path:
+                if not stat.S_ISREG(mode):
+                    code = "invalid_package_file"
+                    raise ClipPackageImportError(code)
+            elif not stat.S_ISDIR(mode):
+                code = "invalid_package_file"
+                raise ClipPackageImportError(code)
+    except (OSError, ValueError) as error:
+        code = "invalid_package_file"
+        raise ClipPackageImportError(code) from error
+
+
+def _validate_safetensors(path: Path) -> None:
+    """Check the local container layout and presence of both encoder namespaces."""
+    try:
+        with path.open("rb") as stream:
+            header_size = struct.unpack("<Q", stream.read(8))[0]
+            if not MIN_SAFETENSORS_HEADER_SIZE <= header_size <= 16 * 1024 * 1024:
+                code = "invalid_safetensors"
+                raise ClipPackageImportError(code)
+            header = json.loads(stream.read(header_size))
+            payload_size = path.stat().st_size - 8 - header_size
+        tensors = {k: v for k, v in header.items() if k != "__metadata__"}
+        if (
+            not isinstance(header, dict)
+            or not tensors
+            or not any(k.startswith("text_model.") for k in tensors)
+            or not any(k.startswith("vision_model.") for k in tensors)
+        ):
+            code = "invalid_safetensors"
+            raise ClipPackageImportError(code)
+        for value in tensors.values():
+            if not isinstance(value, dict) or set(value) != {"dtype", "shape", "data_offsets"}:
+                code = "invalid_safetensors"
+                raise ClipPackageImportError(code)
+            offsets = value["data_offsets"]
+            shape = value["shape"]
+            if (
+                value["dtype"] not in {"F16", "F32", "BF16"}
+                or not isinstance(shape, list)
+                or not shape
+                or any(type(d) is not int or d < 1 for d in shape)
+                or not isinstance(offsets, list)
+                or len(offsets) != PAIR_SIZE
+                or any(type(n) is not int for n in offsets)
+                or not 0 <= offsets[0] < offsets[1] <= payload_size
+            ):
+                code = "invalid_safetensors"
+                raise ClipPackageImportError(code)
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        AttributeError,
+        struct.error,
+        json.JSONDecodeError,
+    ) as error:
+        code = "invalid_safetensors"
+        raise ClipPackageImportError(code) from error
+
+
+def _validate_support_files(source: Path, report_name: str) -> None:
+    """Check local processor, tokenizer, and provenance document shapes."""
+    processor = _read_json(source / "preprocessor_config.json")
+    if processor.get("do_resize") is not True or not isinstance(processor.get("size"), (int, dict)):
+        code = "unsupported_clip_processor"
+        raise ClipPackageImportError(code)
+    tokens = _read_json(source / "special_tokens_map.json")
+    if not isinstance(tokens.get("unk_token"), str) or not tokens["unk_token"]:
+        code = "unsupported_clip_processor"
+        raise ClipPackageImportError(code)
+    vocab = _read_json(source / "vocab.json")
+    if not vocab or any(
+        not isinstance(k, str) or type(v) is not int or v < 0 for k, v in vocab.items()
+    ):
+        code = "unsupported_clip_processor"
+        raise ClipPackageImportError(code)
+    try:
+        merges = (source / "merges.txt").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        code = "unsupported_clip_processor"
+        raise ClipPackageImportError(code) from error
+    if (
+        not merges
+        or not merges[0].startswith("#version:")
+        or not any(len(line.split()) == PAIR_SIZE for line in merges[1:] if line.strip())
+    ):
+        code = "unsupported_clip_processor"
+        raise ClipPackageImportError(code)
+    report = _read_json(source / report_name)
+    required_text = (
+        "dataset_split",
+        "protocol",
+        "source_checkpoint",
+        "evaluation_code_revision",
+        "metric_definition",
+    )
+    if any(
+        not isinstance(report.get(k), str) or not report[k].strip() for k in required_text
+    ) or any(
+        type(report.get(k)) not in (float, int) for k in ("baseline_score", "candidate_score")
+    ):
+        code = "invalid_cuhk_report"
+        raise ClipPackageImportError(code)
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -92,6 +208,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def parse_source_manifest(source: Path) -> ImportedClipManifest:  # noqa: C901, PLR0912, PLR0915
     """Validate metadata and every payload before producing its immutable identity."""
+    _require_regular(source, source / "package.json")
     meta = _read_json(source / "package.json")
     if set(meta) != {
         "model_id",
@@ -171,12 +288,13 @@ def parse_source_manifest(source: Path) -> ImportedClipManifest:  # noqa: C901, 
     if any(name not in required for name in names):
         code = "unsupported_package_file"
         raise ClipPackageImportError(code)
-    if (source / "package.json").is_symlink() or (source / "model.safetensors").is_symlink():
-        code = "invalid_package_file"
-        raise ClipPackageImportError(code)
+    for file in files:
+        _require_regular(source, source / _safe_relative(file.path))
     config = _read_json(source / "config.json")
     if (
-        config.get("model_type") != "clip"
+        not isinstance(config.get("vision_config"), dict)
+        or not isinstance(config.get("text_config"), dict)
+        or config.get("model_type") != "clip"
         or config.get("architectures") != ["CLIPModel"]
         or config.get("projection_dim") != CLIP_DIMENSION
         or config.get("vision_config", {}).get("patch_size") != CLIP_PATCH_SIZE
@@ -188,19 +306,8 @@ def parse_source_manifest(source: Path) -> ImportedClipManifest:  # noqa: C901, 
     if _read_json(source / "tokenizer_config.json").get("tokenizer_class") != "CLIPTokenizer":
         code = "unsupported_clip_processor"
         raise ClipPackageImportError(code)
-    try:
-        with (source / "model.safetensors").open("rb") as stream:
-            header_size = struct.unpack("<Q", stream.read(8))[0]
-            if not MIN_SAFETENSORS_HEADER_SIZE <= header_size <= 16 * 1024 * 1024:
-                code = "invalid_safetensors"
-                raise ClipPackageImportError(code)
-            header = json.loads(stream.read(header_size))
-            if not isinstance(header, dict) or not header:
-                code = "invalid_safetensors"
-                raise ClipPackageImportError(code)
-    except (OSError, ValueError, struct.error, json.JSONDecodeError) as error:
-        code = "invalid_safetensors"
-        raise ClipPackageImportError(code) from error
+    _validate_support_files(source, meta["cuhk_report"])
+    _validate_safetensors(source / "model.safetensors")
     for file in files:
         path = source / _safe_relative(file.path)
         if (
@@ -239,7 +346,7 @@ def parse_source_manifest(source: Path) -> ImportedClipManifest:  # noqa: C901, 
         meta["display_name"],
         meta["base_model_id"],
         512,
-        tuple(files),
+        tuple(sorted(files, key=lambda f: f.path)),
         digest,
         meta["cuhk_report"],
     )

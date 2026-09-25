@@ -44,6 +44,9 @@ def import_clip_package(source: Path, assets_root: Path) -> ImportedClipManifest
                 except (OSError, json.JSONDecodeError) as error:
                     code = "invalid_installed_package"
                     raise ClipPackageImportError(code) from error
+                if not isinstance(record, dict):
+                    code = "invalid_installed_package"
+                    raise ClipPackageImportError(code)  # noqa: TRY301
                 if record.get("model_id") == manifest.model_id:
                     if record != manifest.to_dict() or existing.name != manifest.package_sha256:
                         code = "model_id_conflict"

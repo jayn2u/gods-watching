@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import struct
 from pathlib import Path
 
@@ -23,7 +24,15 @@ def package(tmp_path: Path) -> Path:
         "tokenizer_config.json": {"tokenizer_class": "CLIPTokenizer"},
         "special_tokens_map.json": {"unk_token": "<|endoftext|>"},
         "vocab.json": {"a": 0},
-        "cuhk-report.json": {"split": "test", "protocol": "identity_disjoint", "score": 0.5},
+        "cuhk-report.json": {
+            "dataset_split": "test",
+            "protocol": "identity_disjoint",
+            "source_checkpoint": "openai/clip-vit-base-patch16",
+            "evaluation_code_revision": "abc123",
+            "metric_definition": "Recall@1",
+            "baseline_score": 0.4,
+            "candidate_score": 0.5,
+        },
     }
     for name, value in payloads.items():
         (source / name).write_text(json.dumps(value))
@@ -140,6 +149,84 @@ def test_failed_publish_leaves_no_partial_package(
         raise OSError(error)
 
     monkeypatch.setattr("gods_watching.model_selection.importer.os.rename", fail)
+    with pytest.raises(ClipPackageImportError):
+        import_clip_package(source, assets)
+    assert_empty(assets)
+
+
+def _update_hash(source: Path, filename: str) -> None:
+    data = json.loads((source / "package.json").read_text())
+    payload = (source / filename).read_bytes()
+    entry = next(item for item in data["files"] if item["path"] == filename)
+    entry["size"] = len(payload)
+    entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    (source / "package.json").write_text(json.dumps(data))
+
+
+def test_manifest_order_does_not_change_identity(tmp_path: Path) -> None:
+    source = package(tmp_path)
+    assets = tmp_path / "assets"
+    first = import_clip_package(source, assets)
+    data = json.loads((source / "package.json").read_text())
+    data["files"].reverse()
+    (source / "package.json").write_text(json.dumps(data))
+    assert import_clip_package(source, assets) == first
+
+
+@pytest.mark.parametrize("filename", ["package.json", "config.json", "model.safetensors"])
+def test_fifo_rejected_without_open(tmp_path: Path, filename: str) -> None:
+    source = package(tmp_path)
+    (source / filename).unlink()
+    os.mkfifo(source / filename)
+    assets = tmp_path / "assets"
+    with pytest.raises(ClipPackageImportError) as exc:
+        import_clip_package(source, assets)
+    assert exc.value.code == "invalid_package_file"
+    assert_empty(assets)
+
+
+def test_null_vision_config_is_typed_error(tmp_path: Path) -> None:
+    source = package(tmp_path)
+    config = json.loads((source / "config.json").read_text())
+    config["vision_config"] = None
+    (source / "config.json").write_text(json.dumps(config))
+    _update_hash(source, "config.json")
+    assets = tmp_path / "assets"
+    with pytest.raises(ClipPackageImportError) as exc:
+        import_clip_package(source, assets)
+    assert exc.value.code == "unsupported_clip_architecture"
+    assert_empty(assets)
+
+
+def test_installed_manifest_list_is_typed_error(tmp_path: Path) -> None:
+    source = package(tmp_path)
+    assets = tmp_path / "assets"
+    installed = assets / "imported" / "fake"
+    installed.mkdir(parents=True)
+    (installed / "manifest.json").write_text("[]")
+    with pytest.raises(ClipPackageImportError) as exc:
+        import_clip_package(source, assets)
+    assert exc.value.code == "invalid_installed_package"
+    assert list((assets / "imported").glob("*/manifest.json")) == [installed / "manifest.json"]
+
+
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        ("model.safetensors", b"\x02\x00\x00\x00\x00\x00\x00\x00{}"),
+        ("preprocessor_config.json", b"{}"),
+        ("vocab.json", b"[]"),
+        ("merges.txt", b"garbage"),
+        ("cuhk-report.json", b"{}"),
+    ],
+)
+def test_malformed_payload_structure_rejected(
+    tmp_path: Path, filename: str, content: bytes
+) -> None:
+    source = package(tmp_path)
+    (source / filename).write_bytes(content)
+    _update_hash(source, filename)
+    assets = tmp_path / "assets"
     with pytest.raises(ClipPackageImportError):
         import_clip_package(source, assets)
     assert_empty(assets)
