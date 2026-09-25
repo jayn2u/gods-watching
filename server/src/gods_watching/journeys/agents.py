@@ -208,9 +208,19 @@ def parse_cli_result[T: BaseModel](stdout: str, model: type[T]) -> T | AgentFail
     if not _is_json_object(structured_output):
         return AgentFailure(kind="invalid_output", detail="CLI result has no structured_output")
     try:
-        return model.model_validate(structured_output)
+        parsed = model.model_validate(structured_output)
+        if isinstance(parsed, ExecutorReport):
+            parsed = parsed.model_copy(
+                update={
+                    "observations": tuple(
+                        observation.model_copy(update={"flaky": False})
+                        for observation in parsed.observations
+                    )
+                }
+            )
     except (ValidationError, TypeError, ValueError):
         return AgentFailure(kind="invalid_output", detail="structured_output is invalid")
+    return parsed
 
 
 def write_playwright_mcp_config(

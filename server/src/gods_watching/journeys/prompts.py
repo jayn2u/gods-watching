@@ -28,9 +28,8 @@ EXECUTOR_SCHEMA: Final[dict[str, object]] = {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string"},
-                    "flaky": {"type": "boolean"},
                 },
-                "required": ["text", "flaky"],
+                "required": ["text"],
                 "additionalProperties": False,
             },
         },

@@ -4,7 +4,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import SecretStr
 
@@ -131,6 +131,19 @@ def test_command_builders_return_the_required_executor_and_judge_arguments(
     assert json.loads(empty_mcp_path.read_text(encoding="utf-8")) == {"mcpServers": {}}
 
 
+def test_executor_observation_schema_does_not_expose_the_flaky_marker() -> None:
+    """Executor observations accept text only and disallow additional properties."""
+    properties = EXECUTOR_SCHEMA["properties"]
+    assert isinstance(properties, dict)
+    observations = cast("dict[str, object]", properties["observations"])
+    assert isinstance(observations, dict)
+    observation_items = cast("dict[str, object]", observations["items"])
+    assert isinstance(observation_items, dict)
+    assert observation_items["properties"] == {"text": {"type": "string"}}
+    assert observation_items["required"] == ["text"]
+    assert observation_items["additionalProperties"] is False
+
+
 def test_executor_prompt_contains_journey_url_and_credentials_without_log_secret(
     tmp_path: Path,
 ) -> None:
@@ -250,6 +263,17 @@ def test_parse_cli_result_returns_structured_success() -> None:
     parsed = parse_cli_result(cli_envelope(report_data()), ExecutorReport)
 
     assert parsed == ExecutorReport.model_validate(report_data())
+
+
+def test_executor_observation_flaky_input_is_normalized_to_false() -> None:
+    """Executor supplied flaky markers never survive report parsing."""
+    structured_output = report_data()
+    structured_output["observations"] = [{"text": "The console loaded.", "flaky": True}]
+
+    parsed = parse_cli_result(cli_envelope(structured_output), ExecutorReport)
+
+    assert isinstance(parsed, ExecutorReport)
+    assert parsed.observations == (Observation(text="The console loaded."),)
 
 
 def test_parse_cli_result_classifies_usage_limit_errors() -> None:

@@ -74,6 +74,13 @@ def _ensure_fixture(
                 "stale fixture directory is not empty",
             ) from error
     if destination.is_file() and _sha256(destination) == expected_hash:
+        try:
+            _make_world_readable(destination)
+        except OSError as error:
+            raise FixtureDownloadError(
+                destination,
+                "fixture permissions could not be set",
+            ) from error
         return
 
     try:
@@ -93,6 +100,7 @@ def _ensure_fixture(
         download(direct_url, temporary_path)
         actual_hash = _sha256(temporary_path)
         if actual_hash == expected_hash:
+            _set_mode_0644(temporary_path)
             _ = temporary_path.replace(destination)
             temporary_path = None
     except Exception as error:
@@ -105,6 +113,15 @@ def _ensure_fixture(
             temporary_path.unlink(missing_ok=True)
     if actual_hash != expected_hash:
         raise FixtureDownloadError(destination, "downloaded fixture SHA-256 does not match")
+
+
+def _make_world_readable(path: Path) -> None:
+    if path.stat().st_mode & 0o004 == 0:
+        _set_mode_0644(path)
+
+
+def _set_mode_0644(path: Path) -> None:
+    _ = path.chmod(0o644)
 
 
 def _sha256(path: Path) -> str:

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import stat
 from email.message import Message
 from pathlib import Path
 from urllib.error import HTTPError
@@ -77,7 +78,30 @@ def test_missing_fixture_is_downloaded_to_a_verified_file(tmp_path: Path) -> Non
     assert calls[0][0] == "https://fixture.example/camera.mp4"
     assert calls[0][1].parent == destination.parent
     assert calls[0][1] != destination
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o644
     assert list(destination.parent.glob("*.tmp")) == []
+
+
+def test_valid_private_fixture_is_made_world_readable_without_download(
+    tmp_path: Path,
+) -> None:
+    """A valid existing fixture is chmod-ed without downloading it again."""
+    payload = b"prepared private camera video"
+    destination = tmp_path / "runtime/assets/fixtures/camera.mp4"
+    destination.parent.mkdir(parents=True)
+    _ = destination.write_bytes(payload)
+    _ = destination.chmod(0o600)
+    manifest = write_manifest(tmp_path, digest=hashlib.sha256(payload).hexdigest())
+    calls: list[tuple[str, Path]] = []
+
+    def download(url: str, target: Path) -> None:
+        calls.append((url, target))
+
+    ensure_fixture_videos(manifest, tmp_path, download=download)
+
+    assert destination.read_bytes() == payload
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o644
+    assert calls == []
 
 
 def test_bad_download_hash_leaves_no_partial_destination(tmp_path: Path) -> None:
