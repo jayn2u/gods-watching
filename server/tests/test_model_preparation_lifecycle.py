@@ -1,4 +1,10 @@
+import ast
 from pathlib import Path
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import pytest
 from typer.testing import CliRunner
@@ -33,6 +39,54 @@ def test_gpu_proof_specs_identify_builtin_and_imported_packages() -> None:
     exec(spec_line, namespace)  # noqa: S102
     specs = namespace["specs"]
     assert [spec["imported"] for spec in specs] == [False, True]
+
+
+@pytest.mark.parametrize(
+    ("available", "uuid", "expected"),
+    [
+        (
+            True,
+            "17913b0a-8144-5f39-7062-15265e5dca33",
+            "GPU-17913b0a-8144-5f39-7062-15265e5dca33",
+        ),
+        (
+            True,
+            "GPU-17913b0a-8144-5f39-7062-15265e5dca33",
+            "GPU-17913b0a-8144-5f39-7062-15265e5dca33",
+        ),
+        (True, "", ""),
+        (False, "17913b0a-8144-5f39-7062-15265e5dca33", ""),
+    ],
+)
+def test_generated_gpu_uuid_uses_nvidia_smi_form(
+    available: bool, uuid: str, expected: str
+) -> None:
+    program = _gpu_proof_program(())
+    tree = ast.parse(program)
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_gpu_uuid"
+    )
+    def get_device_properties(index: int) -> SimpleNamespace:
+        assert index == 0
+        return SimpleNamespace(uuid=uuid)
+
+    cuda = SimpleNamespace(
+        is_available=lambda: available,
+        get_device_properties=get_device_properties,
+    )
+    namespace: dict[str, object] = {
+        "available": available,
+        "torch": SimpleNamespace(cuda=cuda),
+    }
+    exec(  # noqa: S102
+        compile(ast.Module(body=[function], type_ignores=[]), "<gpu-proof-program>", "exec"),
+        namespace,
+    )
+
+    gpu_uuid = cast("Callable[[], str]", namespace["_gpu_uuid"])
+    assert gpu_uuid() == expected
 
 
 def test_published_builtin_marker_remains_prepared(tmp_path: Path) -> None:
