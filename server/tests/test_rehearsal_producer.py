@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,7 @@ import anyio
 import pytest
 
 from gods_watching.model_selection.preflight import (
+    estimate_switch,
     measured_rehearsal,
     rehearsal_path,
     runtime_code_sha256,
@@ -96,6 +98,53 @@ def test_inner_payload_cannot_supply_success_flags() -> None:
     checked = _verified_inner_payload(observed, SOURCE, TARGET)
     assert "complete" not in checked
     assert "detector_resident" not in checked
+
+
+def test_delayed_corpus_recheck_counts_once_in_variable_estimate() -> None:
+    observer = TransitionObserver()
+    observer.begin(SOURCE, TARGET)
+    for phase in PHASES:
+        observer.start(phase)
+        if phase == "corpus_recheck":
+            time.sleep(0.04)
+        observer.end(phase)
+    for _ in range(16):
+        observer.committed_crop(0.001)
+    observer.finish()
+    observed = observer.measurement
+    assert observed is not None
+    assert observed.complete
+    assert observed.phase_seconds["corpus_recheck"] >= 0.04
+    proof = _measurement_payload(observed, source=SOURCE, target=TARGET, job_id="j")
+    variable = proof["measured_seconds"]
+    fixed = proof["measured_fixed_seconds"]
+    assert isinstance(variable, float)
+    assert isinstance(fixed, float)
+    assert variable == (
+        observed.phase_seconds["crop_embedding"]
+        + observed.phase_seconds["corpus_recheck"]
+    )
+    assert fixed == observed.measured_fixed_seconds
+    preflight = estimate_switch(
+        retained_count=32,
+        measured_crops_per_second=16 / variable,
+        estimated_missing_count=0,
+        target_model_id=TARGET.model_id,
+        measured_fixed_seconds=fixed,
+    )
+    assert preflight.estimated_seconds == pytest.approx(fixed + 2 * variable)
+    assert preflight.estimated_seconds >= fixed + 0.08
+
+
+def test_inner_payload_rejects_old_observation_without_corpus_phase() -> None:
+    observed = _measurement_payload(measurement(), source=SOURCE, target=TARGET, job_id="j")
+    observed["retained_corpus_sha256"] = "a" * 64
+    observed["runtime_code_sha256"] = "b" * 64
+    phases = observed["phase_seconds"]
+    assert isinstance(phases, dict)
+    phases.pop("corpus_recheck")
+    with pytest.raises(RehearsalError, match="phase_incomplete"):
+        _verified_inner_payload(observed, SOURCE, TARGET)
 
 
 class FakeDocker:
@@ -210,10 +259,10 @@ async def test_outer_only_publishes_after_successful_observation(tmp_path: Path)
         )
         record = json.loads(result.read_text())
         assert record["sample_count"] == 16
-        assert record["measured_seconds"] == 1.0
+        assert record["measured_seconds"] == 2.0
         assert record["container_id"] == "a" * 64
         assert record["database_dump_sha256"]
-        assert measured_rehearsal(assets, TARGET, corpus_sha256="a" * 64) == (16.0, 5.0)
+        assert measured_rehearsal(assets, TARGET, corpus_sha256="a" * 64) == (8.0, 5.0)
         assert "sha256:app" in good.commands[1]
         assert "app:local" not in good.commands[1]
         assert "--network" in good.commands[1]

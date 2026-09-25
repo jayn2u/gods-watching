@@ -19,6 +19,7 @@ from sqlalchemy import Row, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gods_watching.model_selection.registry import ClipModelPackage
+from gods_watching.model_selection.transition_observer import PHASES
 from gods_watching.storage import CropObjectStore
 from gods_watching.storage.models import Appearance
 
@@ -218,8 +219,9 @@ def measured_rehearsal(
         count = record["sample_count"]
         seconds = record["measured_seconds"]
         fixed_seconds = record["measured_fixed_seconds"]
+        phase_seconds = record["phase_seconds"]
         if (
-            record["kind"] != "full_transition_rehearsal_v1"
+            record["kind"] != "full_transition_rehearsal_v2"
             or record["model_id"] != package.model_id
             or record["revision"] != package.revision
             or record["dimension"] != package.dimension
@@ -248,6 +250,27 @@ def measured_rehearsal(
             or not isinstance(fixed_seconds, (int, float))
             or not math.isfinite(fixed_seconds)
             or fixed_seconds < 0
+            or not isinstance(phase_seconds, dict)
+            or set(phase_seconds) != set(PHASES)
+            or any(
+                type(phase_seconds[phase]) not in (int, float)
+                or not math.isfinite(phase_seconds[phase])
+                or phase_seconds[phase] <= 0
+                for phase in PHASES
+            )
+            or not math.isclose(
+                seconds,
+                phase_seconds["crop_embedding"] + phase_seconds["corpus_recheck"],
+                rel_tol=1e-9,
+            )
+            or not math.isclose(
+                fixed_seconds,
+                sum(
+                    phase_seconds[phase]
+                    for phase in PHASES if phase not in {"crop_embedding", "corpus_recheck"}
+                ),
+                rel_tol=1e-9,
+            )
         ):
             return None
         return count / seconds, float(fixed_seconds)

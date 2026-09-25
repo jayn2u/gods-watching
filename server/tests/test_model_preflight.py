@@ -108,7 +108,7 @@ def test_rehearsal_requires_exact_fresh_gpu_uuid_and_full_path(tmp_path: Path) -
     path = rehearsal_path(tmp_path, package)
     path.parent.mkdir()
     record = {
-        "kind": "full_transition_rehearsal_v1",
+        "kind": "full_transition_rehearsal_v2",
         "model_id": package.model_id,
         "revision": package.revision,
         "dimension": package.dimension,
@@ -122,6 +122,15 @@ def test_rehearsal_requires_exact_fresh_gpu_uuid_and_full_path(tmp_path: Path) -
         "sample_count": 16,
         "measured_seconds": 4.0,
         "measured_fixed_seconds": 5.0,
+        "phase_seconds": {
+            "pipeline_stop": 1.0,
+            "corpus_recheck": 1.0,
+            "runtime_switch": 1.0,
+            "stage_population": 1.0,
+            "crop_embedding": 3.0,
+            "activation": 1.0,
+            "pipeline_restart": 1.0,
+        },
         "measured_at": datetime.now(UTC).isoformat(),
         "retained_corpus_sha256": "a" * 64,
         "runtime_code_sha256": runtime_code_sha256(),
@@ -129,6 +138,13 @@ def test_rehearsal_requires_exact_fresh_gpu_uuid_and_full_path(tmp_path: Path) -
     }
     path.write_text(json.dumps(record))
     assert measured_rehearsal(tmp_path, package, corpus_sha256="a" * 64) == (4.0, 5.0)
+    old_record = dict(record)
+    old_record["kind"] = "full_transition_rehearsal_v1"
+    old_record["phase_seconds"] = dict(record["phase_seconds"])
+    old_record["phase_seconds"].pop("corpus_recheck")
+    path.write_text(json.dumps(old_record))
+    assert measured_rehearsal(tmp_path, package, corpus_sha256="a" * 64) is None
+    path.write_text(json.dumps(record))
     assert measured_rehearsal(tmp_path, package, corpus_sha256="b" * 64) is None
     record["runtime_code_sha256"] = "b" * 64
     path.write_text(json.dumps(record))

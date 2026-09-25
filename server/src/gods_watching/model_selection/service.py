@@ -321,28 +321,33 @@ class ModelSelectionService:
         try:
             # The queued API check precedes terminal pipeline handoffs.  Only
             # the paused corpus can be compared with the rehearsal proof.
-            if self.preflight_assets_root is not None:
+            if self.preflight_assets_root is not None or observer is not None:
+                if observer is not None:
+                    observer.start("corpus_recheck")
                 async with self.database.transaction() as session:
                     retained, missing, corpus_sha256 = await scan_retained_snapshot(
                         session, crop_store
                     )
-                rehearsal = measured_rehearsal(
-                    self.preflight_assets_root,
-                    target_package,
-                    corpus_sha256=corpus_sha256,
-                )
-                stable_preflight = estimate_switch(
-                    retained,
-                    rehearsal[0] if rehearsal else None,
-                    missing,
-                    target_model_id=target_package.model_id,
-                    measured_fixed_seconds=rehearsal[1] if rehearsal else None,
-                )
-                if not stable_preflight.eligible:
-                    raise ModelNotPreparedError(
-                        stable_preflight.reason or "model switch preflight failed",
-                        code="model_preflight_ineligible",
+                if observer is not None:
+                    observer.end("corpus_recheck")
+                if self.preflight_assets_root is not None:
+                    rehearsal = measured_rehearsal(
+                        self.preflight_assets_root,
+                        target_package,
+                        corpus_sha256=corpus_sha256,
                     )
+                    stable_preflight = estimate_switch(
+                        retained,
+                        rehearsal[0] if rehearsal else None,
+                        missing,
+                        target_model_id=target_package.model_id,
+                        measured_fixed_seconds=rehearsal[1] if rehearsal else None,
+                    )
+                    if not stable_preflight.eligible:
+                        raise ModelNotPreparedError(
+                            stable_preflight.reason or "model switch preflight failed",
+                            code="model_preflight_ineligible",
+                        )
             if observer is not None and observer.fresh:
                 observer.start("stage_population")
             async with self.database.transaction() as session:

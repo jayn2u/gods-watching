@@ -117,7 +117,10 @@ def _measurement_payload(
         "phase_spans": {key: list(value) for key, value in observation.phase_spans.items()},
         "crop_seconds": list(observation.crop_seconds),
         "sample_count": observation.completed_crops,
-        "measured_seconds": observation.phase_seconds["crop_embedding"],
+        "measured_seconds": (
+            observation.phase_seconds["crop_embedding"]
+            + observation.phase_seconds["corpus_recheck"]
+        ),
         "measured_fixed_seconds": fixed,
     }
 
@@ -566,7 +569,7 @@ async def rehearse_switch(
             if _hash_tree(stack.crops_root) != crop_sha256:
                 raise RehearsalError("crop_snapshot_changed")
             record = {
-                "kind": "full_transition_rehearsal_v1",
+                "kind": "full_transition_rehearsal_v2",
                 "model_id": target.model_id,
                 "revision": target.revision,
                 "dimension": target.dimension,

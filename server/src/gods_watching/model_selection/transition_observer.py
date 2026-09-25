@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from gods_watching.model_selection.registry import ClipModelPackage
 
 PHASES = (
-    "pipeline_stop", "runtime_switch", "stage_population", "crop_embedding",
+    "pipeline_stop", "corpus_recheck", "runtime_switch", "stage_population", "crop_embedding",
     "activation", "pipeline_restart",
 )
 
@@ -32,7 +32,10 @@ class TransitionMeasurement:
     def measured_fixed_seconds(self) -> float | None:
         if not self.complete:
             return None
-        return sum(self.phase_seconds[phase] for phase in PHASES if phase != "crop_embedding")
+        return sum(
+            self.phase_seconds[phase]
+            for phase in PHASES if phase not in {"crop_embedding", "corpus_recheck"}
+        )
 
 
 @dataclass(slots=True)

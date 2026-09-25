@@ -1129,8 +1129,8 @@ async def test_only_missing_empty_and_decode_failures_are_skips(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("failure", ["success", "stage", "activation", "cancel"])
-async def test_observer_incomplete_on_production_phase_failure(
-    database_url: str, tmp_path: Path, failure: str
+async def test_observer_incomplete_on_production_phase_failure(  # noqa: C901
+    database_url: str, tmp_path: Path, failure: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from gods_watching.storage import Database
 
@@ -1163,6 +1163,18 @@ async def test_observer_incomplete_on_production_phase_failure(
         storage=StorageRepository(CredentialCipher(Fernet.generate_key())),
     )
     observer = TransitionObserver()
+    if failure == "success":
+        from gods_watching.model_selection.preflight import scan_retained_snapshot
+
+        async def delayed_scan(
+            session: AsyncSession, store: CropObjectStore
+        ) -> tuple[int, int, str | None]:
+            await anyio.sleep(0.04)
+            return await scan_retained_snapshot(session, store)
+
+        monkeypatch.setattr(
+            "gods_watching.model_selection.service.scan_retained_snapshot", delayed_scan
+        )
     try:
         async with database.transaction() as session:
             _ = await service.apply(session, target.model_id)
@@ -1183,6 +1195,8 @@ async def test_observer_incomplete_on_production_phase_failure(
             )
         assert observer.measurement is not None
         assert observer.measurement.complete is (failure == "success")
+        if failure == "success":
+            assert observer.measurement.phase_seconds["corpus_recheck"] >= 0.04
         assert observer.measurement.completed_crops == 0
         assert ("pipeline_restart" in observer.measurement.phase_spans) is (
             failure == "success"
