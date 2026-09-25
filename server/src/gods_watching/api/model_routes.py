@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gods_watching.contracts.model_selection import (
     ModelApplyRequest,
+    ModelPreflightResponse,
     ModelSettingsResponse,
 )
 from gods_watching.model_selection.models import (
@@ -29,6 +30,10 @@ class ModelSelectionProvider(Protocol):
 
     async def apply(self, session: AsyncSession, model_id: str) -> ModelSettingsResponse:
         """Validate and queue a selected model."""
+        ...
+
+    async def preflight(self, session: AsyncSession, model_id: str) -> ModelPreflightResponse:
+        """Return the current measured switch estimate."""
         ...
 
 
@@ -62,6 +67,15 @@ class _ModelHandlers:
             _raise_model_error(503, "model_selection_unavailable", "model selection is unavailable")
         async with self._database.transaction() as session:
             return await self._model_selection.get(session)
+
+    async def get_preflight(self, model_id: str) -> ModelPreflightResponse:
+        if self._model_selection is None:
+            _raise_model_error(503, "model_selection_unavailable", "model selection is unavailable")
+        try:
+            async with self._database.transaction() as session:
+                return await self._model_selection.preflight(session, model_id)
+        except ModelNotPreparedError as error:
+            _raise_model_error(422, error.code, "selected model is unavailable locally")
 
     async def apply_model(
         self,
@@ -109,6 +123,13 @@ def build_model_router(
         handlers.get_models,
         methods=["GET"],
         response_model=ModelSettingsResponse,
+        dependencies=[Depends(handlers.passive_dependency)],
+    )
+    router.add_api_route(
+        "/preflight",
+        handlers.get_preflight,
+        methods=["GET"],
+        response_model=ModelPreflightResponse,
         dependencies=[Depends(handlers.passive_dependency)],
     )
     router.add_api_route(

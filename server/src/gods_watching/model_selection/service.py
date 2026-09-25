@@ -41,6 +41,12 @@ from gods_watching.model_selection.models import (
     TransitionRecoveryError,
     TransitionResult,
 )
+from gods_watching.model_selection.preflight import (
+    SwitchPreflight,
+    estimate_switch,
+    measured_rate,
+    scan_retained,
+)
 from gods_watching.model_selection.quality import (
     QualityStatus,
     assess_quality,
@@ -131,6 +137,8 @@ class ModelSelectionService:
     imported_assets_root: Path | None = None
     quality_policy_path: Path | None = None
     quality_evidence_root: Path | None = None
+    preflight_assets_root: Path | None = None
+    preflight_crop_store: CropObjectStore | None = None
 
     def __post_init__(self) -> None:
         """Bind the database advisory coordinator when one is not injected."""
@@ -176,6 +184,12 @@ class ModelSelectionService:
             TransitionPhase.ROLLING_BACK,
         }:
             raise ModelSelectionConflictError("another model transition is already active")
+        preflight = await self.preflight(session, model_id)
+        if not preflight.eligible:
+            raise ModelNotPreparedError(
+                preflight.reason or "model switch preflight failed",
+                code="model_preflight_ineligible",
+            )
         try:
             created = await self.repository.create_job(
                 session,
@@ -185,6 +199,19 @@ class ModelSelectionService:
         except RuntimeError as error:
             raise ModelSelectionConflictError(str(error)) from error
         return await self._response(active.model_id, created)
+
+    async def preflight(self, session: AsyncSession, model_id: str) -> SwitchPreflight:
+        """Recompute the current corpus estimate without changing runtime identity."""
+        package = self.registry.get(model_id)
+        if package is None:
+            raise ModelNotPreparedError(model_id, code="unknown_model")
+        if self.preflight_crop_store is None or self.preflight_assets_root is None:
+            return estimate_switch(
+                0, None, 0, target_model_id=package.model_id
+            )
+        retained, missing = await scan_retained(session, self.preflight_crop_store)
+        rate = measured_rate(self.preflight_assets_root, package)
+        return estimate_switch(retained, rate, missing, target_model_id=package.model_id)
 
     async def run_pending(
         self,

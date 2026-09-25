@@ -1,5 +1,7 @@
 """Command boundary for pinned model asset preparation and validation."""
 
+# ruff: noqa: TRY003, EM101
+
 import json
 from pathlib import Path
 from typing import Annotated
@@ -9,7 +11,7 @@ from pydantic import ValidationError
 from typer.models import OptionInfo
 
 from gods_watching.model_selection.importer import ClipPackageImportError, import_clip_package
-from gods_watching.model_selection.registry import ClipModelRegistry
+from gods_watching.model_selection.registry import ClipModelRegistry, load_clip_registry
 
 from .model_preparation import PreparationPaths, prepare_model_assets
 from .models import (
@@ -21,6 +23,37 @@ from .models import (
 )
 
 app = typer.Typer(add_completion=False)
+
+
+@app.command("benchmark-switch")
+def benchmark_switch(
+    model_id: Annotated[str, OptionInfo(default=..., param_decls=("--model-id",))],
+    assets: Annotated[Path, OptionInfo(default=..., param_decls=("--assets",))],
+    crops: Annotated[Path, OptionInfo(default=..., param_decls=("--crops",))],
+    sample_keys_file: Annotated[Path, OptionInfo(default=..., param_decls=("--sample-keys",))],
+    detector: Annotated[
+        Path, OptionInfo(default=Path("/models/yolo/yolo11s.pt"), param_decls=("--detector",))
+    ],
+) -> None:
+    """Measure exact target image embeddings offline with YOLO resident on CUDA."""
+    from gods_watching.model_selection.benchmark import benchmark_package  # noqa: PLC0415
+
+    package = load_clip_registry(assets).get(model_id)
+    if package is None:
+        raise typer.BadParameter("unknown model", param_hint="--model-id")
+    keys = [line.strip() for line in sample_keys_file.read_text().splitlines() if line.strip()]
+    try:
+        result = benchmark_package(
+            package,
+            assets_root=assets,
+            crops_root=crops,
+            sample_keys=keys,
+            detector_path=detector,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        typer.echo(json.dumps({"code": "benchmark_failed", "message": str(error)}), err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(str(result))
 
 
 @app.callback()

@@ -238,6 +238,8 @@ async def run_pipeline_worker(
         imported_assets_root=settings.model_assets_root / "imported",
         quality_policy_path=Path("/opt/gods-watching/assets/retrieval-quality-policy.json"),
         quality_evidence_root=settings.model_assets_root / "quality-evidence",
+        preflight_assets_root=settings.model_assets_root,
+        preflight_crop_store=crop_store,
     )
     runtime = ClipRuntimeManager(settings.triton_grpc_url)
     try:

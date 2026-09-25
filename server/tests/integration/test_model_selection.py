@@ -59,6 +59,95 @@ if TYPE_CHECKING:
 
 _AT = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
 _SOURCE = "57c216476eefef5ab752ec549e440a49ae4ae5f3"
+_REAL_PREFLIGHT = ModelSelectionService.preflight
+
+
+@pytest.fixture(autouse=True)
+def _isolate_existing_transition_tests_from_offline_gpu_proof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transition tests exercise durable jobs; GPU proof has separate tests."""
+    from gods_watching.model_selection.preflight import estimate_switch
+
+    async def approved_preflight(
+        self: ModelSelectionService, session: object, model_id: str
+    ) -> object:
+        del self, session
+        return estimate_switch(0, 1.0, 0, target_model_id=model_id)
+
+    monkeypatch.setattr(ModelSelectionService, "preflight", approved_preflight)
+
+
+@pytest.mark.anyio
+async def test_missing_measurement_rejects_before_job_or_maintenance(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gods_watching.model_selection.registry import ClipModelRegistry
+    from gods_watching.storage import Database
+
+    monkeypatch.setattr(ModelSelectionService, "preflight", _REAL_PREFLIGHT)
+    source = ClipModelPackage(
+        model_id="fixture/source", revision="source", snapshot_path=Path("/models/source"),
+        dimension=512, processor="fixture", runtime="fixture",
+    )
+    target = _target_package()
+    database = Database.connect(database_url)
+    service = ModelSelectionService(
+        database, ClipModelRegistry((source, target), default_model_id=source.model_id), _Prepared()
+    )
+    try:
+        async with database.transaction() as session:
+            with pytest.raises(ModelNotPreparedError) as error:
+                await service.apply(session, target.model_id)
+            assert error.value.code == "model_preflight_ineligible"
+        async with database.transaction() as session:
+            state = await service.get(session)
+            assert state.maintenance is False
+            assert state.transition is None
+    finally:
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_apply_recounts_after_preview_and_rejects_growth(
+    database_url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gods_watching.model_selection.registry import ClipModelRegistry
+    from gods_watching.storage import Database
+
+    monkeypatch.setattr(ModelSelectionService, "preflight", _REAL_PREFLIGHT)
+    source = ClipModelPackage(
+        model_id="fixture/source", revision="source", snapshot_path=Path("/models/source"),
+        dimension=512, processor="fixture", runtime="fixture",
+    )
+    target = _target_package()
+    counts = iter(((900, 0), (901, 0)))
+
+    async def count_crops(session: object, store: object) -> tuple[int, int]:
+        del session, store
+        return next(counts)
+
+    monkeypatch.setattr("gods_watching.model_selection.service.scan_retained", count_crops)
+    monkeypatch.setattr("gods_watching.model_selection.service.measured_rate", lambda *_: 1.0)
+    database = Database.connect(database_url)
+    service = ModelSelectionService(
+        database, ClipModelRegistry((source, target), default_model_id=source.model_id),
+        _Prepared(), preflight_assets_root=tmp_path,
+        preflight_crop_store=CropObjectStore(tmp_path / "crops"),
+    )
+    try:
+        async with database.transaction() as session:
+            preview = await service.preflight(session, target.model_id)
+            assert preview.eligible
+            with pytest.raises(ModelNotPreparedError) as error:
+                await service.apply(session, target.model_id)
+            assert error.value.code == "model_preflight_ineligible"
+        async with database.transaction() as session:
+            state = await service.get(session)
+            assert state.transition is None
+            assert state.maintenance is False
+    finally:
+        await database.close()
 
 
 @pytest.mark.anyio
