@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+import os
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from gods_watching.model_selection.rehearsal import (
     InnerInputs,
     RehearsalError,
     _measurement_payload,
+    _publish,
     _queue_verified_job,
     _verified_inner_payload,
     rehearse_switch,
@@ -92,11 +94,17 @@ def test_inner_payload_cannot_supply_success_flags() -> None:
 
 class FakeDocker:
     def __init__(
-        self, *, inner_payload: dict[str, Any] | None, fail_inner: bool = False, gpu: str = GPU
+        self,
+        *,
+        inner_payload: dict[str, Any] | None,
+        fail_inner: bool = False,
+        gpu: str = GPU,
+        after_inner: Callable[[], None] | None = None,
     ) -> None:
         self.inner_payload = inner_payload
         self.fail_inner = fail_inner
         self.gpu = gpu
+        self.after_inner = after_inner
         self.commands: list[list[str]] = []
 
     async def run(self, argv: list[str], *, check: bool = True) -> str:
@@ -124,6 +132,8 @@ class FakeDocker:
             (scratch / "container-id").write_text("a" * 64)
             if self.inner_payload is not None:
                 (scratch / "observation.json").write_text(json.dumps(self.inner_payload))
+            if self.after_inner is not None:
+                self.after_inner()
             return ""
         if "nvidia-smi" in argv:
             return self.gpu
@@ -193,6 +203,8 @@ async def test_outer_only_publishes_after_successful_observation(tmp_path: Path)
         assert record["container_id"] == "a" * 64
         assert record["database_dump_sha256"]
         assert measured_rehearsal(assets, TARGET) == (16.0, 5.0)
+        assert "sha256:app" in good.commands[1]
+        assert "app:local" not in good.commands[1]
         assert "--network" in good.commands[1]
         assert "--mount" in good.commands[1]
         assert "/var/run/docker.sock" not in str(good.commands)
@@ -210,6 +222,21 @@ async def test_outer_only_publishes_after_successful_observation(tmp_path: Path)
                     app_image="app:local",
                     camera_cipher_key_file=key,
                     runner=bad,
+                )
+            assert not proof.exists()
+        for mutation, expected in (
+            (lambda: dump.write_bytes(b"mutated offline backup"), "database_dump_changed"),
+            (lambda: (crops / "one").write_bytes(b"mutated crop"), "crop_snapshot_changed"),
+        ):
+            with pytest.raises(RehearsalError, match=expected):
+                await rehearse_switch(
+                    inputs,
+                    source_model_id=SOURCE.model_id,
+                    source_revision=SOURCE.revision,
+                    source_dimension=SOURCE.dimension,
+                    app_image="app:local",
+                    camera_cipher_key_file=key,
+                    runner=FakeDocker(inner_payload=payload, after_inner=mutation),
                 )
             assert not proof.exists()
 
@@ -379,3 +406,25 @@ def test_observation_rejects_zero_or_nonfinite_phase(elapsed: float) -> None:
     )
     with pytest.raises(RehearsalError, match="phase_invalid"):
         _measurement_payload(bad, source=SOURCE, target=TARGET, job_id="job")
+
+
+def test_publish_removes_record_if_directory_fsync_fails(tmp_path: Path) -> None:
+    proof = tmp_path / "switch-rehearsal" / "proof.json"
+    calls = 0
+    actual_fsync = os.fsync
+
+    def failing_fsync(fd: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            message = "directory fsync failed"
+            raise OSError(message)
+        actual_fsync(fd)
+
+    with (
+        patch("gods_watching.model_selection.rehearsal.os.fsync", side_effect=failing_fsync),
+        pytest.raises(OSError, match="directory fsync failed"),
+    ):
+        _publish(proof, {"kind": "full_transition_rehearsal_v1"})
+    assert not proof.exists()
+    assert list(proof.parent.iterdir()) == []

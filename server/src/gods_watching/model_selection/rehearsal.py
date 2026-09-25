@@ -350,9 +350,10 @@ def _invalidate(path: Path) -> None:
 
 
 def _publish(path: Path, record: dict[str, object]) -> None:
-    """Make an accepted record visible only after durable atomic replacement."""
+    """Publish durably, removing an accepted path if post-rename sync fails."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
+    published = False
     try:
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=path.parent, prefix=".rehearsal-", delete=False
@@ -360,13 +361,30 @@ def _publish(path: Path, record: dict[str, object]) -> None:
             temporary = Path(stream.name)
             json.dump(record, stream, separators=(",", ":"), allow_nan=False)
             stream.flush()
-            os.fsync(stream.fileno())
+            _ = os.fsync(stream.fileno())
         _ = temporary.replace(path)
+        published = True
         directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
             _ = os.fsync(directory)
         finally:
             os.close(directory)
+    except BaseException:
+        if published:
+            try:
+                path.unlink(missing_ok=True)
+            finally:
+                # Preserve the original publication failure; make removal durable
+                # when the filesystem can still sync the directory.
+                try:
+                    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        _ = os.fsync(directory)
+                    finally:
+                        os.close(directory)
+                except OSError:
+                    pass
+        raise
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -436,7 +454,7 @@ async def rehearse_switch(
                     f"type=bind,src={camera_cipher_key_file.resolve()},dst=/rehearsal/camera.key,readonly",
                     "--mount",
                     f"type=bind,src={Path(scratch).resolve()},dst=/rehearsal/proof",
-                    app_image,
+                    app_image_id,
                     "gods-watching-cli",
                     "models",
                     "rehearse-inner",
