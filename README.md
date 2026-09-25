@@ -115,6 +115,8 @@ mkdir -p runtime/evidence
 
 운영 전 최소 점검은 `./gods-watching doctor`, `./gods-watching status`, 브라우저 login, 카메라 test/create, live frame 증가, text search와 Find similar, 재시작 후 설정/검색 결과 유지입니다. 원본 영상 파일이 crop volume에 생기지 않았는지도 확인하십시오.
 
+PR에 `agent-verify` 라벨을 붙이면 self-hosted GPU runner가 PR head로 스택을 만든 뒤, Claude 에이전트가 `qa/journeys/`의 모든 Journey를 브라우저로 수행합니다. 확인된 Bug Report는 GitHub Issue로 등록됩니다. 실행 중에는 개발용 스택을 잠시 멈췄다가 끝난 뒤 다시 켭니다. runner 준비와 운영 방법은 [docs/agent-journeys.md](docs/agent-journeys.md)를 참고하십시오.
+
 ## 끄기
 
 ```bash

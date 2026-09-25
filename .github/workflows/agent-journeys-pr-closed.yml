@@ -1,0 +1,30 @@
+name: Agent Journeys PR closed
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  close-unmerged-issues:
+    if: github.event.pull_request.merged == false
+    runs-on: [self-hosted, gods-watching-gpu]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          clean: false
+
+      - name: Install locked dependencies
+        run: uv sync --frozen
+
+      - name: Close this PR's agent Issues as not planned
+        run: >-
+          ./gods-watching journeys close-pr-issues
+          --pr "${{ github.event.pull_request.number }}"
+          --repository "$GITHUB_REPOSITORY"

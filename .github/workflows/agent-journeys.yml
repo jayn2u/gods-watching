@@ -1,0 +1,81 @@
+name: Agent Journeys
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: agent-journeys-gpu
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
+jobs:
+  journeys:
+    if: github.event.label.name == 'agent-verify'
+    runs-on: [self-hosted, gods-watching-gpu]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Consume the one-shot label
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label agent-verify
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          clean: false
+
+      - name: Install locked dependencies
+        run: |
+          uv sync --frozen
+          corepack pnpm --dir web install --frozen-lockfile
+          node "$(realpath web/node_modules/@playwright/mcp)/../../playwright/cli.js" install chromium
+
+      # Scoped to checks that are green on develop today; widen once the
+      # repository-wide Python suite passes again.
+      - name: Deterministic checks
+        run: |
+          ./.venv/bin/ruff check server/src/gods_watching/journeys server/src/gods_watching/cli.py server/tests/test_journey_*.py
+          ./.venv/bin/basedpyright server/src/gods_watching/journeys server/src/gods_watching/cli.py server/tests/test_journey_*.py
+          ./.venv/bin/pytest -q server/tests/test_journey_*.py
+          corepack pnpm --dir web typecheck
+          corepack pnpm --dir web test --run
+
+      - name: Build the PR stack
+        run: ./gods-watching prepare
+
+      - name: Run every Journey
+        run: >-
+          ./gods-watching journeys run
+          --pr "$PR_NUMBER"
+          --head-sha "$HEAD_SHA"
+          --run-url "$RUN_URL"
+          --repository "$GITHUB_REPOSITORY"
+          --run-dir "$RUNNER_TEMP/agent-journeys"
+          --publish
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: agent-journeys-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-journeys
+          if-no-files-found: ignore
+
+      - name: Report a harness failure
+        if: failure()
+        run: >-
+          gh api "repos/$GITHUB_REPOSITORY/check-runs"
+          -f name=agent-journeys
+          -f head_sha="$HEAD_SHA"
+          -f status=completed
+          -f conclusion=failure
+          -f "output[title]=agent-journeys did not complete"
+          -f "output[summary]=Deterministic checks or the Journey harness failed; see $RUN_URL"
