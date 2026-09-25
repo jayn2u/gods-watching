@@ -4,9 +4,11 @@ from pathlib import Path
 from typing import cast
 
 import anyio
+import pytest
 
 from gods_watching.model_selection.registry import ClipModelPackage, load_clip_registry
 from gods_watching.model_selection.transition_observer import PHASES, TransitionObserver
+from gods_watching.pipeline_worker import app as worker_app
 from gods_watching.pipeline_worker.app import _PipelineLifecycle, compose_one_shot_transition
 from gods_watching.pipeline_worker.settings import PipelineWorkerSettings
 
@@ -43,6 +45,32 @@ def test_begin_discards_partial_previous_run(tmp_path: Path) -> None:
     assert not observer.measurement.complete
 
 
+def test_resumed_transition_cannot_be_complete(tmp_path: Path) -> None:
+    package = load_clip_registry(tmp_path).default
+    observer = TransitionObserver()
+    observer.begin(package, package, fresh=False)
+    for phase in PHASES:
+        observer.start(phase)
+        observer.end(phase)
+    observer.finish()
+    assert observer.measurement is not None
+    assert not observer.measurement.complete
+
+
+def test_clear_removes_previous_success(tmp_path: Path) -> None:
+    package = load_clip_registry(tmp_path).default
+    observer = TransitionObserver()
+    observer.begin(package, package)
+    for phase in PHASES:
+        observer.start(phase)
+        observer.end(phase)
+    observer.finish()
+    assert observer.measurement is not None
+    assert observer.measurement.complete
+    observer.clear()
+    assert observer.measurement is None
+
+
 def test_one_shot_composes_real_lifecycle_without_polling(tmp_path: Path) -> None:
     async def inspect() -> None:
         settings = PipelineWorkerSettings.model_construct(
@@ -70,3 +98,30 @@ def test_one_shot_composes_real_lifecycle_without_polling(tmp_path: Path) -> Non
             assert runner.runtime is resources[7]
 
     anyio.run(inspect)
+
+
+def test_one_shot_joins_restarted_generation(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+
+    class Transport:
+        async def __aexit__(self, *_args: object) -> None:
+            events.append("transport_closed")
+
+    class Selection:
+        async def run_pending(self, **_kwargs: object) -> None:
+            events.append("transition_done")
+
+    class Lifecycle:
+        async def stop_and_join(self) -> None:
+            events.append("generation_joined")
+
+    monkeypatch.setattr(worker_app, "TritonClipTransport", lambda *_args: Transport())
+    runner = worker_app.OneShotTransition(
+        cast("object", Selection()), cast("object", Lifecycle()),
+        cast("object", object()), cast("object", object()), "localhost:8001",
+    )
+    async def run() -> None:
+        await runner.run_pending(observer=TransitionObserver())
+
+    anyio.run(run)
+    assert events == ["transition_done", "generation_joined", "transport_closed"]

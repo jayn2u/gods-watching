@@ -225,7 +225,7 @@ class OneShotTransition:
     triton_grpc_url: str
 
     async def run_pending(self, *, observer: TransitionObserver) -> TransitionResult | None:
-        """Run one queued transition and close its temporary CLIP transport."""
+        """Run one queued transition, then join its generation and close transport."""
         transport = TritonClipTransport(self.triton_grpc_url)
         try:
             return await self.selection.run_pending(
@@ -237,7 +237,17 @@ class OneShotTransition:
             )
         finally:
             with anyio.CancelScope(shield=True):
-                await transport.__aexit__(None, None, None)
+                try:
+                    await self.lifecycle.stop_and_join()
+                except BaseException:
+                    observer.complete = False
+                    raise
+                finally:
+                    try:
+                        await transport.__aexit__(None, None, None)
+                    except BaseException:
+                        observer.complete = False
+                        raise
 
 
 def compose_one_shot_transition(

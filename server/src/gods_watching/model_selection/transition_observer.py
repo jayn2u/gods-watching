@@ -45,16 +45,26 @@ class TransitionObserver:
     phase_spans: dict[str, tuple[float, float]] = field(default_factory=dict)
     crop_seconds: list[float] = field(default_factory=list)
     complete: bool = False
+    fresh: bool = False
     _starts: dict[str, float] = field(default_factory=dict)
 
-    def begin(self, source: ClipModelPackage, target: ClipModelPackage) -> None:
-        self.source_identity = (source.model_id, source.revision, source.dimension)
-        self.target_identity = (target.model_id, target.revision, target.dimension)
+    def clear(self) -> None:
+        self.source_identity = None
+        self.target_identity = None
         self.phase_seconds.clear()
         self.phase_spans.clear()
         self.crop_seconds.clear()
         self._starts.clear()
         self.complete = False
+        self.fresh = False
+
+    def begin(
+        self, source: ClipModelPackage, target: ClipModelPackage, *, fresh: bool = True
+    ) -> None:
+        self.clear()
+        self.source_identity = (source.model_id, source.revision, source.dimension)
+        self.target_identity = (target.model_id, target.revision, target.dimension)
+        self.fresh = fresh
 
     def start(self, phase: str) -> None:
         self._starts[phase] = monotonic()
@@ -65,11 +75,11 @@ class TransitionObserver:
         self.phase_spans[phase] = (started_at, ended_at)
         self.phase_seconds[phase] = ended_at - started_at
 
-    def committed_crop(self, started_at: float) -> None:
-        self.crop_seconds.append(monotonic() - started_at)
+    def committed_crop(self, embedding_seconds: float) -> None:
+        self.crop_seconds.append(embedding_seconds)
 
     def finish(self) -> None:
-        self.complete = all(phase in self.phase_seconds for phase in PHASES)
+        self.complete = self.fresh and all(phase in self.phase_seconds for phase in PHASES)
 
     @property
     def measurement(self) -> TransitionMeasurement | None:

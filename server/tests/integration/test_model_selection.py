@@ -676,8 +676,8 @@ async def test_recovery_keeps_staged_source_pipeline_stopped_until_resume(
         assert result.state.phase == TransitionPhase.SUCCEEDED
         assert pipeline.starts == [target.model_id]
         assert observer.measurement is not None
-        assert observer.measurement.complete
-        assert set(observer.measurement.phase_seconds) == set(PHASES)
+        assert not observer.measurement.complete
+        assert set(observer.measurement.phase_seconds) == set(PHASES) - {"stage_population"}
         assert observer.measurement.completed_crops == 1
         assert observer.measurement.source_identity == (
             default.model_id, default.revision, default.dimension
@@ -922,6 +922,165 @@ async def test_only_missing_empty_and_decode_failures_are_skips(
     assert empty_result.skip_reason == "undecodable_crop"
     assert corrupt_result.skip_reason == "undecodable_crop"
     await database.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["success", "stage", "activation", "cancel"])
+async def test_observer_incomplete_on_production_phase_failure(
+    database_url: str, tmp_path: Path, failure: str
+) -> None:
+    from gods_watching.storage import Database
+
+    class FailingRepository(TransitionRepository):
+        async def populate_stages(self, session: AsyncSession, job: ModelTransitionJob) -> int:
+            if failure in {"stage", "cancel"}:
+                if failure == "cancel":
+                    raise asyncio.CancelledError
+                raise RuntimeError("stage population failed")
+            return await super().populate_stages(session, job)
+
+        async def activate(
+            self, session: AsyncSession, job_id: UUID, *, expected_source: tuple[str, str, int]
+        ) -> ModelTransitionJob:
+            if failure == "activation":
+                raise RuntimeError("activation failed")
+            return await super().activate(session, job_id, expected_source=expected_source)
+
+    source = ClipModelPackage(
+        model_id="openai/clip-vit-base-patch16", revision=_SOURCE,
+        snapshot_path=Path("/models/clip"), dimension=512,
+        processor="CLIPProcessor", runtime="transformers",
+    )
+    target = _target_package()
+    database = Database.connect(database_url)
+    service = ModelSelectionService(
+        database=database,
+        registry=ClipModelRegistry((source, target)),
+        prepared=_Prepared(), repository=FailingRepository(),
+        storage=StorageRepository(CredentialCipher(Fernet.generate_key())),
+    )
+    observer = TransitionObserver()
+    try:
+        async with database.transaction() as session:
+            _ = await service.apply(session, target.model_id)
+        if failure == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await service.run_pending(
+                    crop_store=CropObjectStore(tmp_path / failure), runtime=_Runtime(),
+                    clip_factory=_working_clip_factory, pipeline=_Pipeline(), observer=observer,
+                )
+        else:
+            result = await service.run_pending(
+                crop_store=CropObjectStore(tmp_path / failure), runtime=_Runtime(),
+                clip_factory=_working_clip_factory, pipeline=_Pipeline(), observer=observer,
+            )
+            assert result is not None
+            assert result.state.phase == (
+                TransitionPhase.SUCCEEDED if failure == "success" else TransitionPhase.FAILED
+            )
+        assert observer.measurement is not None
+        assert observer.measurement.complete is (failure == "success")
+        assert observer.measurement.completed_crops == 0
+        assert ("pipeline_restart" in observer.measurement.phase_spans) is (
+            failure == "success"
+        )
+        if failure == "success":
+            idle = await service.run_pending(
+                crop_store=CropObjectStore(tmp_path / "idle"), runtime=_Runtime(),
+                clip_factory=_working_clip_factory, pipeline=_Pipeline(), observer=observer,
+            )
+            assert idle is None
+            assert observer.measurement is None
+    finally:
+        async with database.transaction() as session:
+            await session.execute(delete(ModelTransitionJob))
+            active = await session.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
+            if active is not None:
+                active.model_id = source.model_id
+                active.model_revision = source.revision
+                active.embedding_dimension = source.dimension
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_observer_counts_only_committed_crop_before_later_failure(
+    database_url: str, tmp_path: Path
+) -> None:
+    from gods_watching.storage import Camera, CameraSession, Database
+
+    database = Database.connect(database_url)
+    store = CropObjectStore(tmp_path / "partial-crops")
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    source = ClipModelPackage(
+        model_id="openai/clip-vit-base-patch16", revision=_SOURCE,
+        snapshot_path=Path("/models/clip"), dimension=512,
+        processor="CLIPProcessor", runtime="transformers",
+    )
+    target = _target_package()
+    service = ModelSelectionService(
+        database=database, registry=ClipModelRegistry((source, target)),
+        prepared=_Prepared(), storage=storage,
+    )
+    appearances = [uuid4(), uuid4()]
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await storage.add_camera(
+                session, name=f"observer-partial-{uuid4().hex[:8]}",
+                source_url=_source("observer-partial"),
+            )
+            camera_session = await storage.start_camera_session(session, camera.id, cause="test")
+            camera_id, session_id = camera.id, camera_session.id
+            for track_id, appearance_id in enumerate(appearances, start=1):
+                crop = store.write(b"jpeg")
+                _ = await storage.publish_appearance(
+                    session,
+                    _publication(
+                        appearance_id=appearance_id, camera_id=camera.id,
+                        session_id=camera_session.id, embedding=_unit(512),
+                        crop_object_key=crop.object_key, track_id=track_id,
+                    ),
+                )
+        async with database.transaction() as session:
+            _ = await service.apply(session, target.model_id)
+
+        class SecondCropFails:
+            calls = 0
+
+            async def embed_image(self, payload: bytes) -> tuple[float, ...]:
+                del payload
+                self.calls += 1
+                if self.calls == 2:
+                    raise ClipInferenceError(code="clip_gpu_oom")
+                return _unit(768)
+
+        clip = SecondCropFails()
+        observer = TransitionObserver()
+        result = await service.run_pending(
+            crop_store=store, runtime=_Runtime(), clip_factory=lambda _package: clip,
+            pipeline=_Pipeline(), batch_size=1, observer=observer,
+        )
+        assert result is not None
+        assert result.state.phase == TransitionPhase.FAILED
+        assert observer.measurement is not None
+        assert not observer.measurement.complete
+        assert observer.measurement.completed_crops == 1
+        assert len(observer.measurement.crop_seconds) == 1
+        assert observer.measurement.crop_seconds[0] <= observer.measurement.phase_seconds.get(
+            "crop_embedding", float("inf")
+        )
+    finally:
+        async with database.transaction() as session:
+            await session.execute(delete(ModelTransitionJob))
+            await session.execute(delete(Appearance).where(Appearance.id.in_(appearances)))
+            if session_id is not None:
+                await session.execute(delete(CameraSession).where(CameraSession.id == session_id))
+            if camera_id is not None:
+                await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
 
 
 @pytest.mark.anyio

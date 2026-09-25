@@ -230,6 +230,8 @@ class ModelSelectionService:
         observer: TransitionObserver | None = None,
     ) -> TransitionResult | None:
         """Run the oldest active job through staging and atomic activation."""
+        if observer is not None:
+            observer.clear()
         async with self.database.transaction() as session:
             job = await self.repository.active_job(session, lock=True)
             if job is None:
@@ -245,7 +247,11 @@ class ModelSelectionService:
             job_id = job.id
             recovery_only = job.phase == TransitionPhase.ROLLING_BACK.value
             if observer is not None and not recovery_only:
-                observer.begin(source_package, target_package)
+                observer.begin(
+                    source_package,
+                    target_package,
+                    fresh=job.phase == TransitionPhase.QUEUED.value,
+                )
             if not recovery_only and job.phase == TransitionPhase.QUEUED.value:
                 retained = await self.repository.retained_count(session)
                 headroom_error = await self._headroom_error(
@@ -309,7 +315,7 @@ class ModelSelectionService:
         observer: TransitionObserver | None,
     ) -> TransitionResult:
         try:
-            if observer is not None:
+            if observer is not None and observer.fresh:
                 observer.start("stage_population")
             async with self.database.transaction() as session:
                 job = await self.repository.get_job(session, job_id, lock=True)
@@ -317,11 +323,14 @@ class ModelSelectionService:
                     raise TransitionRecoveryError("transition job disappeared")
                 if job.phase == TransitionPhase.QUEUED.value:
                     _ = await self.repository.populate_stages(session, job)
+                elif observer is not None:
+                    observer.fresh = False
                 if job.phase == TransitionPhase.PREPARING.value:
                     job.phase = TransitionPhase.REINDEXING.value
                     await session.flush()
             if observer is not None:
-                observer.end("stage_population")
+                if observer.fresh:
+                    observer.end("stage_population")
                 observer.start("runtime_switch")
             # Ensure only the selected runtime remains resident.  The runtime
             # manager itself verifies Triton identity after each load.
@@ -345,7 +354,7 @@ class ModelSelectionService:
                 if not rows:
                     break
                 results: list[StageResult] = []
-                crop_starts: list[float | None] = []
+                crop_seconds: list[float | None] = []
                 for stage, _appearance in rows:
                     started_at = monotonic() if observer is not None else None
                     results.append(
@@ -356,7 +365,9 @@ class ModelSelectionService:
                             target_clip,
                         )
                     )
-                    crop_starts.append(started_at)
+                    crop_seconds.append(
+                        monotonic() - started_at if started_at is not None else None
+                    )
                 async with self.database.transaction() as session:
                     job = await self.repository.get_job(
                         session,
@@ -367,9 +378,9 @@ class ModelSelectionService:
                         raise TransitionRecoveryError("transition job disappeared")
                     await self.repository.record_stage_results(session, job, results)
                 if observer is not None:
-                    for result, started_at in zip(results, crop_starts, strict=True):
-                        if result.embedding is not None and started_at is not None:
-                            observer.committed_crop(started_at)
+                    for result, elapsed in zip(results, crop_seconds, strict=True):
+                        if result.embedding is not None and elapsed is not None:
+                            observer.committed_crop(elapsed)
             if observer is not None:
                 observer.end("crop_embedding")
                 observer.start("activation")
