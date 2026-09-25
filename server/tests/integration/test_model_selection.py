@@ -32,6 +32,7 @@ from gods_watching.model_selection.registry import (
 )
 from gods_watching.model_selection.repository import StageResult, TransitionRepository
 from gods_watching.model_selection.service import ModelSelectionService
+from gods_watching.model_selection.transition_observer import PHASES, TransitionObserver
 from gods_watching.search import SearchRepository
 from gods_watching.storage import (
     ActiveModelIdentity,
@@ -461,16 +462,21 @@ async def test_inference_failure_restores_source_identity_and_pipeline(
             _ = await service.apply(apply_session, target.model_id)
         runtime = _Runtime()
         pipeline = _Pipeline()
+        observer = TransitionObserver()
         result = await service.run_pending(
             crop_store=crop_store,
             runtime=runtime,
             clip_factory=_failing_clip_factory,
             pipeline=pipeline,
+            observer=observer,
         )
         assert result is not None
         assert result.state.phase == TransitionPhase.FAILED
         assert runtime.loaded == [default.model_id]
         assert pipeline.starts == [default.model_id]
+        assert observer.measurement is not None
+        assert not observer.measurement.complete
+        assert observer.measurement.completed_crops == 0
         async with database.transaction() as check:
             active = await check.scalar(
                 select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
@@ -543,15 +549,20 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
             _ = await service.apply(apply_session, target.model_id)
         runtime = _Runtime()
         pipeline = _Pipeline(fail_target=True)
+        observer = TransitionObserver()
         result = await service.run_pending(
             crop_store=crop_store,
             runtime=runtime,
             clip_factory=_working_clip_factory,
             pipeline=pipeline,
+            observer=observer,
         )
         assert result is not None
         assert result.activated
         assert result.state.phase == TransitionPhase.ROLLING_BACK
+        assert observer.measurement is not None
+        assert not observer.measurement.complete
+        assert "pipeline_restart" not in observer.measurement.phase_spans
         async with database.transaction() as check:
             active = await check.scalar(
                 select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
@@ -653,15 +664,27 @@ async def test_recovery_keeps_staged_source_pipeline_stopped_until_resume(
         assert recovery is not None
         assert recovery.activated is False
         assert pipeline.starts == []
+        observer = TransitionObserver()
         result = await service.run_pending(
             crop_store=crop_store,
             runtime=runtime,
             clip_factory=_working_clip_factory,
             pipeline=pipeline,
+            observer=observer,
         )
         assert result is not None
         assert result.state.phase == TransitionPhase.SUCCEEDED
         assert pipeline.starts == [target.model_id]
+        assert observer.measurement is not None
+        assert observer.measurement.complete
+        assert set(observer.measurement.phase_seconds) == set(PHASES)
+        assert observer.measurement.completed_crops == 1
+        assert observer.measurement.source_identity == (
+            default.model_id, default.revision, default.dimension
+        )
+        assert observer.measurement.target_identity == (
+            target.model_id, target.revision, target.dimension
+        )
     finally:
         async with database.transaction() as cleanup:
             await cleanup.execute(delete(ModelTransitionJob))

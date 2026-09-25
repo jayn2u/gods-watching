@@ -26,9 +26,14 @@ from gods_watching.inference.detector import DetectorClient, TritonGrpcDetectorT
 from gods_watching.ingest import IngestCoordinator
 from gods_watching.live_detections import LiveDetectionPublisher
 from gods_watching.model_selection.coordinator import TransitionCoordinator
-from gods_watching.model_selection.models import TransitionRecoveryError
-from gods_watching.model_selection.registry import ClipModelPackage, load_clip_registry
+from gods_watching.model_selection.models import TransitionRecoveryError, TransitionResult
+from gods_watching.model_selection.registry import (
+    ClipModelPackage,
+    ClipModelRegistry,
+    load_clip_registry,
+)
 from gods_watching.model_selection.service import ModelSelectionService, PipelineLifecyclePort
+from gods_watching.model_selection.transition_observer import TransitionObserver
 from gods_watching.retention import RetentionService
 from gods_watching.status import StatusReporter, WorkerStatusSnapshot
 from gods_watching.storage import CredentialCipher, CropObjectStore, Database, StorageRepository
@@ -38,6 +43,8 @@ from .settings import PipelineWorkerSettings
 
 if TYPE_CHECKING:
     from anyio.abc import TaskGroup
+
+    from gods_watching.model_selection.service import PreparedModelCatalogPort
 
 
 def _coordinator_binding(
@@ -207,6 +214,72 @@ class _PipelineLifecycle(PipelineLifecyclePort):
                 generation.done_event.set()
 
 
+@dataclass(frozen=True, slots=True)
+class OneShotTransition:
+    """Explicitly supplied production components without a polling task."""
+
+    selection: ModelSelectionService
+    lifecycle: _PipelineLifecycle
+    runtime: ClipRuntimeManager
+    crop_store: CropObjectStore
+    triton_grpc_url: str
+
+    async def run_pending(self, *, observer: TransitionObserver) -> TransitionResult | None:
+        """Run one queued transition and close its temporary CLIP transport."""
+        transport = TritonClipTransport(self.triton_grpc_url)
+        try:
+            return await self.selection.run_pending(
+                crop_store=self.crop_store,
+                runtime=self.runtime,
+                clip_factory=lambda package: ClipAdapter(transport, package=package),
+                pipeline=self.lifecycle,
+                observer=observer,
+            )
+        finally:
+            with anyio.CancelScope(shield=True):
+                await transport.__aexit__(None, None, None)
+
+
+def compose_one_shot_transition(
+    *,
+    settings: PipelineWorkerSettings,
+    database: Database,
+    storage: StorageRepository,
+    crop_store: CropObjectStore,
+    detector_transport: TritonGrpcDetectorTransport,
+    detector: DetectorClient,
+    registry: ClipModelRegistry,
+    prepared: PreparedModelCatalogPort,
+    coordinator: TransitionCoordinator,
+    runtime: ClipRuntimeManager,
+    task_group: TaskGroup,
+    quality_policy_path: Path,
+) -> OneShotTransition:
+    """Compose the worker's transition from explicit caller-owned resources."""
+    selection = ModelSelectionService(
+        database=database,
+        registry=registry,
+        prepared=prepared,
+        coordinator=coordinator,
+        storage=storage,
+        imported_assets_root=settings.model_assets_root / "imported",
+        quality_policy_path=quality_policy_path,
+        quality_evidence_root=settings.model_assets_root / "quality-evidence",
+        preflight_assets_root=settings.model_assets_root,
+        preflight_crop_store=crop_store,
+    )
+    lifecycle = _PipelineLifecycle(
+        settings=settings,
+        database=database,
+        storage=storage,
+        crop_store=crop_store,
+        detector=detector,
+        detector_transport=detector_transport,
+        task_group=task_group,
+    )
+    return OneShotTransition(selection, lifecycle, runtime, crop_store, settings.triton_grpc_url)
+
+
 async def run_pipeline_worker(
     settings: PipelineWorkerSettings,
     *,
@@ -229,32 +302,29 @@ async def run_pipeline_worker(
         assets_root=settings.model_assets_root,
     )
     coordinator = TransitionCoordinator(database)
-    selection = ModelSelectionService(
-        database=database,
-        registry=registry,
-        prepared=prepared,
-        coordinator=coordinator,
-        storage=storage,
-        imported_assets_root=settings.model_assets_root / "imported",
-        quality_policy_path=Path("/opt/gods-watching/assets/retrieval-quality-policy.json"),
-        quality_evidence_root=settings.model_assets_root / "quality-evidence",
-        preflight_assets_root=settings.model_assets_root,
-        preflight_crop_store=crop_store,
-    )
     runtime = ClipRuntimeManager(settings.triton_grpc_url)
     try:
         async with coordinator.worker_ownership():
             async with runtime:
                 async with anyio.create_task_group() as task_group:
-                    lifecycle = _PipelineLifecycle(
+                    composition = compose_one_shot_transition(
                         settings=settings,
                         database=database,
                         storage=storage,
                         crop_store=crop_store,
                         detector=detector,
                         detector_transport=detector_transport,
+                        registry=registry,
+                        prepared=prepared,
+                        coordinator=coordinator,
+                        runtime=runtime,
                         task_group=task_group,
+                        quality_policy_path=Path(
+                            "/opt/gods-watching/assets/retrieval-quality-policy.json"
+                        ),
                     )
+                    selection = composition.selection
+                    lifecycle = composition.lifecycle
                     _ = await selection.recover_startup(runtime=runtime, pipeline=lifecycle)
                     transition_done = anyio.Event()
                     transition_control = _TransitionTaskControl()

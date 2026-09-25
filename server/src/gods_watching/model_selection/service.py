@@ -1,6 +1,6 @@
 """Application and worker services for durable CLIP model transitions."""
 
-# ruff: noqa: TRY003, EM101, TRY301, BLE001, TC001, TC002, TC003, C901, PLR0913
+# ruff: noqa: TRY003, EM101, TRY301, BLE001, TC001, TC002, TC003, C901, PLR0913, PLR0912, PLR0915
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
@@ -59,6 +60,7 @@ from gods_watching.model_selection.repository import (
     TransitionRepository,
     transition_state,
 )
+from gods_watching.model_selection.transition_observer import TransitionObserver
 from gods_watching.retention.models import DEFAULT_CLEANUP_THRESHOLD, DEFAULT_MINIMUM_FREE_BYTES
 from gods_watching.storage import (
     ApplicationSettings,
@@ -225,6 +227,7 @@ class ModelSelectionService:
         clip_factory: ClipFactoryPort,
         pipeline: PipelineLifecyclePort,
         batch_size: int = 32,
+        observer: TransitionObserver | None = None,
     ) -> TransitionResult | None:
         """Run the oldest active job through staging and atomic activation."""
         async with self.database.transaction() as session:
@@ -241,6 +244,8 @@ class ModelSelectionService:
             _require_identity(target_package, job.target_model_revision, job.target_dimension)
             job_id = job.id
             recovery_only = job.phase == TransitionPhase.ROLLING_BACK.value
+            if observer is not None and not recovery_only:
+                observer.begin(source_package, target_package)
             if not recovery_only and job.phase == TransitionPhase.QUEUED.value:
                 retained = await self.repository.retained_count(session)
                 headroom_error = await self._headroom_error(
@@ -263,7 +268,11 @@ class ModelSelectionService:
         # Terminal handoffs may still publish while close is shielded.  Do not
         # acquire the model lock or unload inference until every pipeline task
         # has joined.
+        if observer is not None:
+            observer.start("pipeline_stop")
         await pipeline.stop_and_join()
+        if observer is not None:
+            observer.end("pipeline_stop")
         coordinator = self.coordinator
         if coordinator is None:
             raise RuntimeError("model transition coordinator is not configured")
@@ -278,6 +287,7 @@ class ModelSelectionService:
                     clip_factory=clip_factory,
                     pipeline=pipeline,
                     batch_size=batch_size,
+                    observer=observer,
                 )
         except ModelSelectionConflictError:
             # A second owner cannot occur under worker ownership, but a caller
@@ -296,8 +306,11 @@ class ModelSelectionService:
         clip_factory: ClipFactoryPort,
         pipeline: PipelineLifecyclePort,
         batch_size: int,
+        observer: TransitionObserver | None,
     ) -> TransitionResult:
         try:
+            if observer is not None:
+                observer.start("stage_population")
             async with self.database.transaction() as session:
                 job = await self.repository.get_job(session, job_id, lock=True)
                 if job is None:
@@ -307,10 +320,20 @@ class ModelSelectionService:
                 if job.phase == TransitionPhase.PREPARING.value:
                     job.phase = TransitionPhase.REINDEXING.value
                     await session.flush()
+            if observer is not None:
+                observer.end("stage_population")
+                observer.start("runtime_switch")
             # Ensure only the selected runtime remains resident.  The runtime
             # manager itself verifies Triton identity after each load.
             await runtime.unload_model()
-            _ = await runtime.load_model(target_package)
+            identity = await runtime.load_model(target_package)
+            if observer is not None:
+                if (identity.model_id, identity.revision, identity.dimension) != (
+                    target_package.model_id, target_package.revision, target_package.dimension
+                ):
+                    raise TransitionRecoveryError("loaded runtime identity does not match target")
+                observer.end("runtime_switch")
+                observer.start("crop_embedding")
             target_clip = clip_factory(target_package)
             while True:
                 async with self.database.transaction() as session:
@@ -322,7 +345,9 @@ class ModelSelectionService:
                 if not rows:
                     break
                 results: list[StageResult] = []
+                crop_starts: list[float | None] = []
                 for stage, _appearance in rows:
+                    started_at = monotonic() if observer is not None else None
                     results.append(
                         await self._embed_stage(
                             stage.appearance_id,
@@ -331,6 +356,7 @@ class ModelSelectionService:
                             target_clip,
                         )
                     )
+                    crop_starts.append(started_at)
                 async with self.database.transaction() as session:
                     job = await self.repository.get_job(
                         session,
@@ -340,6 +366,13 @@ class ModelSelectionService:
                     if job is None:
                         raise TransitionRecoveryError("transition job disappeared")
                     await self.repository.record_stage_results(session, job, results)
+                if observer is not None:
+                    for result, started_at in zip(results, crop_starts, strict=True):
+                        if result.embedding is not None and started_at is not None:
+                            observer.committed_crop(started_at)
+            if observer is not None:
+                observer.end("crop_embedding")
+                observer.start("activation")
             async with self.database.transaction() as session:
                 job = await self.repository.get_job(session, job_id, lock=True)
                 if job is None:
@@ -355,12 +388,20 @@ class ModelSelectionService:
                         source_package.dimension,
                     ),
                 )
+            if observer is not None:
+                observer.end("activation")
+                observer.start("pipeline_restart")
             await pipeline.start(target_package)
+            if observer is not None:
+                observer.end("pipeline_restart")
             async with self.database.transaction() as session:
                 job = await self.repository.get_job(session, job_id)
                 if job is None:
                     raise TransitionRecoveryError("transition job disappeared after activation")
-                return TransitionResult(state=transition_state(job), activated=True)
+                result = TransitionResult(state=transition_state(job), activated=True)
+                if observer is not None and job.phase == TransitionPhase.SUCCEEDED.value:
+                    observer.finish()
+                return result
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as error:
