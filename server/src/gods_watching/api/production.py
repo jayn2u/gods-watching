@@ -21,8 +21,8 @@ from gods_watching.media import (
     SourceGenerationCoordinator,
     WhepProxyService,
 )
-from gods_watching.model_selection import ClipModelRegistry
 from gods_watching.model_selection.coordinator import TransitionCoordinator
+from gods_watching.model_selection.registry import load_clip_registry
 from gods_watching.model_selection.service import ModelSelectionService
 from gods_watching.search import AppearanceLookupService, SearchRepository, SearchService
 from gods_watching.settings import SettingsService
@@ -95,7 +95,7 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
     database = Database.connect(configured.database_url)
     clip_transport = TritonClipTransport(configured.triton_grpc_url)
     storage = StorageRepository(CredentialCipher(configured.camera_cipher_key.encode()))
-    registry = ClipModelRegistry()
+    registry = load_clip_registry(configured.model_assets_root)
     # Preparation is an explicit deployment dependency.  Import lazily so
     # lightweight API contract tests do not need the preparation package.
     from gods_watching.model_selection.assets import PreparedModelCatalog  # noqa: PLC0415
@@ -112,6 +112,11 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
         prepared=prepared,
         coordinator=model_coordinator,
         storage=storage,
+        imported_assets_root=configured.model_assets_root / "imported",
+        quality_policy_path=Path("/opt/gods-watching/assets/retrieval-quality-policy.json"),
+        quality_evidence_root=configured.model_assets_root / "quality-evidence",
+        preflight_assets_root=configured.model_assets_root,
+        preflight_crop_store=CropObjectStore(configured.crops_root),
     )
     repository = SearchRepository()
     auth = AuthService(database, operator_username=configured.operator_username)

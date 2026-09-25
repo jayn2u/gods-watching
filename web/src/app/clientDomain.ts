@@ -5,6 +5,7 @@ import type {
   ModelSettingsResponse,
   ModelTransitionPhase,
   SettingsResponse,
+  SwitchPreflight,
   WallSlotIds,
 } from "./clientTypes"
 
@@ -289,15 +290,22 @@ function parseModelOption(value: unknown): ClipModelOption {
   }
   const modelId = stringField(value, "model_id")
   const displayName = stringField(value, "display_name")
+  const revision = stringField(value, "revision")
   const dimension = positiveIntegerField(value, "dimension")
   const prepared = unknownField(value, "prepared")
   const reason = nullableStringField(value, "reason")
+  const qualityPassed = unknownField(value, "quality_passed")
+  const qualityReason = nullableStringField(value, "quality_reason")
   if (
     modelId === undefined ||
     modelId.length === 0 ||
     displayName === undefined ||
     displayName.length === 0 ||
+    revision === undefined ||
+    revision.length === 0 ||
     dimension === undefined ||
+    typeof qualityPassed !== "boolean" ||
+    qualityReason === undefined ||
     typeof prepared !== "boolean" ||
     reason === undefined
   ) {
@@ -306,9 +314,12 @@ function parseModelOption(value: unknown): ClipModelOption {
   return {
     model_id: modelId,
     display_name: displayName,
+    revision,
     dimension,
     prepared,
     reason,
+    quality_passed: qualityPassed as boolean,
+    quality_reason: qualityReason,
   }
 }
 
@@ -552,5 +563,52 @@ export function parseLiveDetectionsResponse(value: unknown): LiveDetectionsRespo
     width,
     height,
     boxes: boxes.map(parseLiveDetectionBox),
+  }
+}
+
+export function parseSwitchPreflight(value: unknown): SwitchPreflight {
+  if (!isRecord(value)) throw new Error("model preflight response has an invalid shape")
+  const target = stringField(value, "target_model_id")
+  const retained = nonNegativeIntegerField(value, "retained_count")
+  const missing = nonNegativeIntegerField(value, "estimated_missing_count")
+  const max = positiveIntegerField(value, "max_seconds")
+  const rate = unknownField(value, "measured_crops_per_second")
+  const fixed = unknownField(value, "measured_fixed_seconds")
+  const estimate = unknownField(value, "estimated_seconds")
+  const eligible = unknownField(value, "eligible")
+  const reason = nullableStringField(value, "reason")
+  const validMetric = (metric: unknown) =>
+    metric === null || (typeof metric === "number" && Number.isFinite(metric) && metric >= 0)
+  if (
+    target === undefined ||
+    target.length === 0 ||
+    retained === undefined ||
+    missing === undefined ||
+    missing > retained ||
+    max === undefined ||
+    !validMetric(rate) ||
+    !validMetric(fixed) ||
+    !validMetric(estimate) ||
+    typeof eligible !== "boolean" ||
+    reason === undefined ||
+    (eligible &&
+      (rate === null ||
+        rate === 0 ||
+        fixed === null ||
+        typeof estimate !== "number" ||
+        estimate > max))
+  ) {
+    throw new Error("model preflight response has an invalid shape")
+  }
+  return {
+    target_model_id: target,
+    retained_count: retained,
+    estimated_missing_count: missing,
+    measured_crops_per_second: rate as number | null,
+    measured_fixed_seconds: fixed as number | null,
+    estimated_seconds: estimate as number | null,
+    max_seconds: max,
+    eligible,
+    reason,
   }
 }

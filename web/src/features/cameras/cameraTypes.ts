@@ -8,7 +8,10 @@ export type CameraClient = Pick<
 >
 
 export type SettingsClient = Pick<ApiClient, "patchSettings">
-export type ModelSettingsClient = Pick<ApiClient, "applyModel" | "getModelSettings">
+export type ModelSettingsClient = Pick<
+  ApiClient,
+  "applyModel" | "getModelSettings" | "getModelPreflight"
+>
 
 export type RetentionSettingsProps = Readonly<{
   settings: WallSettingsState

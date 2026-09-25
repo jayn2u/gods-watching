@@ -100,9 +100,13 @@ class PreparedManifest(BaseModel):
     torchvision_version: str
     cuda_version: str
     cuda_device: str
+    cuda_device_uuid: str = ""
     processor: str
     clip_class: str
     yolo_class: str
+    cuda_available: bool = False
+    cuda_operation: float = 0.0
+    detector_resident: bool = False
     files_validated: int
     model_proofs: tuple[GpuModelProof, ...] = ()
 
@@ -117,6 +121,7 @@ class GpuProof(BaseModel):
     torchvision_version: str
     cuda_version: str
     cuda_device: str
+    cuda_device_uuid: str = ""
     cuda_available: bool
     cuda_operation: float = 0.0
     processor: str = ""
@@ -148,6 +153,11 @@ def validate_gpu_proof(  # noqa: C901
         ("torchvision_version must equal 0.22.1+cu128", proof.torchvision_version, "0.22.1+cu128"),
         ("cuda_version must equal 12.8", proof.cuda_version, "12.8"),
         ("cuda_device must be nonempty", bool(proof.cuda_device.strip()), True),
+        (
+            "cuda_device_uuid must identify an exact GPU",
+            proof.cuda_device_uuid.startswith("GPU-"),
+            True,
+        ),
         ("processor must equal CLIPProcessor", proof.processor, "CLIPProcessor"),
         ("clip_class must equal CLIPModel", proof.clip_class, "CLIPModel"),
         ("yolo_class must equal YOLO", proof.yolo_class, "YOLO"),
@@ -212,11 +222,19 @@ def prepare_model_assets(paths: PreparationPaths) -> PreparedManifest:
         _build_triton_image(paths, image)
     _materialize_assets(paths, lock, paths.source_image or image)
     validated = validate_model_assets(lock, paths.assets_root)
-    expected_packages = tuple(
+    builtin_packages = tuple(
         package
         for package in registry.packages
         if any(model.model_id == package.model_id for model in lock.models)
     )
+    from gods_watching.model_selection.registry import load_clip_registry  # noqa: PLC0415
+
+    imported_packages = tuple(
+        package
+        for package in load_clip_registry(paths.assets_root).packages
+        if package.snapshot_path.parent == Path("/models/imported")
+    )
+    expected_packages = builtin_packages + imported_packages
     proof_text = run_preparation_command(
         (
             "docker",
@@ -243,7 +261,7 @@ def prepare_model_assets(paths: PreparationPaths) -> PreparedManifest:
         cwd=paths.repository_root,
         name="image inspection",
     )
-    _publish_identity_markers(paths, expected_packages, image)
+    _publish_identity_markers(paths, builtin_packages, image)
     manifest = PreparedManifest(
         schema_version="1",
         lock_sha256=_sha256_small(paths.lock_path),
@@ -256,9 +274,13 @@ def prepare_model_assets(paths: PreparationPaths) -> PreparedManifest:
         torchvision_version=proof.torchvision_version,
         cuda_version=proof.cuda_version,
         cuda_device=proof.cuda_device,
+        cuda_device_uuid=proof.cuda_device_uuid,
         processor=proof.processor,
         clip_class=proof.clip_class,
         yolo_class=proof.yolo_class,
+        cuda_available=proof.cuda_available,
+        cuda_operation=proof.cuda_operation,
+        detector_resident=proof.detector_resident,
         files_validated=len(validated),
         model_proofs=proof.models,
     )
@@ -432,8 +454,7 @@ def _download_clip_snapshot(
     model_root = _model_root(model)
     files = tuple(Path(item.path).relative_to(model_root).as_posix() for item in invalid_files)
     force_download = any(
-        (paths.assets_root / locked_file.path).is_file()
-        for locked_file in invalid_files
+        (paths.assets_root / locked_file.path).is_file() for locked_file in invalid_files
     )
     download_options = ("--force-download",) if force_download else ()
     command = (
@@ -587,6 +608,7 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
             "revision": package.revision,
             "path": str(_snapshot_path(Path("/models"), package)),
             "dimension": package.dimension,
+            "imported": package.snapshot_path.parent == Path("/models/imported"),
         }
         for package in packages
     ]
@@ -595,8 +617,12 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         "from PIL import Image",
         "from transformers import AutoProcessor,CLIPModel",
         "from ultralytics import YOLO",
-        f"specs = {json.dumps(specs, separators=(',', ':'))}",
+        f"specs = {specs!r}",
         "available = torch.cuda.is_available()",
+        "def _gpu_uuid():",
+        "    if not available: return ''",
+        "    value = getattr(torch.cuda.get_device_properties(0), 'uuid', '')",
+        "    return str(value) if value else ''",
         "detector = YOLO('/models/yolo/yolo11s.pt').to('cuda') if available else None",
         "proofs = []",
         "image = Image.new('RGB', (224, 224), (31, 47, 61))",
@@ -612,11 +638,18 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         "    return normalized",
         "for spec in specs:",
         """    processor = AutoProcessor.from_pretrained(
-        spec['path'], local_files_only=True
+        spec['path'], local_files_only=True, trust_remote_code=False
     )""",
-        """    clip = CLIPModel.from_pretrained(
-        spec['path'], local_files_only=True
-    ).to('cuda').eval()""",
+        """    loaded = CLIPModel.from_pretrained(
+        spec['path'], local_files_only=True, trust_remote_code=False,
+        output_loading_info=spec['imported']
+    )""",
+        "    clip, diagnostics = loaded if spec['imported'] else (loaded, {})",
+        "    if any(diagnostics.get(key) for key in (",
+        "        'missing_keys', 'unexpected_keys', 'mismatched_keys', 'error_msgs'",
+        "    )):",
+        "        raise RuntimeError('clip_checkpoint_incomplete')",
+        "    clip = clip.to('cuda').eval()",
         """    image_inputs = {
         key: value.to('cuda')
         for key, value in processor(images=image, return_tensors='pt').items()
@@ -651,6 +684,7 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         "    'torchvision_version': torchvision.__version__,",
         "    'cuda_version': torch.version.cuda,",
         "    'cuda_device': torch.cuda.get_device_name(0) if available else '',",
+        "    'cuda_device_uuid': _gpu_uuid(),",
         "    'cuda_available': available,",
         "    'cuda_operation': torch.ones(1, device='cuda').item() if available else 0.0,",
         "    'processor': 'CLIPProcessor',",

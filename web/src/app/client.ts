@@ -13,6 +13,7 @@ import {
   parseModelSettingsResponse,
   parseSearchResponse,
   parseSettingsResponse,
+  parseSwitchPreflight,
   type SearchRequest,
   type SearchResponse,
 } from "./clientDomain"
@@ -21,6 +22,7 @@ import type {
   ModelSettingsResponse,
   SettingsPatch,
   SettingsResponse,
+  SwitchPreflight,
 } from "./clientTypes"
 
 export type {
@@ -55,6 +57,7 @@ export type {
   ModelTransitionPhase,
   SettingsPatch,
   SettingsResponse,
+  SwitchPreflight,
   WallSlotIds,
 } from "./clientTypes"
 
@@ -383,6 +386,14 @@ export class ApiClient {
       "/api/settings/models",
       { method: "GET", signal },
       parseModelSettingsResponse,
+    )
+  }
+
+  getModelPreflight(modelId: string, signal: AbortSignal): Promise<SwitchPreflight> {
+    return requestJson(
+      `/api/settings/models/preflight?model_id=${pathSegment(modelId)}`,
+      { method: "GET", cache: "no-store", signal },
+      parseSwitchPreflight,
     )
   }
 

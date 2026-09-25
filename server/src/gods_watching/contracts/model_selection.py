@@ -26,9 +26,12 @@ class ModelCatalogEntry(ContractModel):
 
     model_id: str
     display_name: str
+    revision: str
     dimension: Annotated[int, Field(gt=0)]
     prepared: bool
     reason: str | None = None
+    quality_passed: bool = True
+    quality_reason: str | None = None
 
 
 class ModelTransitionResponse(ContractModel):
@@ -60,9 +63,24 @@ class ModelApplyRequest(ContractModel):
     model_id: str = Field(min_length=1, max_length=255)
 
 
+class ModelPreflightResponse(ContractModel):
+    """Measured duration and expected skipped crops before confirmation."""
+
+    target_model_id: str
+    retained_count: Annotated[int, Field(ge=0)]
+    estimated_missing_count: Annotated[int, Field(ge=0)]
+    measured_crops_per_second: float | None
+    measured_fixed_seconds: float | None
+    estimated_seconds: float | None
+    max_seconds: int = 900
+    eligible: bool
+    reason: str | None
+
+
 __all__ = [
     "ModelApplyRequest",
     "ModelCatalogEntry",
+    "ModelPreflightResponse",
     "ModelSettingsResponse",
     "ModelTransitionPhase",
     "ModelTransitionResponse",

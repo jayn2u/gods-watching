@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# ruff: noqa: PLC0415, TRY003, EM101, E501, PLR0915, SLF001
+# ruff: noqa: PLC0415, TRY003, EM101, PLR0915, SLF001
 # pyright: reportPrivateUsage=false, reportUnusedCallResult=false
 import asyncio
 from datetime import UTC, datetime
@@ -24,10 +24,20 @@ from gods_watching.inference.clip import (
 )
 from gods_watching.model_selection.assets import PreparedModelStatus
 from gods_watching.model_selection.coordinator import TransitionCoordinator
-from gods_watching.model_selection.models import TransitionPhase
-from gods_watching.model_selection.registry import ClipModelPackage
+from gods_watching.model_selection.models import (
+    ModelNotPreparedError,
+    TransitionPhase,
+    TransitionRecoveryError,
+)
+from gods_watching.model_selection.quality import QualityStatus
+from gods_watching.model_selection.registry import (
+    DEFAULT_CLIP_MODEL,
+    ClipModelPackage,
+    ClipModelRegistry,
+)
 from gods_watching.model_selection.repository import StageResult, TransitionRepository
 from gods_watching.model_selection.service import ModelSelectionService
+from gods_watching.model_selection.transition_observer import PHASES, TransitionObserver
 from gods_watching.search import SearchRepository
 from gods_watching.storage import (
     ActiveModelIdentity,
@@ -51,9 +61,227 @@ if TYPE_CHECKING:
     from gods_watching.live_detections import LiveDetectionPublisher
     from gods_watching.pipeline_worker.service import PipelineWorker
     from gods_watching.retention import RetentionService
+    from gods_watching.storage import Database
 
 _AT = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
 _SOURCE = "57c216476eefef5ab752ec549e440a49ae4ae5f3"
+_REAL_PREFLIGHT = ModelSelectionService.preflight
+
+
+@pytest.fixture(autouse=True)
+def _isolate_existing_transition_tests_from_offline_gpu_proof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transition tests exercise durable jobs; GPU proof has separate tests."""
+    from gods_watching.model_selection.preflight import estimate_switch
+
+    async def approved_preflight(
+        self: ModelSelectionService, session: object, model_id: str
+    ) -> object:
+        del self, session
+        return estimate_switch(0, 1.0, 0, target_model_id=model_id, measured_fixed_seconds=0.0)
+
+    monkeypatch.setattr(ModelSelectionService, "preflight", approved_preflight)
+
+
+@pytest.mark.anyio
+async def test_missing_measurement_rejects_before_job_or_maintenance(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gods_watching.model_selection.registry import ClipModelRegistry
+    from gods_watching.storage import Database
+
+    monkeypatch.setattr(ModelSelectionService, "preflight", _REAL_PREFLIGHT)
+    source = ClipModelPackage(
+        model_id="fixture/source", revision="source", snapshot_path=Path("/models/source"),
+        dimension=512, processor="fixture", runtime="fixture",
+    )
+    target = _target_package()
+    database = Database.connect(database_url)
+    service = ModelSelectionService(
+        database, ClipModelRegistry((source, target), default_model_id=source.model_id), _Prepared()
+    )
+    try:
+        async with database.transaction() as session:
+            with pytest.raises(ModelNotPreparedError) as error:
+                await service.apply(session, target.model_id)
+            assert error.value.code == "model_preflight_ineligible"
+        async with database.transaction() as session:
+            state = await service.get(session)
+            assert state.maintenance is False
+            assert state.transition is None
+    finally:
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_apply_recounts_after_preview_and_rejects_growth(
+    database_url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gods_watching.model_selection.registry import ClipModelRegistry
+    from gods_watching.storage import Database
+
+    monkeypatch.setattr(ModelSelectionService, "preflight", _REAL_PREFLIGHT)
+    source = ClipModelPackage(
+        model_id="fixture/source", revision="source", snapshot_path=Path("/models/source"),
+        dimension=512, processor="fixture", runtime="fixture",
+    )
+    target = _target_package()
+    counts = iter(((900, 0), (901, 0)))
+
+    async def count_crops(session: object, store: object) -> tuple[int, int, str]:
+        del session, store
+        retained, missing = next(counts)
+        return retained, missing, "a" * 64
+
+    monkeypatch.setattr("gods_watching.model_selection.service.scan_retained_snapshot", count_crops)
+    monkeypatch.setattr(
+        "gods_watching.model_selection.service.measured_rehearsal",
+        lambda *_, **__: (1.0, 0.0),
+    )
+    database = Database.connect(database_url)
+    service = ModelSelectionService(
+        database, ClipModelRegistry((source, target), default_model_id=source.model_id),
+        _Prepared(), preflight_assets_root=tmp_path,
+        preflight_crop_store=CropObjectStore(tmp_path / "crops"),
+    )
+    try:
+        async with database.transaction() as session:
+            preview = await service.preflight(session, target.model_id)
+            assert preview.eligible
+            with pytest.raises(ModelNotPreparedError) as error:
+                await service.apply(session, target.model_id)
+            assert error.value.code == "model_preflight_ineligible"
+        async with database.transaction() as session:
+            state = await service.get(session)
+            assert state.transition is None
+            assert state.maintenance is False
+    finally:
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_worker_rechecks_corpus_after_terminal_handoff(
+    database_url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from io import BytesIO
+
+    from PIL import Image
+
+    from gods_watching.model_selection.preflight import scan_retained_snapshot
+    from gods_watching.storage import Camera, CameraSession, Database
+
+    database = Database.connect(database_url)
+    store = CropObjectStore(tmp_path / "crops")
+    source = DEFAULT_CLIP_MODEL
+    target = _target_package()
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    service = ModelSelectionService(
+        database, ClipModelRegistry((source, target)), _Prepared(), storage=storage,
+        preflight_assets_root=tmp_path, preflight_crop_store=store,
+    )
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    appearance_ids: list[UUID] = []
+    try:
+        async with database.transaction() as session:
+            camera = await storage.add_camera(
+                session, name=f"late-crop-{uuid4().hex[:8]}", source_url=_source("late-crop")
+            )
+            camera_session = await storage.start_camera_session(session, camera.id, cause="test")
+            camera_id, session_id = camera.id, camera_session.id
+            image = BytesIO()
+            Image.new("RGB", (2, 2), "red").save(image, format="PNG")
+            crop = store.write(image.getvalue())
+            first_id = uuid4()
+            appearance_ids.append(first_id)
+            await storage.publish_appearance(
+                session,
+                _publication(
+                    appearance_id=first_id, camera_id=camera.id,
+                    session_id=camera_session.id, embedding=_unit(512),
+                    crop_object_key=crop.object_key,
+                ),
+            )
+        async with database.transaction() as session:
+            _, _, bound_digest = await scan_retained_snapshot(session, store)
+        monkeypatch.setattr(
+            "gods_watching.model_selection.service.measured_rehearsal",
+            lambda *_, corpus_sha256=None: (1.0, 0.0)
+            if corpus_sha256 == bound_digest else None,
+        )
+        async with database.transaction() as session:
+            await service.apply(session, target.model_id)
+
+        class PublishingPipeline:
+            def __init__(self) -> None:
+                self.starts: list[str] = []
+
+            async def stop_and_join(self) -> None:
+                assert camera_id is not None
+                assert session_id is not None
+                async with database.transaction() as session:
+                    crop = store.write(image.getvalue())
+                    second_id = uuid4()
+                    appearance_ids.append(second_id)
+                    await storage.publish_appearance(
+                        session,
+                        _publication(
+                            appearance_id=second_id, camera_id=camera_id,
+                            session_id=session_id, embedding=_unit(512),
+                            crop_object_key=crop.object_key, track_id=2,
+                        ),
+                    )
+
+            async def start(self, package: ClipModelPackage) -> None:
+                self.starts.append(package.model_id)
+
+        pipeline = PublishingPipeline()
+        runtime = _Runtime()
+        result = await service.run_pending(
+            crop_store=store, runtime=runtime,
+            clip_factory=lambda _package: pytest.fail("target clip was loaded"),
+            pipeline=pipeline,
+        )
+        assert result is not None
+        assert result.state.phase == TransitionPhase.FAILED
+        assert not result.activated
+        assert runtime.loaded == [source.model_id]
+        assert pipeline.starts == [source.model_id]
+        async with database.transaction() as session:
+            active = await session.scalar(select(ActiveModelIdentity))
+            assert active is not None
+            assert active.model_id == source.model_id
+            assert await session.scalar(select(ModelTransitionStage).limit(1)) is None
+    finally:
+        async with database.transaction() as session:
+            await session.execute(delete(ModelTransitionJob))
+            await session.execute(delete(Appearance).where(Appearance.id.in_(appearance_ids)))
+            if session_id is not None:
+                await session.execute(delete(CameraSession).where(CameraSession.id == session_id))
+            if camera_id is not None:
+                await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_imported_model_apply_fails_without_real_product_cases() -> None:
+    imported = ClipModelPackage(
+        model_id="fixture/imported",
+        revision="a" * 64,
+        snapshot_path=Path("/models/imported") / ("a" * 64),
+        dimension=512,
+        processor="CLIPProcessor",
+        runtime="transformers",
+    )
+    service = ModelSelectionService(
+        database=cast("Database", object()),
+        registry=ClipModelRegistry((DEFAULT_CLIP_MODEL, imported)),
+        prepared=_Prepared(),
+    )
+    with pytest.raises(ModelNotPreparedError, match="quality evidence store unavailable") as error:
+        await service.apply(cast("AsyncSession", object()), imported.model_id)
+    assert error.value.code == "model_quality_ineligible"
 
 
 @final
@@ -67,12 +295,15 @@ class _Prepared:
 class _Runtime:
     def __init__(self) -> None:
         self.loaded: list[str] = []
+        self.loaded_packages: list[ClipModelPackage] = []
 
     async def unload_model(self) -> None:
         self.loaded.clear()
+        self.loaded_packages.clear()
 
     async def load_model(self, package: ClipModelPackage) -> ClipRuntimeIdentity:
         self.loaded.append(package.model_id)
+        self.loaded_packages.append(package)
         return ClipRuntimeIdentity.from_package(package)
 
     async def inspect_identity(self) -> ClipRuntimeIdentity:
@@ -227,17 +458,23 @@ async def test_transition_stages_and_activates_768_without_materializing_rows(
         job.id,
         expected_source=("openai/clip-vit-base-patch16", _SOURCE, 512),
     )
-    assert await session.scalar(
-        select(ActiveModelIdentity.model_id).where(ActiveModelIdentity.singleton.is_(True))
-    ) == target.model_id
+    assert (
+        await session.scalar(
+            select(ActiveModelIdentity.model_id).where(ActiveModelIdentity.singleton.is_(True))
+        )
+        == target.model_id
+    )
     refreshed = await session.scalar(select(Appearance).where(Appearance.id == appearance.id))
     assert refreshed is not None
     assert refreshed.embedding_dimension == 768
     assert refreshed.model_id == target.model_id
     assert refreshed.embedding is not None
-    assert await session.scalar(
-        select(ModelTransitionStage.job_id).where(ModelTransitionStage.job_id == job.id)
-    ) is None
+    assert (
+        await session.scalar(
+            select(ModelTransitionStage.job_id).where(ModelTransitionStage.job_id == job.id)
+        )
+        is None
+    )
 
 
 @pytest.mark.anyio
@@ -255,6 +492,32 @@ async def test_768_search_query_keeps_dimension_specific_identity_filter() -> No
     assert "vector(768)" in sql
     assert "embedding_dimension" in sql
     assert "model_id" in sql
+
+
+def test_equal_512_dimensional_revisions_keep_separate_search_predicates() -> None:
+    repository = SearchRepository()
+    request = SimilarSearchRequest(mode="similar", appearance_id=AppearanceId(uuid4()))
+    first = repository._similar_statement(
+        request,
+        embedding=_unit(512),
+        model_revision="revision-a",
+        model_id="local/clip",
+        dimension=512,
+        exclude_appearance_id=None,
+    )
+    second = repository._similar_statement(
+        request,
+        embedding=_unit(512),
+        model_revision="revision-b",
+        model_id="local/clip",
+        dimension=512,
+        exclude_appearance_id=None,
+    )
+    first_sql = first.compile()
+    second_sql = second.compile()
+    assert "revision-a" in first_sql.params.values()
+    assert "revision-b" in second_sql.params.values()
+    assert "revision-b" not in first_sql.params.values()
 
 
 @pytest.mark.anyio
@@ -287,7 +550,7 @@ async def test_inference_failure_restores_source_identity_and_pipeline(
             camera = await storage.add_camera(
                 setup,
                 name=f"selector-failure-{uuid4().hex[:8]}",
-                    source_url=_source("selector-failure"),
+                source_url=_source("selector-failure"),
             )
             camera_session = await storage.start_camera_session(setup, camera.id, cause="test")
             crop = crop_store.write(b"jpeg")
@@ -312,20 +575,41 @@ async def test_inference_failure_restores_source_identity_and_pipeline(
             _ = await service.apply(apply_session, target.model_id)
         runtime = _Runtime()
         pipeline = _Pipeline()
+        observer = TransitionObserver()
         result = await service.run_pending(
             crop_store=crop_store,
             runtime=runtime,
             clip_factory=_failing_clip_factory,
             pipeline=pipeline,
+            observer=observer,
         )
         assert result is not None
         assert result.state.phase == TransitionPhase.FAILED
         assert runtime.loaded == [default.model_id]
         assert pipeline.starts == [default.model_id]
+        assert observer.measurement is not None
+        assert not observer.measurement.complete
+        assert observer.measurement.completed_crops == 0
         async with database.transaction() as check:
-            active = await check.scalar(select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True)))
+            active = await check.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
             assert active is not None
-            assert active.model_id == default.model_id
+            assert (active.model_id, active.model_revision, active.embedding_dimension) == (
+                default.model_id, default.revision, default.dimension,
+            )
+        restarted_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, target)),
+            prepared=_Prepared(), storage=storage,
+        )
+        recovered_runtime = _Runtime()
+        recovered_pipeline = _Pipeline()
+        recovered = await restarted_service.recover_startup(
+            runtime=recovered_runtime, pipeline=recovered_pipeline,
+        )
+        assert recovered_runtime.loaded == [default.model_id]
+        assert recovered_pipeline.starts == [default.model_id]
+        assert recovered is None or not recovered.activated
     finally:
         async with database.transaction() as cleanup:
             await cleanup.execute(delete(ModelTransitionJob))
@@ -367,7 +651,7 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
             camera = await storage.add_camera(
                 setup,
                 name=f"selector-after-{uuid4().hex[:8]}",
-                    source_url=_source("selector-after"),
+                source_url=_source("selector-after"),
             )
             camera_session = await storage.start_camera_session(setup, camera.id, cause="test")
             crop = crop_store.write(b"jpeg")
@@ -392,17 +676,46 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
             _ = await service.apply(apply_session, target.model_id)
         runtime = _Runtime()
         pipeline = _Pipeline(fail_target=True)
+        observer = TransitionObserver()
         result = await service.run_pending(
             crop_store=crop_store,
             runtime=runtime,
             clip_factory=_working_clip_factory,
             pipeline=pipeline,
+            observer=observer,
         )
         assert result is not None
         assert result.activated
         assert result.state.phase == TransitionPhase.ROLLING_BACK
+        assert observer.measurement is not None
+        assert not observer.measurement.complete
+        assert "pipeline_restart" not in observer.measurement.phase_spans
+        restarted_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, target)),
+            prepared=_Prepared(), storage=storage,
+        )
+        recovered_runtime = _Runtime()
+        recovered_pipeline = _Pipeline()
+        recovered = await restarted_service.recover_startup(
+            runtime=recovered_runtime, pipeline=recovered_pipeline,
+        )
+        assert recovered is not None
+        assert recovered.activated
+        assert recovered.state.phase == TransitionPhase.SUCCEEDED
+        assert recovered_runtime.loaded == [target.model_id]
+        assert recovered_pipeline.starts == [target.model_id]
+        async with database.transaction() as readback:
+            status = await restarted_service.get(readback)
+            assert status.active_model_id == target.model_id
+            assert not status.maintenance
+            assert (
+                next(m for m in status.models if m.model_id == target.model_id).revision
+                == target.revision
+            )
         async with database.transaction() as check:
-            active = await check.scalar(select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True)))
+            active = await check.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
             assert active is not None
             assert (active.model_id, active.model_revision, active.embedding_dimension) == (
                 target.model_id,
@@ -417,7 +730,9 @@ async def test_pipeline_failure_after_activation_keeps_target_identity_in_mainte
                 await cleanup.execute(delete(CameraSession).where(CameraSession.id == session_id))
             if camera_id is not None:
                 await cleanup.execute(delete(Camera).where(Camera.id == camera_id))
-            active = await cleanup.scalar(select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True)))
+            active = await cleanup.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
             if active is not None:
                 active.model_id = default.model_id
                 active.model_revision = default.revision
@@ -443,7 +758,20 @@ async def test_recovery_keeps_staged_source_pipeline_stopped_until_resume(
         return SimpleNamespace(free=0)
 
     monkeypatch.setattr("gods_watching.model_selection.service.shutil.disk_usage", _no_headroom)
-    target = _target_package()
+    target = ClipModelPackage(
+        model_id="fixture/imported-restart",
+        revision="a" * 64,
+        snapshot_path=tmp_path / "imported" / ("a" * 64),
+        dimension=768,
+        processor="CLIPProcessor",
+        runtime="transformers",
+    )
+    # This recovery test supplies a synthetic approved package descriptor;
+    # quality evidence validation has separate fail-closed tests.
+    monkeypatch.setattr(
+        ModelSelectionService, "_quality_status",
+        lambda _self, _package: QualityStatus(passed=True, reason=None),
+    )
     default = ClipModelPackage(
         model_id="openai/clip-vit-base-patch16",
         revision=_SOURCE,
@@ -492,21 +820,74 @@ async def test_recovery_keeps_staged_source_pipeline_stopped_until_resume(
             assert await repository.populate_stages(interrupted, job) == 1
             job.phase = TransitionPhase.REINDEXING.value
             await interrupted.flush()
+        # A new worker process reconstructs the service from the same durable registry.
+        restarted_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, target)),
+            prepared=_Prepared(), storage=storage,
+        )
+        async with database.transaction() as readback:
+            pending = await restarted_service.get(readback)
+            assert pending.maintenance
+            assert pending.transition is not None
+            assert pending.transition.phase == TransitionPhase.REINDEXING
+            assert pending.transition.target_model_id == target.model_id
+            assert (
+                next(m for m in pending.models if m.model_id == target.model_id).revision
+                == target.revision
+            )
+        wrong_revision = ClipModelPackage(
+            model_id=target.model_id,
+            revision="b" * 64,
+            snapshot_path=tmp_path / "imported" / ("b" * 64),
+            dimension=target.dimension,
+            processor=target.processor,
+            runtime=target.runtime,
+        )
+        mismatched_service = ModelSelectionService(
+            database=database, registry=ClipModelRegistry((default, wrong_revision)),
+            prepared=_Prepared(), storage=storage,
+        )
+        with pytest.raises(TransitionRecoveryError):
+            await mismatched_service.run_pending(
+                crop_store=crop_store, runtime=_Runtime(),
+                clip_factory=_working_clip_factory, pipeline=_Pipeline(),
+            )
         runtime = _Runtime()
         pipeline = _Pipeline()
-        recovery = await service.recover_startup(runtime=runtime, pipeline=pipeline)
+        recovery = await restarted_service.recover_startup(runtime=runtime, pipeline=pipeline)
         assert recovery is not None
         assert recovery.activated is False
         assert pipeline.starts == []
-        result = await service.run_pending(
+        observer = TransitionObserver()
+        result = await restarted_service.run_pending(
             crop_store=crop_store,
             runtime=runtime,
             clip_factory=_working_clip_factory,
             pipeline=pipeline,
+            observer=observer,
         )
         assert result is not None
         assert result.state.phase == TransitionPhase.SUCCEEDED
         assert pipeline.starts == [target.model_id]
+        assert runtime.loaded_packages == [target]
+        async with database.transaction() as readback:
+            active = await readback.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
+            assert active is not None
+            assert (active.model_id, active.model_revision, active.embedding_dimension) == (
+                target.model_id, target.revision, target.dimension,
+            )
+        assert observer.measurement is not None
+        assert not observer.measurement.complete
+        assert set(observer.measurement.phase_seconds) == set(PHASES) - {"stage_population"}
+        assert observer.measurement.completed_crops == 1
+        assert observer.measurement.source_identity == (
+            default.model_id, default.revision, default.dimension
+        )
+        assert observer.measurement.target_identity == (
+            target.model_id, target.revision, target.dimension
+        )
     finally:
         async with database.transaction() as cleanup:
             await cleanup.execute(delete(ModelTransitionJob))
@@ -744,6 +1125,179 @@ async def test_only_missing_empty_and_decode_failures_are_skips(
     assert empty_result.skip_reason == "undecodable_crop"
     assert corrupt_result.skip_reason == "undecodable_crop"
     await database.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["success", "stage", "activation", "cancel"])
+async def test_observer_incomplete_on_production_phase_failure(  # noqa: C901
+    database_url: str, tmp_path: Path, failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gods_watching.storage import Database
+
+    class FailingRepository(TransitionRepository):
+        async def populate_stages(self, session: AsyncSession, job: ModelTransitionJob) -> int:
+            if failure in {"stage", "cancel"}:
+                if failure == "cancel":
+                    raise asyncio.CancelledError
+                raise RuntimeError("stage population failed")
+            return await super().populate_stages(session, job)
+
+        async def activate(
+            self, session: AsyncSession, job_id: UUID, *, expected_source: tuple[str, str, int]
+        ) -> ModelTransitionJob:
+            if failure == "activation":
+                raise RuntimeError("activation failed")
+            return await super().activate(session, job_id, expected_source=expected_source)
+
+    source = ClipModelPackage(
+        model_id="openai/clip-vit-base-patch16", revision=_SOURCE,
+        snapshot_path=Path("/models/clip"), dimension=512,
+        processor="CLIPProcessor", runtime="transformers",
+    )
+    target = _target_package()
+    database = Database.connect(database_url)
+    service = ModelSelectionService(
+        database=database,
+        registry=ClipModelRegistry((source, target)),
+        prepared=_Prepared(), repository=FailingRepository(),
+        storage=StorageRepository(CredentialCipher(Fernet.generate_key())),
+    )
+    observer = TransitionObserver()
+    if failure == "success":
+        from gods_watching.model_selection.preflight import scan_retained_snapshot
+
+        async def delayed_scan(
+            session: AsyncSession, store: CropObjectStore
+        ) -> tuple[int, int, str | None]:
+            await anyio.sleep(0.04)
+            return await scan_retained_snapshot(session, store)
+
+        monkeypatch.setattr(
+            "gods_watching.model_selection.service.scan_retained_snapshot", delayed_scan
+        )
+    try:
+        async with database.transaction() as session:
+            _ = await service.apply(session, target.model_id)
+        if failure == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await service.run_pending(
+                    crop_store=CropObjectStore(tmp_path / failure), runtime=_Runtime(),
+                    clip_factory=_working_clip_factory, pipeline=_Pipeline(), observer=observer,
+                )
+        else:
+            result = await service.run_pending(
+                crop_store=CropObjectStore(tmp_path / failure), runtime=_Runtime(),
+                clip_factory=_working_clip_factory, pipeline=_Pipeline(), observer=observer,
+            )
+            assert result is not None
+            assert result.state.phase == (
+                TransitionPhase.SUCCEEDED if failure == "success" else TransitionPhase.FAILED
+            )
+        assert observer.measurement is not None
+        assert observer.measurement.complete is (failure == "success")
+        if failure == "success":
+            assert observer.measurement.phase_seconds["corpus_recheck"] >= 0.04
+        assert observer.measurement.completed_crops == 0
+        assert ("pipeline_restart" in observer.measurement.phase_spans) is (
+            failure == "success"
+        )
+        if failure == "success":
+            idle = await service.run_pending(
+                crop_store=CropObjectStore(tmp_path / "idle"), runtime=_Runtime(),
+                clip_factory=_working_clip_factory, pipeline=_Pipeline(), observer=observer,
+            )
+            assert idle is None
+            assert observer.measurement is None
+    finally:
+        async with database.transaction() as session:
+            await session.execute(delete(ModelTransitionJob))
+            active = await session.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
+            if active is not None:
+                active.model_id = source.model_id
+                active.model_revision = source.revision
+                active.embedding_dimension = source.dimension
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_observer_counts_only_committed_crop_before_later_failure(
+    database_url: str, tmp_path: Path
+) -> None:
+    from gods_watching.storage import Camera, CameraSession, Database
+
+    database = Database.connect(database_url)
+    store = CropObjectStore(tmp_path / "partial-crops")
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    source = ClipModelPackage(
+        model_id="openai/clip-vit-base-patch16", revision=_SOURCE,
+        snapshot_path=Path("/models/clip"), dimension=512,
+        processor="CLIPProcessor", runtime="transformers",
+    )
+    target = _target_package()
+    service = ModelSelectionService(
+        database=database, registry=ClipModelRegistry((source, target)),
+        prepared=_Prepared(), storage=storage,
+    )
+    appearances = [uuid4(), uuid4()]
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await storage.add_camera(
+                session, name=f"observer-partial-{uuid4().hex[:8]}",
+                source_url=_source("observer-partial"),
+            )
+            camera_session = await storage.start_camera_session(session, camera.id, cause="test")
+            camera_id, session_id = camera.id, camera_session.id
+            for track_id, appearance_id in enumerate(appearances, start=1):
+                crop = store.write(b"jpeg")
+                _ = await storage.publish_appearance(
+                    session,
+                    _publication(
+                        appearance_id=appearance_id, camera_id=camera.id,
+                        session_id=camera_session.id, embedding=_unit(512),
+                        crop_object_key=crop.object_key, track_id=track_id,
+                    ),
+                )
+        async with database.transaction() as session:
+            _ = await service.apply(session, target.model_id)
+
+        class SecondCropFails:
+            calls = 0
+
+            async def embed_image(self, payload: bytes) -> tuple[float, ...]:
+                del payload
+                self.calls += 1
+                if self.calls == 2:
+                    raise ClipInferenceError(code="clip_gpu_oom")
+                return _unit(768)
+
+        clip = SecondCropFails()
+        observer = TransitionObserver()
+        result = await service.run_pending(
+            crop_store=store, runtime=_Runtime(), clip_factory=lambda _package: clip,
+            pipeline=_Pipeline(), batch_size=1, observer=observer,
+        )
+        assert result is not None
+        assert result.state.phase == TransitionPhase.FAILED
+        assert observer.measurement is not None
+        assert not observer.measurement.complete
+        assert observer.measurement.completed_crops == 1
+        assert len(observer.measurement.crop_seconds) == 1
+        assert observer.measurement.crop_seconds[0] <= observer.measurement.phase_seconds.get(
+            "crop_embedding", float("inf")
+        )
+    finally:
+        async with database.transaction() as session:
+            await session.execute(delete(ModelTransitionJob))
+            await session.execute(delete(Appearance).where(Appearance.id.in_(appearances)))
+            if session_id is not None:
+                await session.execute(delete(CameraSession).where(CameraSession.id == session_id))
+            if camera_id is not None:
+                await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
 
 
 @pytest.mark.anyio

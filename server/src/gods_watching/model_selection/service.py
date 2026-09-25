@@ -1,15 +1,18 @@
 """Application and worker services for durable CLIP model transitions."""
 
-# ruff: noqa: TRY003, EM101, TRY301, BLE001, E501, TC001, TC002, TC003, C901, PLR0913
+# ruff: noqa: TRY003, EM101, TRY301, BLE001, TC001, TC002, TC003, C901, PLR0913, PLR0912, PLR0915
 
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
@@ -30,6 +33,7 @@ from gods_watching.inference.clip import (
 )
 from gods_watching.model_selection.assets import PreparedModelStatus
 from gods_watching.model_selection.coordinator import TransitionCoordinator
+from gods_watching.model_selection.imported_manifest import ImportedClipManifest, ImportedFile
 from gods_watching.model_selection.models import (
     CropSkipReason,
     ModelNotPreparedError,
@@ -38,12 +42,25 @@ from gods_watching.model_selection.models import (
     TransitionRecoveryError,
     TransitionResult,
 )
+from gods_watching.model_selection.preflight import (
+    SwitchPreflight,
+    estimate_switch,
+    measured_rehearsal,
+    scan_retained_snapshot,
+)
+from gods_watching.model_selection.quality import (
+    QualityStatus,
+    assess_quality,
+    load_quality_evidence,
+    load_quality_policy,
+)
 from gods_watching.model_selection.registry import ClipModelPackage, ClipModelRegistry
 from gods_watching.model_selection.repository import (
     StageResult,
     TransitionRepository,
     transition_state,
 )
+from gods_watching.model_selection.transition_observer import TransitionObserver
 from gods_watching.retention.models import DEFAULT_CLEANUP_THRESHOLD, DEFAULT_MINIMUM_FREE_BYTES
 from gods_watching.storage import (
     ApplicationSettings,
@@ -60,9 +77,7 @@ if TYPE_CHECKING:
 class PreparedModelCatalogPort(Protocol):
     """Read-only preparation status supplied by deployment preparation."""
 
-    def status(
-        self, package: ClipModelPackage
-    ) -> PreparedModelStatus:
+    def status(self, package: ClipModelPackage) -> PreparedModelStatus:
         """Return a cached local package check without downloading weights."""
         ...
 
@@ -121,6 +136,11 @@ class ModelSelectionService:
     repository: TransitionRepository = field(default_factory=TransitionRepository)
     coordinator: TransitionCoordinator | None = None
     storage: StorageRepository | None = None
+    imported_assets_root: Path | None = None
+    quality_policy_path: Path | None = None
+    quality_evidence_root: Path | None = None
+    preflight_assets_root: Path | None = None
+    preflight_crop_store: CropObjectStore | None = None
 
     def __post_init__(self) -> None:
         """Bind the database advisory coordinator when one is not injected."""
@@ -145,6 +165,12 @@ class ModelSelectionService:
                 status.reason or "selected model is not prepared",
                 code="model_not_prepared",
             )
+        quality = await asyncio.to_thread(self._quality_status, package)
+        if not quality.passed:
+            raise ModelNotPreparedError(
+                quality.reason or "selected model has no qualifying evidence",
+                code="model_quality_ineligible",
+            )
         active, job = await self.repository.state(session, default=self.registry.default)
         if (
             active.model_id == package.model_id
@@ -160,6 +186,12 @@ class ModelSelectionService:
             TransitionPhase.ROLLING_BACK,
         }:
             raise ModelSelectionConflictError("another model transition is already active")
+        preflight = await self.preflight(session, model_id)
+        if not preflight.eligible:
+            raise ModelNotPreparedError(
+                preflight.reason or "model switch preflight failed",
+                code="model_preflight_ineligible",
+            )
         try:
             created = await self.repository.create_job(
                 session,
@@ -170,6 +202,27 @@ class ModelSelectionService:
             raise ModelSelectionConflictError(str(error)) from error
         return await self._response(active.model_id, created)
 
+    async def preflight(self, session: AsyncSession, model_id: str) -> SwitchPreflight:
+        """Recompute the current corpus estimate without changing runtime identity."""
+        package = self.registry.get(model_id)
+        if package is None:
+            raise ModelNotPreparedError(model_id, code="unknown_model")
+        if self.preflight_crop_store is None or self.preflight_assets_root is None:
+            return estimate_switch(0, None, 0, target_model_id=package.model_id)
+        retained, missing, corpus_sha256 = await scan_retained_snapshot(
+            session, self.preflight_crop_store
+        )
+        rehearsal = measured_rehearsal(
+            self.preflight_assets_root, package, corpus_sha256=corpus_sha256
+        )
+        return estimate_switch(
+            retained,
+            rehearsal[0] if rehearsal else None,
+            missing,
+            target_model_id=package.model_id,
+            measured_fixed_seconds=rehearsal[1] if rehearsal else None,
+        )
+
     async def run_pending(
         self,
         *,
@@ -178,8 +231,11 @@ class ModelSelectionService:
         clip_factory: ClipFactoryPort,
         pipeline: PipelineLifecyclePort,
         batch_size: int = 32,
+        observer: TransitionObserver | None = None,
     ) -> TransitionResult | None:
         """Run the oldest active job through staging and atomic activation."""
+        if observer is not None:
+            observer.clear()
         async with self.database.transaction() as session:
             job = await self.repository.active_job(session, lock=True)
             if job is None:
@@ -187,11 +243,19 @@ class ModelSelectionService:
             source_package = self.registry.get(job.source_model_id)
             target_package = self.registry.get(job.target_model_id)
             if source_package is None or target_package is None:
-                raise TransitionRecoveryError("transition references an unavailable registry package")
+                raise TransitionRecoveryError(
+                    "transition references an unavailable registry package"
+                )
             _require_identity(source_package, job.source_model_revision, job.source_dimension)
             _require_identity(target_package, job.target_model_revision, job.target_dimension)
             job_id = job.id
             recovery_only = job.phase == TransitionPhase.ROLLING_BACK.value
+            if observer is not None and not recovery_only:
+                observer.begin(
+                    source_package,
+                    target_package,
+                    fresh=job.phase == TransitionPhase.QUEUED.value,
+                )
             if not recovery_only and job.phase == TransitionPhase.QUEUED.value:
                 retained = await self.repository.retained_count(session)
                 headroom_error = await self._headroom_error(
@@ -214,7 +278,11 @@ class ModelSelectionService:
         # Terminal handoffs may still publish while close is shielded.  Do not
         # acquire the model lock or unload inference until every pipeline task
         # has joined.
+        if observer is not None:
+            observer.start("pipeline_stop")
         await pipeline.stop_and_join()
+        if observer is not None:
+            observer.end("pipeline_stop")
         coordinator = self.coordinator
         if coordinator is None:
             raise RuntimeError("model transition coordinator is not configured")
@@ -229,6 +297,7 @@ class ModelSelectionService:
                     clip_factory=clip_factory,
                     pipeline=pipeline,
                     batch_size=batch_size,
+                    observer=observer,
                 )
         except ModelSelectionConflictError:
             # A second owner cannot occur under worker ownership, but a caller
@@ -247,21 +316,68 @@ class ModelSelectionService:
         clip_factory: ClipFactoryPort,
         pipeline: PipelineLifecyclePort,
         batch_size: int,
+        observer: TransitionObserver | None,
     ) -> TransitionResult:
         try:
+            # The queued API check precedes terminal pipeline handoffs.  Only
+            # the paused corpus can be compared with the rehearsal proof.
+            if self.preflight_assets_root is not None or observer is not None:
+                if observer is not None:
+                    observer.start("corpus_recheck")
+                async with self.database.transaction() as session:
+                    retained, missing, corpus_sha256 = await scan_retained_snapshot(
+                        session, crop_store
+                    )
+                if observer is not None:
+                    observer.end("corpus_recheck")
+                if self.preflight_assets_root is not None:
+                    rehearsal = measured_rehearsal(
+                        self.preflight_assets_root,
+                        target_package,
+                        corpus_sha256=corpus_sha256,
+                    )
+                    stable_preflight = estimate_switch(
+                        retained,
+                        rehearsal[0] if rehearsal else None,
+                        missing,
+                        target_model_id=target_package.model_id,
+                        measured_fixed_seconds=rehearsal[1] if rehearsal else None,
+                    )
+                    if not stable_preflight.eligible:
+                        raise ModelNotPreparedError(
+                            stable_preflight.reason or "model switch preflight failed",
+                            code="model_preflight_ineligible",
+                        )
+            if observer is not None and observer.fresh:
+                observer.start("stage_population")
             async with self.database.transaction() as session:
                 job = await self.repository.get_job(session, job_id, lock=True)
                 if job is None:
                     raise TransitionRecoveryError("transition job disappeared")
                 if job.phase == TransitionPhase.QUEUED.value:
                     _ = await self.repository.populate_stages(session, job)
+                elif observer is not None:
+                    observer.fresh = False
                 if job.phase == TransitionPhase.PREPARING.value:
                     job.phase = TransitionPhase.REINDEXING.value
                     await session.flush()
+            if observer is not None:
+                if observer.fresh:
+                    observer.end("stage_population")
+                observer.start("runtime_switch")
             # Ensure only the selected runtime remains resident.  The runtime
             # manager itself verifies Triton identity after each load.
             await runtime.unload_model()
-            _ = await runtime.load_model(target_package)
+            identity = await runtime.load_model(target_package)
+            if observer is not None:
+                if (identity.model_id, identity.revision, identity.dimension) != (
+                    target_package.model_id,
+                    target_package.revision,
+                    target_package.dimension,
+                ):
+                    raise TransitionRecoveryError("loaded runtime identity does not match target")
+                observer.end("runtime_switch")
+                observer.start("crop_embedding")
             target_clip = clip_factory(target_package)
             while True:
                 async with self.database.transaction() as session:
@@ -273,7 +389,9 @@ class ModelSelectionService:
                 if not rows:
                     break
                 results: list[StageResult] = []
+                crop_seconds: list[float | None] = []
                 for stage, _appearance in rows:
+                    started_at = monotonic() if observer is not None else None
                     results.append(
                         await self._embed_stage(
                             stage.appearance_id,
@@ -281,6 +399,9 @@ class ModelSelectionService:
                             crop_store,
                             target_clip,
                         )
+                    )
+                    crop_seconds.append(
+                        monotonic() - started_at if started_at is not None else None
                     )
                 async with self.database.transaction() as session:
                     job = await self.repository.get_job(
@@ -291,6 +412,13 @@ class ModelSelectionService:
                     if job is None:
                         raise TransitionRecoveryError("transition job disappeared")
                     await self.repository.record_stage_results(session, job, results)
+                if observer is not None:
+                    for result, elapsed in zip(results, crop_seconds, strict=True):
+                        if result.embedding is not None and elapsed is not None:
+                            observer.committed_crop(elapsed)
+            if observer is not None:
+                observer.end("crop_embedding")
+                observer.start("activation")
             async with self.database.transaction() as session:
                 job = await self.repository.get_job(session, job_id, lock=True)
                 if job is None:
@@ -306,12 +434,20 @@ class ModelSelectionService:
                         source_package.dimension,
                     ),
                 )
+            if observer is not None:
+                observer.end("activation")
+                observer.start("pipeline_restart")
             await pipeline.start(target_package)
+            if observer is not None:
+                observer.end("pipeline_restart")
             async with self.database.transaction() as session:
                 job = await self.repository.get_job(session, job_id)
                 if job is None:
                     raise TransitionRecoveryError("transition job disappeared after activation")
-                return TransitionResult(state=transition_state(job), activated=True)
+                result = TransitionResult(state=transition_state(job), activated=True)
+                if observer is not None and job.phase == TransitionPhase.SUCCEEDED.value:
+                    observer.finish()
+                return result
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as error:
@@ -465,13 +601,19 @@ class ModelSelectionService:
             active_package = self.registry.get(active.model_id)
             if active_package is None:
                 raise TransitionRecoveryError("active model is absent from the registry")
-            pending = job if job is not None and TransitionPhase(job.phase) in {
-                TransitionPhase.QUEUED,
-                TransitionPhase.PREPARING,
-                TransitionPhase.REINDEXING,
-                TransitionPhase.ACTIVATING,
-                TransitionPhase.ROLLING_BACK,
-            } else None
+            pending = (
+                job
+                if job is not None
+                and TransitionPhase(job.phase)
+                in {
+                    TransitionPhase.QUEUED,
+                    TransitionPhase.PREPARING,
+                    TransitionPhase.REINDEXING,
+                    TransitionPhase.ACTIVATING,
+                    TransitionPhase.ROLLING_BACK,
+                }
+                else None
+            )
         _require_identity(
             active_package,
             active.model_revision,
@@ -500,15 +642,20 @@ class ModelSelectionService:
                 if row is None:
                     return None
                 return TransitionResult(state=transition_state(row), activated=True)
-        if pending is not None and (
-            active.model_id,
-            active.model_revision,
-            active.embedding_dimension,
-        ) == (
-            pending.source_model_id,
-            pending.source_model_revision,
-            pending.source_dimension,
-        ) and pending.phase != TransitionPhase.ROLLING_BACK.value:
+        if (
+            pending is not None
+            and (
+                active.model_id,
+                active.model_revision,
+                active.embedding_dimension,
+            )
+            == (
+                pending.source_model_id,
+                pending.source_model_revision,
+                pending.source_dimension,
+            )
+            and pending.phase != TransitionPhase.ROLLING_BACK.value
+        ):
             # The source identity is still authoritative.  Reload it and let
             # the worker resume the queued/staged job from its last durable
             # batch rather than discarding progress. A staged job keeps
@@ -586,13 +733,21 @@ class ModelSelectionService:
         try:
             payload = crop_store.read(crop_key)
         except FileNotFoundError:
-            return StageResult(appearance_id=appearance_id, embedding=None, skip_reason=CropSkipReason.MISSING.value)
+            return StageResult(
+                appearance_id=appearance_id,
+                embedding=None,
+                skip_reason=CropSkipReason.MISSING.value,
+            )
         except OSError:
             # Permission, I/O, and capacity errors are infrastructure failures.
             raise
         except ValueError:
             # A key that cannot be parsed is a missing/invalid crop reference.
-            return StageResult(appearance_id=appearance_id, embedding=None, skip_reason=CropSkipReason.MISSING.value)
+            return StageResult(
+                appearance_id=appearance_id,
+                embedding=None,
+                skip_reason=CropSkipReason.MISSING.value,
+            )
         if not payload:
             return StageResult(
                 appearance_id=appearance_id,
@@ -602,7 +757,11 @@ class ModelSelectionService:
         try:
             embedding = await clip.embed_image(payload)
         except ClipImageDecodeError:
-            return StageResult(appearance_id=appearance_id, embedding=None, skip_reason=CropSkipReason.UNDECODABLE.value)
+            return StageResult(
+                appearance_id=appearance_id,
+                embedding=None,
+                skip_reason=CropSkipReason.UNDECODABLE.value,
+            )
         except ClipInputError as error:
             if error.code == "clip_image_empty":
                 return StageResult(
@@ -627,13 +786,17 @@ class ModelSelectionService:
         entries: list[ModelCatalogEntry] = []
         for package in self.registry.packages:
             status = await self._prepared_status(package)
+            quality = await asyncio.to_thread(self._quality_status, package)
             entries.append(
                 ModelCatalogEntry(
                     model_id=package.model_id,
                     display_name=package.display_name or package.model_id,
+                    revision=package.revision,
                     dimension=package.dimension,
                     prepared=status.prepared,
                     reason=status.reason,
+                    quality_passed=quality.passed,
+                    quality_reason=quality.reason,
                 )
             )
         transition = None
@@ -663,6 +826,33 @@ class ModelSelectionService:
             models=tuple(entries),
             transition=transition,
         )
+
+    def _quality_status(self, package: ClipModelPackage) -> QualityStatus:
+        if not package.snapshot_path.parts or "imported" not in package.snapshot_path.parts:
+            return QualityStatus(passed=True, reason=None)
+        if self.imported_assets_root is None or self.quality_evidence_root is None:
+            return QualityStatus(passed=False, reason="quality evidence store unavailable")
+        if self.quality_policy_path is None:
+            return QualityStatus(passed=False, reason="trusted quality policy missing")
+        package_dir = self.imported_assets_root / package.revision
+        try:
+            raw = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest = ImportedClipManifest(
+                model_id=raw["model_id"],
+                revision=raw["revision"],
+                display_name=raw["display_name"],
+                base_model_id=raw["base_model_id"],
+                dimension=raw["dimension"],
+                files=tuple(ImportedFile(**item) for item in raw["files"]),
+                package_sha256=raw["package_sha256"],
+                cuhk_report=raw["cuhk_report"],
+            )
+        except (OSError, ValueError, TypeError, KeyError):
+            return QualityStatus(passed=False, reason="installed quality manifest invalid")
+        if manifest.package_sha256 != package.revision or manifest.model_id != package.model_id:
+            return QualityStatus(passed=False, reason="installed package identity mismatch")
+        evidence = load_quality_evidence(self.quality_evidence_root / f"{package.revision}.json")
+        return assess_quality(manifest, evidence, load_quality_policy(self.quality_policy_path))
 
     async def _prepared_status(self, package: ClipModelPackage) -> PreparedModelStatus:
         try:

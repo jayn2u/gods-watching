@@ -63,6 +63,7 @@ def _catalog_response() -> ModelSettingsResponse:
             ModelCatalogEntry(
                 model_id="openai/clip-vit-base-patch16",
                 display_name="OpenAI CLIP ViT-B/16",
+                revision="fixture-b16",
                 dimension=512,
                 prepared=True,
                 reason=None,
@@ -70,6 +71,7 @@ def _catalog_response() -> ModelSettingsResponse:
             ModelCatalogEntry(
                 model_id="openai/clip-vit-base-patch32",
                 display_name="OpenAI CLIP ViT-B/32",
+                revision="fixture-b32",
                 dimension=512,
                 prepared=False,
                 reason="identity marker missing",
@@ -77,6 +79,7 @@ def _catalog_response() -> ModelSettingsResponse:
             ModelCatalogEntry(
                 model_id="openai/clip-vit-large-patch14",
                 display_name="OpenAI CLIP ViT-L/14",
+                revision="fixture-l14",
                 dimension=768,
                 prepared=True,
                 reason=None,
@@ -101,6 +104,7 @@ class _ModelSelection:
     apply_failure: TransitionError | None = None
     get_calls: int = 0
     applied_model_ids: list[str] = field(default_factory=list)
+    preflight_model_ids: list[str] = field(default_factory=list)
 
     async def get(self, session: AsyncSession) -> ModelSettingsResponse:
         del session
@@ -113,6 +117,21 @@ class _ModelSelection:
         if self.apply_failure is not None:
             raise self.apply_failure
         return self.response
+
+    async def preflight(self, session: AsyncSession, model_id: str) -> object:
+        del session
+        self.preflight_model_ids.append(model_id)
+        return {
+            "target_model_id": model_id,
+            "retained_count": 10,
+            "estimated_missing_count": 2,
+            "measured_crops_per_second": 2.0,
+            "measured_fixed_seconds": 0.0,
+            "estimated_seconds": 4.0,
+            "max_seconds": 900,
+            "eligible": True,
+            "reason": None,
+        }
 
 
 @dataclass
@@ -167,9 +186,9 @@ async def _request(
         "http_version": "1.1",
         "method": method,
         "scheme": "https",
-        "path": path,
-        "raw_path": path.encode(),
-        "query_string": b"",
+        "path": path.partition("?")[0],
+        "raw_path": path.partition("?")[0].encode(),
+        "query_string": path.partition("?")[2].encode(),
         "headers": request_headers,
         "client": ("127.0.0.1", 50000),
         "server": ("gw.test", 443),
@@ -230,9 +249,12 @@ async def test_get_models_returns_the_frozen_catalog_and_transition_shape() -> N
     assert models[1] == {
         "model_id": "openai/clip-vit-base-patch32",
         "display_name": "OpenAI CLIP ViT-B/32",
+        "revision": "fixture-b32",
         "dimension": 512,
         "prepared": False,
         "reason": "identity marker missing",
+        "quality_passed": True,
+        "quality_reason": None,
     }
     transition = payload["transition"]
     assert isinstance(transition, dict)
@@ -255,9 +277,7 @@ async def test_apply_returns_202_and_catalog_status_for_accepted_transition() ->
     )
 
     assert status_code == 202
-    assert _JSON_OBJECT.validate_json(body)["active_model_id"] == (
-        "openai/clip-vit-base-patch16"
-    )
+    assert _JSON_OBJECT.validate_json(body)["active_model_id"] == ("openai/clip-vit-base-patch16")
     assert service.applied_model_ids == ["openai/clip-vit-base-patch32"]
 
 
@@ -267,6 +287,10 @@ async def test_apply_returns_202_and_catalog_status_for_accepted_transition() ->
     [
         (ModelNotPreparedError("unknown", code="unknown_model"), "unknown_model"),
         (ModelNotPreparedError("marker missing", code="model_not_prepared"), "model_not_prepared"),
+        (
+            ModelNotPreparedError("quality evidence missing", code="model_quality_ineligible"),
+            "model_quality_ineligible",
+        ),
     ],
 )
 async def test_apply_maps_unknown_and_unprepared_models_to_structured_422(
@@ -342,3 +366,19 @@ async def test_model_routes_require_auth_and_distinguish_passive_get_from_mutati
     assert guard.built_for_user_actions == [False, True]
     assert guard.calls == [False, True, True, False]
     assert service.applied_model_ids == []
+
+
+@pytest.mark.anyio
+async def test_preflight_is_authenticated_and_returns_typed_estimate() -> None:
+    service = _ModelSelection(response=_catalog_response())
+    guard = _GuardFactory()
+    app = _app(service, guard)
+    path = "/api/settings/models/preflight?model_id=fixture%2Ftarget"
+    denied, _ = await _request(app, "GET", path)
+    accepted, body = await _request(
+        app, "GET", path, headers={"x-test-session": "valid"}
+    )
+    assert denied == 401
+    assert accepted == 200
+    assert service.preflight_model_ids == ["fixture/target"]
+    assert _JSON_OBJECT.validate_json(body)["estimated_seconds"] == 4.0
