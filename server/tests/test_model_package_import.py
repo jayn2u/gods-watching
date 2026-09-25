@@ -136,7 +136,8 @@ def test_failed_publish_leaves_no_partial_package(
     assets = tmp_path / "assets"
 
     def fail(*_args: object, **_kwargs: object) -> None:
-        raise OSError("failed")
+        error = "failed"
+        raise OSError(error)
 
     monkeypatch.setattr("gods_watching.model_selection.importer.os.rename", fail)
     with pytest.raises(ClipPackageImportError):

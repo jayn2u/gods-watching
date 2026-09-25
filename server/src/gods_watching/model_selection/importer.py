@@ -20,11 +20,12 @@ def _fsync_directory(path: Path) -> None:
         os.close(fd)
 
 
-def import_clip_package(source: Path, assets_root: Path) -> ImportedClipManifest:
+def import_clip_package(source: Path, assets_root: Path) -> ImportedClipManifest:  # noqa: C901, PLR0912, PLR0915
     """Verify a local package and atomically register its immutable copy."""
     source = Path(source)
     if not source.is_dir() or source.is_symlink():
-        raise ClipPackageImportError("invalid_package_source")
+        code = "invalid_package_source"
+        raise ClipPackageImportError(code)
     try:
         manifest = parse_source_manifest(source)
         imported = Path(assets_root) / "imported"
@@ -36,18 +37,22 @@ def import_clip_package(source: Path, assets_root: Path) -> ImportedClipManifest
                     continue
                 manifest_file = existing / "manifest.json"
                 if not manifest_file.is_file():
-                    raise ClipPackageImportError("invalid_installed_package")
+                    code = "invalid_installed_package"
+                    raise ClipPackageImportError(code)  # noqa: TRY301
                 try:
                     record = json.loads(manifest_file.read_text())
                 except (OSError, json.JSONDecodeError) as error:
-                    raise ClipPackageImportError("invalid_installed_package") from error
+                    code = "invalid_installed_package"
+                    raise ClipPackageImportError(code) from error
                 if record.get("model_id") == manifest.model_id:
                     if record != manifest.to_dict() or existing.name != manifest.package_sha256:
-                        raise ClipPackageImportError("model_id_conflict")
+                        code = "model_id_conflict"
+                        raise ClipPackageImportError(code)  # noqa: TRY301
                     return manifest
             destination = imported / manifest.package_sha256
             if destination.exists():
-                raise ClipPackageImportError("package_hash_conflict")
+                code = "package_hash_conflict"
+                raise ClipPackageImportError(code)  # noqa: TRY301
             with tempfile.TemporaryDirectory(prefix=".clip-import-", dir=imported) as temporary:
                 staging = Path(temporary)
                 for file in manifest.files:
@@ -68,17 +73,19 @@ def import_clip_package(source: Path, assets_root: Path) -> ImportedClipManifest
                         or size != file.size
                         or checksum.hexdigest() != file.sha256
                     ):
-                        raise ClipPackageImportError("package_hash_mismatch")
+                        code = "package_hash_mismatch"
+                        raise ClipPackageImportError(code)  # noqa: TRY301
                 published = staging / "manifest.json"
                 with published.open("x", encoding="utf-8") as stream:
                     json.dump(manifest.to_dict(), stream, sort_keys=True, separators=(",", ":"))
                     stream.flush()
                     os.fsync(stream.fileno())
                 _fsync_directory(staging)
-                os.rename(staging, destination)
+                os.rename(staging, destination)  # noqa: PTH104
                 _fsync_directory(imported)
-        return manifest
+        return manifest  # noqa: TRY300
     except ClipPackageImportError:
         raise
     except (OSError, ValueError, TypeError) as error:
-        raise ClipPackageImportError("package_import_failed") from error
+        code = "package_import_failed"
+        raise ClipPackageImportError(code) from error
