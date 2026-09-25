@@ -230,3 +230,75 @@ def test_malformed_payload_structure_rejected(
     with pytest.raises(ClipPackageImportError):
         import_clip_package(source, assets)
     assert_empty(assets)
+
+
+def _set_tensors(source: Path, tensors: dict[str, dict[str, object]], payload: bytes) -> None:
+    header = json.dumps(tensors).encode()
+    (source / "model.safetensors").write_bytes(struct.pack("<Q", len(header)) + header + payload)
+    _update_hash(source, "model.safetensors")
+
+
+def test_scalar_logit_scale_is_accepted(tmp_path: Path) -> None:
+    source = package(tmp_path)
+    header = {
+        "text_model.weight": {"dtype": "F32", "shape": [1], "data_offsets": [0, 4]},
+        "vision_model.weight": {"dtype": "F32", "shape": [1], "data_offsets": [4, 8]},
+        "logit_scale": {"dtype": "F32", "shape": [], "data_offsets": [8, 12]},
+    }
+    _set_tensors(source, header, b"\0" * 12)
+    assert import_clip_package(source, tmp_path / "assets").dimension == 512
+
+
+@pytest.mark.parametrize("case", ["wrong_length", "overlap"])
+def test_safetensors_invalid_tensor_ranges(tmp_path: Path, case: str) -> None:
+    source = package(tmp_path)
+    first_end = 8 if case == "wrong_length" else 4
+    second_start = 2 if case == "overlap" else 8
+    header = {
+        "text_model.weight": {"dtype": "F32", "shape": [1], "data_offsets": [0, first_end]},
+        "vision_model.weight": {
+            "dtype": "F32",
+            "shape": [1],
+            "data_offsets": [second_start, second_start + 4],
+        },
+    }
+    _set_tensors(source, header, b"\0" * (6 if case == "overlap" else 12))
+    assets = tmp_path / "assets"
+    with pytest.raises(ClipPackageImportError) as exc:
+        import_clip_package(source, assets)
+    assert exc.value.code == "invalid_safetensors"
+    assert_empty(assets)
+
+
+def test_added_token_object_is_accepted(tmp_path: Path) -> None:
+    source = package(tmp_path)
+    (source / "special_tokens_map.json").write_text(
+        json.dumps(
+            {
+                "unk_token": {
+                    "content": "<|endoftext|>",
+                    "single_word": False,
+                    "lstrip": False,
+                    "rstrip": False,
+                    "normalized": True,
+                    "special": True,
+                }
+            }
+        )
+    )
+    _update_hash(source, "special_tokens_map.json")
+    assert import_clip_package(source, tmp_path / "assets").dimension == 512
+
+
+@pytest.mark.parametrize(
+    "token", [{"content": ""}, {"content": "x", "lstrip": "false"}, {"unknown": "x"}]
+)
+def test_bad_added_token_object_rejected(tmp_path: Path, token: dict[str, object]) -> None:
+    source = package(tmp_path)
+    (source / "special_tokens_map.json").write_text(json.dumps({"unk_token": token}))
+    _update_hash(source, "special_tokens_map.json")
+    assets = tmp_path / "assets"
+    with pytest.raises(ClipPackageImportError) as exc:
+        import_clip_package(source, assets)
+    assert exc.value.code == "unsupported_clip_processor"
+    assert_empty(assets)

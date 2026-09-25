@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import stat
 import struct
@@ -100,7 +101,7 @@ def _require_regular(source: Path, path: Path) -> None:
         raise ClipPackageImportError(code) from error
 
 
-def _validate_safetensors(path: Path) -> None:
+def _validate_safetensors(path: Path) -> None:  # noqa: C901
     """Check the local container layout and presence of both encoder namespaces."""
     try:
         with path.open("rb") as stream:
@@ -119,6 +120,7 @@ def _validate_safetensors(path: Path) -> None:
         ):
             code = "invalid_safetensors"
             raise ClipPackageImportError(code)
+        spans: list[tuple[int, int]] = []
         for value in tensors.values():
             if not isinstance(value, dict) or set(value) != {"dtype", "shape", "data_offsets"}:
                 code = "invalid_safetensors"
@@ -128,7 +130,6 @@ def _validate_safetensors(path: Path) -> None:
             if (
                 value["dtype"] not in {"F16", "F32", "BF16"}
                 or not isinstance(shape, list)
-                or not shape
                 or any(type(d) is not int or d < 1 for d in shape)
                 or not isinstance(offsets, list)
                 or len(offsets) != PAIR_SIZE
@@ -137,6 +138,20 @@ def _validate_safetensors(path: Path) -> None:
             ):
                 code = "invalid_safetensors"
                 raise ClipPackageImportError(code)
+            bytes_per_element = {"F16": 2, "BF16": 2, "F32": 4}[value["dtype"]]
+            if offsets[1] - offsets[0] != math.prod(shape) * bytes_per_element:
+                code = "invalid_safetensors"
+                raise ClipPackageImportError(code)
+            spans.append((offsets[0], offsets[1]))
+        position = 0
+        for start, end in sorted(spans):
+            if start != position:
+                code = "invalid_safetensors"
+                raise ClipPackageImportError(code)
+            position = end
+        if position != payload_size:
+            code = "invalid_safetensors"
+            raise ClipPackageImportError(code)
     except (
         OSError,
         ValueError,
@@ -156,7 +171,25 @@ def _validate_support_files(source: Path, report_name: str) -> None:
         code = "unsupported_clip_processor"
         raise ClipPackageImportError(code)
     tokens = _read_json(source / "special_tokens_map.json")
-    if not isinstance(tokens.get("unk_token"), str) or not tokens["unk_token"]:
+    unknown_token = tokens.get("unk_token")
+    if isinstance(unknown_token, str):
+        valid_token = bool(unknown_token)
+    elif isinstance(unknown_token, dict):
+        allowed = {"content", "single_word", "lstrip", "rstrip", "normalized", "special", "__type"}
+        valid_token = (
+            set(unknown_token) <= allowed
+            and isinstance(unknown_token.get("content"), str)
+            and bool(unknown_token["content"])
+            and all(
+                type(value) is bool
+                for key, value in unknown_token.items()
+                if key not in {"content", "__type"}
+            )
+            and unknown_token.get("__type", "AddedToken") == "AddedToken"
+        )
+    else:
+        valid_token = False
+    if not valid_token:
         code = "unsupported_clip_processor"
         raise ClipPackageImportError(code)
     vocab = _read_json(source / "vocab.json")
