@@ -29,6 +29,7 @@ class QualityPolicy:
     cuhk_dataset_sha256: str
     cuhk_protocol: str
     cuhk_evaluation_code_revision: str
+    cuhk_metric_definition: str
 
     @classmethod
     def parse(cls, raw: object) -> QualityPolicy | None:
@@ -165,6 +166,13 @@ def assess_quality(
             return QualityStatus(False, "CUHK report incomplete")
     if report["source_checkpoint"] != policy.baseline_model_id:
         return QualityStatus(False, "CUHK source checkpoint mismatch")
+    if report.get("source_checkpoint_revision") != policy.baseline_revision:
+        return QualityStatus(False, "CUHK source checkpoint revision mismatch")
+    if report.get("metric_definition") != policy.cuhk_metric_definition:
+        return QualityStatus(False, "CUHK metric definition mismatch")
+    weight = next((item for item in manifest.files if item.path == "model.safetensors"), None)
+    if weight is None or report.get("candidate_weights_sha256") != weight.sha256:
+        return QualityStatus(False, "CUHK candidate weights mismatch")
     baseline, candidate = report.get("baseline_score"), report.get("candidate_score")
     if any(
         type(score) not in (int, float) or not math.isfinite(score)

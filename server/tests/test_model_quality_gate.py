@@ -36,6 +36,8 @@ def _fixture() -> tuple[ImportedClipManifest, QualityEvidence, QualityPolicy]:
         "dataset_sha256": "a" * 64,
         "protocol": "identity-disjoint-v1",
         "source_checkpoint": DEFAULT_CLIP_MODEL.model_id,
+        "source_checkpoint_revision": DEFAULT_CLIP_MODEL.revision,
+        "candidate_weights_sha256": "f" * 64,
         "evaluation_code_revision": "cuhk-eval-v1",
         "metric_definition": "Recall@1",
         "baseline_score": 0.5,
@@ -52,6 +54,7 @@ def _fixture() -> tuple[ImportedClipManifest, QualityEvidence, QualityPolicy]:
             ImportedFile(
                 "cuhk.json", len(report_json), hashlib.sha256(report_json.encode()).hexdigest()
             ),
+            ImportedFile("model.safetensors", 1, "f" * 64),
         ),
         package_sha256="b" * 64,
         cuhk_report="cuhk.json",
@@ -64,6 +67,7 @@ def _fixture() -> tuple[ImportedClipManifest, QualityEvidence, QualityPolicy]:
         cuhk_dataset_sha256="a" * 64,
         cuhk_protocol="identity-disjoint-v1",
         cuhk_evaluation_code_revision="cuhk-eval-v1",
+        cuhk_metric_definition="Recall@1",
     )
     evidence = QualityEvidence(
         package_sha256=manifest.package_sha256,
@@ -83,6 +87,27 @@ def _fixture() -> tuple[ImportedClipManifest, QualityEvidence, QualityPolicy]:
 
 def test_complete_evidence_passes() -> None:
     assert assess_quality(*_fixture()).passed
+
+
+@pytest.mark.parametrize(
+    "field", ["candidate_weights_sha256", "metric_definition", "source_checkpoint_revision"]
+)
+def test_cuhk_report_candidate_and_protocol_binding(field: str) -> None:
+    manifest, evidence, policy = _fixture()
+    report = json.loads(evidence.cuhk_report_json)
+    report[field] = "other"
+    report_json = json.dumps(report)
+    evidence = replace(evidence, cuhk_report_json=report_json)
+    manifest = replace(
+        manifest,
+        files=(
+            ImportedFile(
+                "cuhk.json", len(report_json), hashlib.sha256(report_json.encode()).hexdigest()
+            ),
+            manifest.files[1],
+        ),
+    )
+    assert not assess_quality(manifest, evidence, policy).passed
 
 
 @pytest.mark.parametrize(

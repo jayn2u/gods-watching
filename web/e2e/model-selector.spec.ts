@@ -24,7 +24,7 @@ function catalog(
         display_name: "OpenAI CLIP ViT-B/16",
         revision: "fixture-revision",
         quality_passed: true,
-        quality_reason: null,
+        quality_reason: null as string | null,
         dimension: 512,
         prepared: true,
         reason: null,
@@ -34,7 +34,7 @@ function catalog(
         display_name: "OpenAI CLIP ViT-B/32",
         revision: "fixture-revision",
         quality_passed: true,
-        quality_reason: null,
+        quality_reason: null as string | null,
         dimension: 512,
         prepared: false,
         reason: "Model assets are not prepared.",
@@ -44,7 +44,7 @@ function catalog(
         display_name: "OpenAI CLIP ViT-L/14",
         revision: "fixture-revision",
         quality_passed: true,
-        quality_reason: null,
+        quality_reason: null as string | null,
         dimension: 768,
         prepared: true,
         reason: null,
@@ -125,6 +125,36 @@ async function openSettings(page: Page): Promise<void> {
 }
 
 test.describe("model selector", () => {
+  test("accepts a preflight response slower than the polling interval", async ({ page }) => {
+    await installAuthenticatedShell(page)
+    let requests = 0
+    await page.route("**/api/settings/models/preflight?*", async (route) => {
+      requests += 1
+      await new Promise((resolve) => setTimeout(resolve, 6_000))
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          target_model_id: L14,
+          retained_count: 40,
+          estimated_missing_count: 0,
+          measured_crops_per_second: 10,
+          measured_fixed_seconds: 20,
+          estimated_seconds: 24,
+          max_seconds: 900,
+          eligible: true,
+          reason: null,
+        }),
+      })
+    })
+    await page.route(/\/api\/settings\/models(?:\?.*)?$/, (route) =>
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog()) }),
+    )
+    await openSettings(page)
+    await page.locator(`input[value="${L14}"]`).check()
+    await expect(page.locator(".model-preflight")).toContainText("24", { timeout: 9_000 })
+    expect(requests).toBe(1)
+  })
+
   test("warns before applying, polls durable progress, and reports skipped crops", async ({
     page,
   }) => {
@@ -266,8 +296,10 @@ test.describe("model selector", () => {
 test("quality-blocked package shows reason and cannot apply", async ({ page }) => {
   await installAuthenticatedShell(page)
   const blocked = catalog()
-  blocked.models[2].quality_passed = false
-  blocked.models[2].quality_reason = "product quality evidence missing"
+  const blockedModel = blocked.models[2]
+  if (blockedModel === undefined) throw new Error("missing test model")
+  blockedModel.quality_passed = false
+  blockedModel.quality_reason = "product quality evidence missing"
   await page.route(/\/api\/settings\/models$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(blocked) })
   })

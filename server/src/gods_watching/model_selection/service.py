@@ -46,7 +46,7 @@ from gods_watching.model_selection.preflight import (
     SwitchPreflight,
     estimate_switch,
     measured_rehearsal,
-    scan_retained,
+    scan_retained_snapshot,
 )
 from gods_watching.model_selection.quality import (
     QualityStatus,
@@ -208,13 +208,17 @@ class ModelSelectionService:
         if package is None:
             raise ModelNotPreparedError(model_id, code="unknown_model")
         if self.preflight_crop_store is None or self.preflight_assets_root is None:
-            return estimate_switch(
-                0, None, 0, target_model_id=package.model_id
-            )
-        retained, missing = await scan_retained(session, self.preflight_crop_store)
-        rehearsal = measured_rehearsal(self.preflight_assets_root, package)
+            return estimate_switch(0, None, 0, target_model_id=package.model_id)
+        retained, missing, corpus_sha256 = await scan_retained_snapshot(
+            session, self.preflight_crop_store
+        )
+        rehearsal = measured_rehearsal(
+            self.preflight_assets_root, package, corpus_sha256=corpus_sha256
+        )
         return estimate_switch(
-            retained, rehearsal[0] if rehearsal else None, missing,
+            retained,
+            rehearsal[0] if rehearsal else None,
+            missing,
             target_model_id=package.model_id,
             measured_fixed_seconds=rehearsal[1] if rehearsal else None,
         )
@@ -338,7 +342,9 @@ class ModelSelectionService:
             identity = await runtime.load_model(target_package)
             if observer is not None:
                 if (identity.model_id, identity.revision, identity.dimension) != (
-                    target_package.model_id, target_package.revision, target_package.dimension
+                    target_package.model_id,
+                    target_package.revision,
+                    target_package.dimension,
                 ):
                     raise TransitionRecoveryError("loaded runtime identity does not match target")
                 observer.end("runtime_switch")

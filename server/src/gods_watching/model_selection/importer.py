@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -85,7 +86,11 @@ def import_clip_package(source: Path, assets_root: Path) -> ImportedClipManifest
                     os.fsync(stream.fileno())
                 _fsync_directory(staging)
                 os.rename(staging, destination)  # noqa: PTH104
-                _fsync_directory(imported)
+                try:
+                    _fsync_directory(imported)
+                except OSError:
+                    shutil.rmtree(destination)
+                    raise
         return manifest  # noqa: TRY300
     except ClipPackageImportError:
         raise

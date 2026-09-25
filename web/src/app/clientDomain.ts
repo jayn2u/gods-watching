@@ -592,7 +592,11 @@ export function parseSwitchPreflight(value: unknown): SwitchPreflight {
     typeof eligible !== "boolean" ||
     reason === undefined ||
     (eligible &&
-      (rate === null || rate === 0 || fixed === null || estimate === null || estimate > max))
+      (rate === null ||
+        rate === 0 ||
+        fixed === null ||
+        typeof estimate !== "number" ||
+        estimate > max))
   ) {
     throw new Error("model preflight response has an invalid shape")
   }

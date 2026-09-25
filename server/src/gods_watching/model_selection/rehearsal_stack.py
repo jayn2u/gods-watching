@@ -329,7 +329,7 @@ async def _verified_stack(
             "gods_watching",
             "-At",
             "-c",
-            "SELECT crop_object_key FROM appearances",
+            "SELECT crop_object_key FROM appearances WHERE tombstoned_at IS NULL",
         ]
     )
     crop_store = CropObjectStore(crops)

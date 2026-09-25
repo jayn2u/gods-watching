@@ -155,6 +155,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
   const [preflightLoading, setPreflightLoading] = useState(false)
   const confirmationPreflight = useRef<SwitchPreflight | null>(null)
   const preflightGeneration = useRef(0)
+  const preflightInFlight = useRef(new Set<string>())
   const [formError, setFormError] = useState<string | undefined>(undefined)
   const requestGeneration = useRef(0)
   const activeController = useRef<AbortController | null>(null)
@@ -243,6 +244,8 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
   }, [])
 
   async function refreshPreflight(modelId: string): Promise<SwitchPreflight | null> {
+    if (preflightInFlight.current.has(modelId)) return null
+    preflightInFlight.current.add(modelId)
     const generation = ++preflightGeneration.current
     setPreflightLoading(true)
     try {
@@ -261,6 +264,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
       }
       return null
     } finally {
+      preflightInFlight.current.delete(modelId)
       if (generation === preflightGeneration.current) setPreflightLoading(false)
     }
   }

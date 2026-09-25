@@ -15,7 +15,11 @@ from unittest.mock import patch
 import anyio
 import pytest
 
-from gods_watching.model_selection.preflight import measured_rehearsal, rehearsal_path
+from gods_watching.model_selection.preflight import (
+    measured_rehearsal,
+    rehearsal_path,
+    runtime_code_sha256,
+)
 from gods_watching.model_selection.registry import DEFAULT_CLIP_MODEL, get_clip_model
 from gods_watching.model_selection.rehearsal import (
     InnerInputs,
@@ -85,6 +89,8 @@ def test_observation_rejects_phase_failure_and_wrong_identity() -> None:
 
 def test_inner_payload_cannot_supply_success_flags() -> None:
     observed = _measurement_payload(measurement(), source=SOURCE, target=TARGET, job_id="j")
+    observed["retained_corpus_sha256"] = "a" * 64
+    observed["runtime_code_sha256"] = "b" * 64
     observed["complete"] = False
     observed["detector_resident"] = False
     checked = _verified_inner_payload(observed, SOURCE, TARGET)
@@ -177,6 +183,8 @@ async def test_outer_only_publishes_after_successful_observation(tmp_path: Path)
         yield stack
 
     payload = _measurement_payload(measurement(), source=SOURCE, target=TARGET, job_id="job")
+    payload["retained_corpus_sha256"] = "a" * 64
+    payload["runtime_code_sha256"] = runtime_code_sha256()
     proof = rehearsal_path(assets, TARGET)
     proof.parent.mkdir()
     proof.write_text("stale")
@@ -202,7 +210,7 @@ async def test_outer_only_publishes_after_successful_observation(tmp_path: Path)
         assert record["measured_seconds"] == 1.0
         assert record["container_id"] == "a" * 64
         assert record["database_dump_sha256"]
-        assert measured_rehearsal(assets, TARGET) == (16.0, 5.0)
+        assert measured_rehearsal(assets, TARGET, corpus_sha256="a" * 64) == (16.0, 5.0)
         assert "sha256:app" in good.commands[1]
         assert "app:local" not in good.commands[1]
         assert "--network" in good.commands[1]

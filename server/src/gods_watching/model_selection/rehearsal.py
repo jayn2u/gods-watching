@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,7 +20,13 @@ from cryptography.fernet import Fernet
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import func, select
 
-from gods_watching.model_selection.preflight import MIN_SAMPLE_COUNT, rehearsal_path, scan_retained
+from gods_watching.model_selection.preflight import (
+    MIN_SAMPLE_COUNT,
+    rehearsal_path,
+    retained_corpus_sha256,
+    runtime_code_sha256,
+    scan_retained,
+)
 from gods_watching.model_selection.registry import ClipModelPackage, load_clip_registry
 from gods_watching.model_selection.rehearsal_stack import (
     CommandRunner,
@@ -198,9 +205,13 @@ async def run_inner(inputs: InnerInputs) -> dict[str, object]:
     repository = TransitionRepository()
     runtime = ClipRuntimeManager(inputs.triton_url)
     payload: dict[str, object] | None = None
+    corpus_sha256: str | None = None
     try:
         async with coordinator.worker_ownership():
             async with database.transaction() as session:
+                corpus_sha256 = await retained_corpus_sha256(session, crop_store)
+                if corpus_sha256 is None:
+                    raise RehearsalError("retained_corpus_unavailable")
                 job_id = await _queue_verified_job(
                     repository, session, crop_store, source=source, target=target
                 )
@@ -262,6 +273,11 @@ async def run_inner(inputs: InnerInputs) -> dict[str, object]:
                         raise RehearsalError("target_triton_mismatch")
         if payload is None:
             raise RehearsalError("observation_missing")
+        code_sha256 = runtime_code_sha256()
+        if corpus_sha256 is None or code_sha256 is None:
+            raise RehearsalError("proof_binding_unavailable")
+        payload["retained_corpus_sha256"] = corpus_sha256
+        payload["runtime_code_sha256"] = code_sha256
         _ = inputs.output.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
         return payload
     finally:
@@ -300,6 +316,8 @@ class InnerEvidence(BaseModel):
     sample_count: int
     measured_seconds: float
     measured_fixed_seconds: float
+    retained_corpus_sha256: str
+    runtime_code_sha256: str
 
 
 def _verified_inner_payload(
@@ -335,6 +353,11 @@ def _verified_inner_payload(
         or evidence.measured_fixed_seconds != verified["measured_fixed_seconds"]
     ):
         raise RehearsalError("inner_timing_mismatch")
+    for digest in (evidence.retained_corpus_sha256, evidence.runtime_code_sha256):
+        if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise RehearsalError("inner_binding_invalid")
+    verified["retained_corpus_sha256"] = evidence.retained_corpus_sha256
+    verified["runtime_code_sha256"] = evidence.runtime_code_sha256
     return verified
 
 
@@ -566,6 +589,8 @@ async def rehearse_switch(
                 "database_system_id": stack.database_system_id,
                 "database_oid": stack.database_oid,
                 "app_image_id": app_image_id,
+                "retained_corpus_sha256": measurement["retained_corpus_sha256"],
+                "runtime_code_sha256": measurement["runtime_code_sha256"],
                 "database_dump_sha256": dump_sha256,
                 "crop_snapshot_sha256": crop_sha256,
                 "job_id": measurement["job_id"],

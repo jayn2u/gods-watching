@@ -1,6 +1,6 @@
 """Measured duration estimate for a manual model transition."""
 
-# ruff: noqa: TC001, TC002, TC003, TRY003, EM101
+# ruff: noqa: TC001, TC002, TRY003, EM101
 
 from __future__ import annotations
 
@@ -25,6 +25,81 @@ from gods_watching.storage.models import Appearance
 MAX_SWITCH_SECONDS: Final[int] = 900
 MIN_SAMPLE_COUNT: Final[int] = 16
 MEASUREMENT_MAX_AGE: Final = timedelta(hours=24)
+RUNTIME_SOURCE_FILES: Final = (
+    "preflight.py",
+    "service.py",
+    "rehearsal.py",
+    "repository.py",
+    "coordinator.py",
+    "transition_observer.py",
+    "rehearsal_stack.py",
+)
+
+
+def runtime_code_sha256() -> str | None:
+    """Fingerprint installed model-transition runtime sources in a fixed order."""
+    digest = hashlib.sha256()
+    try:
+        for name in RUNTIME_SOURCE_FILES:
+            data = (Path(__file__).parent / name).read_bytes()
+            digest.update(name.encode("ascii") + b"\0" + len(data).to_bytes(8, "big") + data)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+async def retained_corpus_sha256(session: AsyncSession, crop_store: CropObjectStore) -> str | None:
+    """Bind proof to the ordered live retained rows and their exact crop bytes."""
+    digest = hashlib.sha256()
+    try:
+        rows = await session.stream(
+            select(Appearance.id, Appearance.crop_object_key)
+            .where(Appearance.tombstoned_at.is_(None))
+            .order_by(Appearance.id)
+        )
+        async for batch in rows.partitions(128):
+            for appearance_id, key in batch:
+                payload = await asyncio.to_thread(crop_store.read, key)
+                identity = f"{appearance_id}\0{key}".encode()
+                digest.update(len(identity).to_bytes(8, "big") + identity)
+                digest.update(len(payload).to_bytes(8, "big") + payload)
+    except (OSError, ValueError, TypeError):
+        return None
+    return digest.hexdigest()
+
+
+async def scan_retained_snapshot(
+    session: AsyncSession, crop_store: CropObjectStore
+) -> tuple[int, int, str | None]:
+    """Count, validate, and fingerprint the same ordered retained corpus pass."""
+    digest = hashlib.sha256()
+    count = missing = 0
+    try:
+        rows = await session.stream(
+            select(Appearance.id, Appearance.crop_object_key)
+            .where(Appearance.tombstoned_at.is_(None))
+            .order_by(Appearance.id)
+        )
+        async for batch in rows.partitions(128):
+            for appearance_id, key in batch:
+                count += 1
+                identity = f"{appearance_id}\0{key}".encode()
+                digest.update(len(identity).to_bytes(8, "big") + identity)
+                try:
+                    payload = await asyncio.to_thread(crop_store.read, key)
+                except (FileNotFoundError, ValueError):
+                    missing += 1
+                    digest.update(b"missing\0")
+                    continue
+                digest.update(len(payload).to_bytes(8, "big") + payload)
+                try:
+                    with Image.open(BytesIO(payload)) as image:
+                        image.load()
+                except (OSError, ValueError, UnidentifiedImageError):
+                    missing += 1
+    except (OSError, ValueError, TypeError):
+        return count, missing, None
+    return count, missing, digest.hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +185,11 @@ def rehearsal_path(assets_root: Path, package: ClipModelPackage) -> Path:
 
 
 def measured_rehearsal(
-    assets_root: Path, package: ClipModelPackage, *, now: datetime | None = None
+    assets_root: Path,
+    package: ClipModelPackage,
+    *,
+    corpus_sha256: str | None = None,
+    now: datetime | None = None,
 ) -> tuple[float, float] | None:
     """Accept only a fresh full-path proof on the exact deployment GPU UUID."""
     try:
@@ -125,8 +204,7 @@ def measured_rehearsal(
         fixed_seconds = record["measured_fixed_seconds"]
         if (
             record["kind"] != "full_transition_rehearsal_v1"
-            or
-            record["model_id"] != package.model_id
+            or record["model_id"] != package.model_id
             or record["revision"] != package.revision
             or record["dimension"] != package.dimension
             or record["device"] != device
@@ -139,6 +217,10 @@ def measured_rehearsal(
             or record["database_staging_measured"] is not True
             or record["activation_measured"] is not True
             or record["pipeline_restart_measured"] is not True
+            or not corpus_sha256
+            or record.get("retained_corpus_sha256") != corpus_sha256
+            or not runtime_code_sha256()
+            or record.get("runtime_code_sha256") != runtime_code_sha256()
             or at.tzinfo is None
             or not timedelta(0) <= elapsed <= MEASUREMENT_MAX_AGE
             or type(count) is not int
@@ -156,9 +238,7 @@ def measured_rehearsal(
         return None
 
 
-async def scan_retained(
-    session: AsyncSession, crop_store: CropObjectStore
-) -> tuple[int, int]:
+async def scan_retained(session: AsyncSession, crop_store: CropObjectStore) -> tuple[int, int]:
     """Count retained appearances and crops that staging will skip."""
     rows = await session.stream_scalars(
         select(Appearance.crop_object_key).where(Appearance.tombstoned_at.is_(None))

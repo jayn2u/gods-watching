@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from gods_watching.model_selection import importer
 from gods_watching.model_selection.importer import ClipPackageImportError, import_clip_package
 
 
@@ -17,8 +18,22 @@ def package(tmp_path: Path) -> Path:
             "model_type": "clip",
             "architectures": ["CLIPModel"],
             "projection_dim": 512,
-            "text_config": {"hidden_size": 512},
-            "vision_config": {"hidden_size": 768, "patch_size": 16},
+            "text_config": {
+                "hidden_size": 512,
+                "intermediate_size": 2048,
+                "num_hidden_layers": 12,
+                "num_attention_heads": 8,
+                "vocab_size": 49408,
+                "max_position_embeddings": 77,
+            },
+            "vision_config": {
+                "hidden_size": 768,
+                "intermediate_size": 3072,
+                "num_hidden_layers": 12,
+                "num_attention_heads": 12,
+                "image_size": 224,
+                "patch_size": 16,
+            },
         },
         "preprocessor_config.json": {"do_resize": True, "size": 224},
         "tokenizer_config.json": {"tokenizer_class": "CLIPTokenizer"},
@@ -28,6 +43,8 @@ def package(tmp_path: Path) -> Path:
             "dataset_split": "test",
             "protocol": "identity_disjoint",
             "source_checkpoint": "openai/clip-vit-base-patch16",
+            "source_checkpoint_revision": "pinned-base-revision",
+            "candidate_weights_sha256": "placeholder",
             "evaluation_code_revision": "abc123",
             "metric_definition": "Recall@1",
             "baseline_score": 0.4,
@@ -52,6 +69,11 @@ def package(tmp_path: Path) -> Path:
         }
     ).encode()
     (source / "model.safetensors").write_bytes(struct.pack("<Q", len(header)) + header + b"\0" * 8)
+    report = json.loads((source / "cuhk-report.json").read_text())
+    report["candidate_weights_sha256"] = hashlib.sha256(
+        (source / "model.safetensors").read_bytes()
+    ).hexdigest()
+    (source / "cuhk-report.json").write_text(json.dumps(report))
     files = []
     for path in sorted(source.iterdir()):
         data = path.read_bytes()
@@ -91,17 +113,80 @@ def test_import_and_reimport(tmp_path: Path) -> None:
     assert first.cuhk_report == "cuhk-report.json"
 
 
+def test_builtin_model_id_cannot_be_published(tmp_path: Path) -> None:
+    source = package(tmp_path)
+    metadata = json.loads((source / "package.json").read_text())
+    metadata["model_id"] = "openai/clip-vit-base-patch16"
+    (source / "package.json").write_text(json.dumps(metadata))
+    assets = tmp_path / "assets"
+    with pytest.raises(ClipPackageImportError, match="reserved_model_id"):
+        import_clip_package(source, assets)
+    assert_empty(assets)
+
+
+def test_report_for_different_weights_cannot_be_imported(tmp_path: Path) -> None:
+    source = package(tmp_path)
+    report = json.loads((source / "cuhk-report.json").read_text())
+    report["candidate_weights_sha256"] = "a" * 64
+    (source / "cuhk-report.json").write_text(json.dumps(report))
+    _update_hash(source, "cuhk-report.json")
+    assets = tmp_path / "assets"
+    with pytest.raises(ClipPackageImportError, match="cuhk_candidate_weights_mismatch"):
+        import_clip_package(source, assets)
+    assert_empty(assets)
+
+
+def test_post_rename_fsync_failure_removes_published_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = package(tmp_path)
+    assets = tmp_path / "assets"
+    original = importer._fsync_directory  # noqa: SLF001
+
+    def fail_imported(path: Path) -> None:
+        if path == assets / "imported":
+            raise OSError
+        original(path)
+
+    monkeypatch.setattr(importer, "_fsync_directory", fail_imported)
+    with pytest.raises(ClipPackageImportError, match="package_import_failed"):
+        import_clip_package(source, assets)
+    assert_empty(assets)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [
+        ("vision_config", "hidden_size", 1024),
+        ("vision_config", "num_hidden_layers", 11),
+        ("vision_config", "num_attention_heads", 11),
+        ("vision_config", "image_size", 256),
+        ("text_config", "hidden_size", 768),
+        ("text_config", "num_hidden_layers", 11),
+        ("text_config", "num_attention_heads", 7),
+        ("text_config", "vocab_size", 1),
+        ("text_config", "max_position_embeddings", 76),
+    ],
+)
+def test_nonbaseline_architecture_rejected(
+    tmp_path: Path, section: str, field: str, value: int
+) -> None:
+    source = package(tmp_path)
+    config = json.loads((source / "config.json").read_text())
+    config[section][field] = value
+    (source / "config.json").write_text(json.dumps(config))
+    _update_hash(source, "config.json")
+    with pytest.raises(ClipPackageImportError, match="unsupported_clip_architecture"):
+        import_clip_package(source, tmp_path / "assets")
+
+
 def test_changed_bytes_same_id_rejected(tmp_path: Path) -> None:
     source = package(tmp_path)
     assets = tmp_path / "assets"
     import_clip_package(source, assets)
     changed = (source / "model.safetensors").read_bytes()[:-1] + b"1"
     (source / "model.safetensors").write_bytes(changed)
-    data = json.loads((source / "package.json").read_text())
-    weight = next(f for f in data["files"] if f["path"] == "model.safetensors")
-    weight["size"] = len(changed)
-    weight["sha256"] = hashlib.sha256(changed).hexdigest()
-    (source / "package.json").write_text(json.dumps(data))
+    _update_hash(source, "model.safetensors")
     with pytest.raises(ClipPackageImportError) as exc:
         import_clip_package(source, assets)
     assert exc.value.code == "model_id_conflict"
@@ -155,6 +240,13 @@ def test_failed_publish_leaves_no_partial_package(
 
 
 def _update_hash(source: Path, filename: str) -> None:
+    if filename == "model.safetensors":
+        report = json.loads((source / "cuhk-report.json").read_text())
+        report["candidate_weights_sha256"] = hashlib.sha256(
+            (source / filename).read_bytes()
+        ).hexdigest()
+        (source / "cuhk-report.json").write_text(json.dumps(report))
+        _update_hash(source, "cuhk-report.json")
     data = json.loads((source / "package.json").read_text())
     payload = (source / filename).read_bytes()
     entry = next(item for item in data["files"] if item["path"] == filename)

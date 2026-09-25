@@ -12,8 +12,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .registry import BUILTIN_CLIP_MODELS
+
 CLIP_DIMENSION = 512
 CLIP_PATCH_SIZE = 16
+BASE_VISION_CONFIG = {
+    "hidden_size": 768,
+    "intermediate_size": 3072,
+    "num_hidden_layers": 12,
+    "num_attention_heads": 12,
+    "image_size": 224,
+    "patch_size": 16,
+}
+BASE_TEXT_CONFIG = {
+    "hidden_size": 512,
+    "intermediate_size": 2048,
+    "num_hidden_layers": 12,
+    "num_attention_heads": 8,
+    "vocab_size": 49408,
+    "max_position_embeddings": 77,
+}
 MIN_SAFETENSORS_HEADER_SIZE = 2
 PAIR_SIZE = 2
 
@@ -164,7 +182,7 @@ def _validate_safetensors(path: Path) -> None:  # noqa: C901
         raise ClipPackageImportError(code) from error
 
 
-def _validate_support_files(source: Path, report_name: str) -> None:
+def _validate_support_files(source: Path, report_name: str) -> None:  # noqa: C901
     """Check local processor, tokenizer, and provenance document shapes."""
     processor = _read_json(source / "preprocessor_config.json")
     if processor.get("do_resize") is not True or not isinstance(processor.get("size"), (int, dict)):
@@ -215,6 +233,8 @@ def _validate_support_files(source: Path, report_name: str) -> None:
         "dataset_split",
         "protocol",
         "source_checkpoint",
+        "source_checkpoint_revision",
+        "candidate_weights_sha256",
         "evaluation_code_revision",
         "metric_definition",
     )
@@ -224,6 +244,16 @@ def _validate_support_files(source: Path, report_name: str) -> None:
         type(report.get(k)) not in (float, int) for k in ("baseline_score", "candidate_score")
     ):
         code = "invalid_cuhk_report"
+        raise ClipPackageImportError(code)
+    if not re.fullmatch(r"[0-9a-f]{64}", report["candidate_weights_sha256"]):
+        code = "invalid_cuhk_report"
+        raise ClipPackageImportError(code)
+    digest = hashlib.sha256()
+    with (source / "model.safetensors").open("rb") as weights:
+        for chunk in iter(lambda: weights.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if report["candidate_weights_sha256"] != digest.hexdigest():
+        code = "cuhk_candidate_weights_mismatch"
         raise ClipPackageImportError(code)
 
 
@@ -276,6 +306,9 @@ def parse_source_manifest(  # noqa: C901, PLR0912, PLR0915
         "model_id"
     ].split("/"):
         code = "invalid_model_id"
+        raise ClipPackageImportError(code)
+    if meta["model_id"] in {model.model_id for model in BUILTIN_CLIP_MODELS}:
+        code = "reserved_model_id"
         raise ClipPackageImportError(code)
     if (
         meta["base_model_id"] != "openai/clip-vit-base-patch16"
@@ -345,6 +378,10 @@ def parse_source_manifest(  # noqa: C901, PLR0912, PLR0915
         or config.get("architectures") != ["CLIPModel"]
         or config.get("projection_dim") != CLIP_DIMENSION
         or config.get("vision_config", {}).get("patch_size") != CLIP_PATCH_SIZE
+        or any(
+            config["vision_config"].get(key) != value for key, value in BASE_VISION_CONFIG.items()
+        )
+        or any(config["text_config"].get(key) != value for key, value in BASE_TEXT_CONFIG.items())
         or "auto_map" in config
         or "trust_remote_code" in config
     ):

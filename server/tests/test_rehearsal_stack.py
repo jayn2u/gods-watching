@@ -260,6 +260,10 @@ def test_internal_stack_tears_down(tmp_path: Path) -> None:
     assert runner.calls[-3][1:3] == ["rm", "--force"]
     assert runner.calls[-2][1:3] == ["rm", "--force"]
     assert runner.calls[-1][1:3] == ["network", "rm"]
+    assert any(
+        "SELECT crop_object_key FROM appearances WHERE tombstoned_at IS NULL" in call
+        for command in runner.calls for call in command
+    )
 
 
 def test_failed_restore_tears_down(tmp_path: Path) -> None:
