@@ -65,6 +65,16 @@ class RehearsalStack:
     database_oid: str
 
 
+class DockerCommandError(RehearsalStackError):
+    """Preserve Docker stderr privately for precise cleanup classification."""
+
+    def __init__(self, *, stderr: str, returncode: int) -> None:
+        """Keep details for cleanup without exposing Docker stderr as public text."""
+        self.stderr = stderr.strip()
+        self.returncode = returncode
+        super().__init__("docker_command_failed")
+
+
 class CommandRunner(Protocol):
     """Injectable subprocess boundary for Docker operations."""
 
@@ -96,7 +106,7 @@ class DockerRunner:
             raise
         _ = check
         if result.returncode:
-            raise RehearsalStackError("docker_command_failed")
+            raise DockerCommandError(stderr=result.stderr, returncode=result.returncode)
         return result.stdout.strip()
 
 
@@ -357,6 +367,20 @@ async def _verified_stack(
     )
 
 
+def _already_absent(resource: Sequence[str], error: DockerCommandError) -> bool:
+    """Only Docker's explicit missing response for this resource is idempotent."""
+    lines = error.stderr.lower().splitlines()
+    if not lines or any(re.fullmatch(r"exit status [0-9]+", line) is None for line in lines[1:]):
+        return False
+    message = lines[0].removeprefix("error response from daemon: ")
+    name = resource[-1].lower()
+    if resource[1:2] == ["rm"]:
+        return message == f"no such container: {name}"
+    if resource[1:3] == ["network", "rm"]:
+        return message in (f"no such network: {name}", f"network {name} not found")
+    return False
+
+
 @asynccontextmanager
 async def isolated_rehearsal_stack(
     inputs: RehearsalInputs,
@@ -458,6 +482,9 @@ async def isolated_rehearsal_stack(
                 ):
                     try:
                         await command.run(resource)
+                    except DockerCommandError as error:
+                        if not _already_absent(resource, error):
+                            failures.append(error)
                     except (OSError, RehearsalStackError, subprocess.TimeoutExpired) as error:
                         failures.append(error)
                 if failures:

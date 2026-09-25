@@ -12,6 +12,7 @@ import pytest
 from gods_watching.model_selection.assets import IDENTITY_MARKER_NAME
 from gods_watching.model_selection.registry import load_clip_registry
 from gods_watching.model_selection.rehearsal_stack import (
+    DockerCommandError,
     RehearsalInputs,
     RehearsalStackError,
     isolated_rehearsal_stack,
@@ -39,6 +40,7 @@ class FakeDocker:
         gpu: str = GPU,
         internal: bool = True,
         fail_pg_run: bool = False,
+        fail_network_create: bool = False,
         gateway_mode: str = "isolated",
         ipv6: bool = False,
         fail_cleanup: bool = False,
@@ -51,24 +53,45 @@ class FakeDocker:
         self.gpu = gpu
         self.internal = internal
         self.fail_pg_run = fail_pg_run
+        self.fail_network_create = fail_network_create
+        self.created: set[str] = set()
         self.gateway_mode = gateway_mode
         self.ipv6 = ipv6
         self.fail_cleanup = fail_cleanup
         self.host_gateway = host_gateway
         self.image_id = image_id
 
-    async def run(self, argv: Sequence[str], *, check: bool = True) -> str:  # noqa: C901, PLR0911
+    async def run(self, argv: Sequence[str], *, check: bool = True) -> str:  # noqa: C901, PLR0911, PLR0912
         _ = check
         args = list(argv)
         self.calls.append(args)
-        if self.fail_cleanup and args[:3] == ["docker", "rm", "--force"]:
-            raise RehearsalStackError("docker_command_failed")
-        if (
-            args[:2] == ["docker", "run"]
-            and args[-1] == "pgvector/pgvector:0.8.1-pg17"
-            and self.fail_pg_run
-        ):
-            raise RehearsalStackError("docker_command_failed")
+        if args[:3] == ["docker", "network", "create"]:
+            if self.fail_network_create:
+                raise DockerCommandError(stderr="network creation failed", returncode=1)
+            self.created.add(args[-1])
+            return "created"
+        if args[:2] == ["docker", "run"]:
+            if args[-1] == "pgvector/pgvector:0.8.1-pg17" and self.fail_pg_run:
+                raise DockerCommandError(stderr="PostgreSQL start failed", returncode=1)
+            self.created.add(args[args.index("--name") + 1])
+            return "created"
+        if args[:3] == ["docker", "rm", "--force"]:
+            if self.fail_cleanup:
+                raise DockerCommandError(stderr="daemon unavailable", returncode=1)
+            if args[-1] not in self.created:
+                raise DockerCommandError(stderr=f"No such container: {args[-1]}", returncode=1)
+            self.created.remove(args[-1])
+            return "removed"
+        if args[:3] == ["docker", "network", "rm"]:
+            if args[-1] not in self.created:
+                raise DockerCommandError(
+                    stderr=(
+                        f"Error response from daemon: network {args[-1]} not found\nexit status 1"
+                    ),
+                    returncode=1,
+                )
+            self.created.remove(args[-1])
+            return "removed"
         if "pg_restore" in args and self.fail_restore:
             raise RehearsalStackError("docker_command_failed")
         if args[:3] == ["docker", "image", "inspect"]:
@@ -353,3 +376,19 @@ def test_triton_image_mismatch_refused_before_provisioning(tmp_path: Path) -> No
     with pytest.raises(RehearsalStackError, match="triton_image_mismatch"):
         asyncio.run(_enter(_inputs(tmp_path), runner))
     assert not any(call[:3] == ["docker", "network", "create"] for call in runner.calls)
+
+
+def test_failed_network_create_preserves_original_error(tmp_path: Path) -> None:
+    runner = FakeDocker(fail_network_create=True)
+    with pytest.raises(DockerCommandError, match="docker_command_failed") as captured:
+        asyncio.run(_enter(_inputs(tmp_path), runner))
+    assert captured.value.stderr == "network creation failed"
+    assert runner.created == set()
+
+
+def test_failed_postgres_start_preserves_original_error(tmp_path: Path) -> None:
+    runner = FakeDocker(fail_pg_run=True)
+    with pytest.raises(DockerCommandError, match="docker_command_failed") as captured:
+        asyncio.run(_enter(_inputs(tmp_path), runner))
+    assert captured.value.stderr == "PostgreSQL start failed"
+    assert runner.created == set()
