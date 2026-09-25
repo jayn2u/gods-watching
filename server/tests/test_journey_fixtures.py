@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+from email.message import Message
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 
@@ -90,6 +92,29 @@ def test_bad_download_hash_leaves_no_partial_destination(tmp_path: Path) -> None
         ensure_fixture_videos(manifest, tmp_path, download=download)
 
     destination = tmp_path / "runtime/assets/fixtures/camera.mp4"
+    assert not destination.exists()
+    assert list(destination.parent.iterdir()) == []
+
+
+def test_download_error_includes_cause_and_leaves_no_partial_file(tmp_path: Path) -> None:
+    """A failed HTTP download reports its cause and removes partial bytes."""
+    manifest = write_manifest(tmp_path, digest=hashlib.sha256(b"expected").hexdigest())
+
+    def fail_download(url: str, target: Path) -> None:
+        _ = target.write_bytes(b"partial fixture bytes")
+        raise HTTPError(
+            url,
+            403,
+            "Forbidden",
+            hdrs=Message(),
+            fp=None,
+        )
+
+    with pytest.raises(FixtureDownloadError) as raised:
+        ensure_fixture_videos(manifest, tmp_path, download=fail_download)
+
+    destination = tmp_path / "runtime/assets/fixtures/camera.mp4"
+    assert "HTTPError: HTTP Error 403: Forbidden" in str(raised.value)
     assert not destination.exists()
     assert list(destination.parent.iterdir()) == []
 

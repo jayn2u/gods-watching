@@ -28,7 +28,7 @@ Do this on the GPU development machine as `jwchoi`.
    gh label create needs-triage --color fbca04 --description "Needs human triage"
    ```
 
-5. Trigger one run so the runner checks out the repository, then create `.env` in the runner workspace (`<runner>/_work/gods-watching/gods-watching/.env`) **before** the first `prepare`. `prepare` fills in the generated secrets and keeps these values:
+5. Trigger one run so the runner checks out the repository and installs `.venv`. Then create `.env` in the runner workspace (`<runner>/_work/gods-watching/gods-watching/.env`, mode `0600`) with these values. `prepare` generates secrets only when `.env` does not exist, so you must also add the secrets yourself, using the snippet after this block:
 
    ```dotenv
    COMPOSE_PROJECT_NAME=gw-ci
@@ -46,6 +46,21 @@ Do this on the GPU development machine as `jwchoi`.
    GW_MEDIA_CONTROL_PORT=29997
    GW_MEDIA_WEBRTC_UDP_PORT=18189
    GW_FIXTURE_RTSP_PORT=38554
+   ```
+
+   ```bash
+   ./.venv/bin/python - <<'EOF'
+   import secrets
+   from cryptography.fernet import Fernet
+   with open(".env", "a", encoding="utf-8") as env:
+       env.write("GW_BIND_HOST=0.0.0.0\nGW_PUBLIC_HOST=127.0.0.1\nGW_SECURE_COOKIE=false\n")
+       env.write("GW_OPERATOR_USERNAME=admin\n")
+       env.write(f"GW_CAMERA_CIPHER_KEY={Fernet.generate_key().decode()}\n")
+       for key in ("GW_MEDIA_CONTROL_PASSWORD", "GW_MEDIA_READER_PASSWORD",
+                   "GW_OPERATOR_PASSWORD", "GW_POSTGRES_PASSWORD"):
+           env.write(f"{key}={secrets.token_urlsafe(24)}\n")
+   EOF
+   chmod 600 .env
    ```
 
    Then run `./gods-watching prepare` and `./gods-watching doctor` in that workspace. The workflow checks out with `clean: false`, so this `.env`, the model cache under `runtime/assets/models`, and the fixture videos under `runtime/assets/fixtures` persist between runs.

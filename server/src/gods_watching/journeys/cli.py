@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Final, Protocol, cast
-from urllib.request import HTTPCookieProcessor, build_opener, urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 import typer
 from typer.models import OptionInfo
@@ -149,7 +149,7 @@ def create_journey_services(
         ensure_fixture_videos(
             repository_root / "assets/test-streams.json",
             repository_root,
-            download=_download_fixture,
+            download=download_fixture,
         )
 
     return JourneyServices(
@@ -342,8 +342,18 @@ def _development_project_names(env_path: Path) -> tuple[str, ...]:
     return tuple(name.strip() for name in selected.split(",") if name.strip())
 
 
-def _download_fixture(url: str, destination: Path) -> None:
-    response = cast("HTTPResponse", urlopen(url, timeout=60))  # noqa: S310
+def download_fixture(url: str, destination: Path) -> None:
+    """Download a fixture video to a local destination.
+
+    Args:
+        url: The HTTP URL of the fixture video.
+        destination: The local path where the video will be saved.
+    """
+    request = Request(  # noqa: S310
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) gods-watching-journeys"},
+    )
+    response = cast("HTTPResponse", urlopen(request, timeout=60))  # noqa: S310
     with response, destination.open("wb") as fixture_file:
         while chunk := response.read(1024 * 1024):
             _ = fixture_file.write(chunk)
@@ -386,5 +396,6 @@ __all__ = [
     "close_pr_issues_command",
     "create_github_client",
     "create_journey_services",
+    "download_fixture",
     "run",
 ]

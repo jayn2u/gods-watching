@@ -95,10 +95,10 @@ def _ensure_fixture(
         if actual_hash == expected_hash:
             _ = temporary_path.replace(destination)
             temporary_path = None
-    except (OSError, RuntimeError, ValueError) as error:
+    except Exception as error:
         raise FixtureDownloadError(
             destination,
-            "fixture download or installation failed",
+            f"fixture download or installation failed: {type(error).__name__}: {error}",
         ) from error
     finally:
         if temporary_path is not None:

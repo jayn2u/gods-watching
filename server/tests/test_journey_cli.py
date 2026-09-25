@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, NoReturn, Self, TypeGuard, cast
@@ -24,6 +25,7 @@ from gods_watching.journeys.stack import ComposeJourneyStack
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
+    from urllib.request import Request
 
     from gods_watching.journeys.agents import JourneyExecutor, Judge
     from gods_watching.journeys.pipeline import JourneyStack
@@ -305,6 +307,35 @@ def test_create_journey_services_passes_the_cli_env_file_to_compose(
     assert services.executor.playwright_cli_path == (
         repository_root / "web/node_modules/@playwright/mcp/cli.js"
     )
+
+
+def test_download_fixture_uses_browser_user_agent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The fixture request carries the browser-like User-Agent and streams bytes."""
+    requests: list[Request] = []
+    timeouts: list[float] = []
+
+    def fake_urlopen(request: Request, *, timeout: float) -> BytesIO:
+        requests.append(request)
+        timeouts.append(timeout)
+        return BytesIO(b"fixture bytes")
+
+    monkeypatch.setattr(journey_cli, "urlopen", fake_urlopen)
+    destination = tmp_path / "camera.mp4"
+
+    journey_cli.download_fixture(
+        "https://fixture.example/camera.mp4",
+        destination,
+    )
+
+    assert len(requests) == 1
+    assert requests[0].get_header("User-agent") == (
+        "Mozilla/5.0 (X11; Linux x86_64) gods-watching-journeys"
+    )
+    assert timeouts == [60]
+    assert destination.read_bytes() == b"fixture bytes"
 
 
 def test_product_cli_registers_the_journeys_command() -> None:
