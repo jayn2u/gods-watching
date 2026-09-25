@@ -18,7 +18,12 @@ while true; do
     -i "${FIXTURE_INPUT}" \
     -map 0:v:0 \
     -an \
-    -c:v copy \
+    -c:v libx264 \
+    -preset ultrafast \
+    -tune zerolatency \
+    -bf 0 \
+    -g 60 \
+    -pix_fmt yuv420p \
     -f rtsp \
     -rtsp_transport tcp \
     "${destination}"

@@ -80,15 +80,54 @@ def test_path_escape_is_rejected_before_probe(tmp_path: Path) -> None:
 def test_publisher_command_has_one_session_and_no_seamless_loop() -> None:
     # Given: one validated local input and one local RTSP destination
     source = REPOSITORY_ROOT / "runtime/assets/fixtures/crosswalk.mp4"
+    destination = "rtsp://127.0.0.1:8554/camera-1"
     # When: the publisher command is built
-    command = build_publisher_command(source, "rtsp://127.0.0.1:8554/camera-1")
+    command = build_publisher_command(source, destination)
     # Then: it publishes video-only H.264 over TCP exactly once per process
-    assert command[0] == "/usr/bin/ffmpeg"
-    assert "-rtsp_transport" in command
-    assert command[command.index("-rtsp_transport") + 1] == "tcp"
-    assert "-an" in command
-    assert "-stream_loop" not in command
-    assert command[-1] == "rtsp://127.0.0.1:8554/camera-1"
+    assert command == (
+        "/usr/bin/ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-nostdin",
+        "-re",
+        "-protocol_whitelist",
+        "file",
+        "-i",
+        str(source),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-bf",
+        "0",
+        "-g",
+        "60",
+        "-pix_fmt",
+        "yuv420p",
+        "-f",
+        "rtsp",
+        "-rtsp_transport",
+        "tcp",
+        destination,
+    )
+    assert "copy" not in command
+
+
+def test_fixture_publisher_loop_reencodes_without_b_frames() -> None:
+    # Given: the loop script used by the fixture Compose deployment
+    script_path = REPOSITORY_ROOT / "server/src/gods_watching/fixtures/publish-loop.sh"
+    # When: its FFmpeg command is inspected
+    script = script_path.read_text(encoding="utf-8")
+    # Then: it encodes with libx264 and disables B-frames
+    assert "libx264" in script
+    assert "-bf 0" in script
+    assert "-c:v copy" not in script
 
 
 @pytest.mark.parametrize(
