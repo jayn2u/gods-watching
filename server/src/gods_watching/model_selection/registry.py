@@ -1,5 +1,7 @@
 """Immutable registry of locally prepared CLIP model packages."""
 
+import hashlib
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -181,6 +183,126 @@ def get_clip_model(model_id: str) -> ClipModelPackage:
     return _REGISTRY.require(model_id)
 
 
+def load_clip_registry(assets_root: Path) -> ClipModelRegistry:
+    """Discover installed, content-addressed packages from the shared asset mount."""
+    from .imported_manifest import ClipPackageImportError  # noqa: PLC0415
+
+    imported_root = Path(assets_root) / "imported"
+    packages = list(BUILTIN_CLIP_MODELS)
+    if imported_root.exists():
+        for directory in sorted(imported_root.iterdir()):
+            if directory.name.startswith("."):
+                continue
+            if not directory.is_dir() or directory.is_symlink():
+                code = "invalid_installed_package"
+                raise ClipPackageImportError(code)
+            manifest = _load_installed_manifest(directory)
+            packages.append(
+                ClipModelPackage(
+                    model_id=str(manifest["model_id"]),
+                    revision=str(manifest["revision"]),
+                    snapshot_path=Path("/models/imported") / str(manifest["package_sha256"]),
+                    dimension=int(manifest["dimension"]),
+                    processor="CLIPProcessor",
+                    runtime="transformers",
+                    display_name=str(manifest["display_name"]),
+                )
+            )
+    return ClipModelRegistry(packages)
+
+
+def _load_installed_manifest(directory: Path) -> dict[str, object]:  # noqa: C901, PLR0912
+    """Validate an installed manifest and every byte it binds."""
+    from .imported_manifest import ClipPackageImportError  # noqa: PLC0415
+
+    def invalid() -> None:
+        code = "invalid_installed_package"
+        raise ClipPackageImportError(code)
+
+    try:
+        if (directory / "manifest.json").is_symlink():
+            invalid()
+        value = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or set(value) != {
+            "model_id",
+            "revision",
+            "display_name",
+            "base_model_id",
+            "dimension",
+            "files",
+            "package_sha256",
+            "cuhk_report",
+        }:
+            invalid()
+        digest = value["package_sha256"]
+        if (
+            not isinstance(digest, str)
+            or len(digest) != len(hashlib.sha256().hexdigest())
+            or any(c not in "0123456789abcdef" for c in digest)
+        ):
+            invalid()
+        if directory.name != digest or value["revision"] != digest:
+            invalid()
+        if (
+            value["base_model_id"] != DEFAULT_CLIP_MODEL_ID
+            or value["dimension"] != DEFAULT_CLIP_MODEL.dimension
+        ):
+            invalid()
+        if not all(
+            isinstance(value[k], str) and value[k]
+            for k in ("model_id", "display_name", "cuhk_report")
+        ):
+            invalid()
+        files = value["files"]
+        if not isinstance(files, list) or not files:
+            invalid()
+        names = set()
+        for item in files:
+            if not isinstance(item, dict) or set(item) != {"path", "size", "sha256"}:
+                invalid()
+            name = item["path"]
+            if (
+                not isinstance(name, str)
+                or not name
+                or Path(name).is_absolute()
+                or ".." in Path(name).parts
+                or "\\" in name
+                or name in names
+            ):
+                invalid()
+            names.add(name)
+            target = directory / name
+            if (
+                target.is_symlink()
+                or not target.is_file()
+                or any(
+                    parent.is_symlink()
+                    for parent in target.parents
+                    if parent != directory and directory in parent.parents
+                )
+            ):
+                invalid()
+            checksum = hashlib.sha256()
+            with target.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    checksum.update(chunk)
+            if target.stat().st_size != item["size"] or checksum.hexdigest() != item["sha256"]:
+                invalid()
+        if {str(p.relative_to(directory)) for p in directory.rglob("*") if p.is_file()} != names | {
+            "manifest.json"
+        }:
+            invalid()
+        canonical = json.dumps(
+            sorted(files, key=lambda f: f["path"]), sort_keys=True, separators=(",", ":")
+        ).encode()
+        if hashlib.sha256(canonical).hexdigest() != digest:
+            invalid()
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
+        code = "invalid_installed_package"
+        raise ClipPackageImportError(code) from error
+    return value
+
+
 def _metadata_value_error(code: str) -> ValueError:
     """Build a stable metadata validation error."""
     return ValueError(code)
@@ -197,4 +319,5 @@ __all__ = [
     "ClipModelRegistry",
     "UnknownClipModelError",
     "get_clip_model",
+    "load_clip_registry",
 ]

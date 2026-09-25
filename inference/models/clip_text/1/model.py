@@ -120,14 +120,16 @@ class TritonPythonModel:
             _fail("clip_cuda_unavailable: GPU inference is required")
         self._settings = settings
         self._processor = AutoProcessor.from_pretrained(
-            settings.snapshot_path, local_files_only=True
+            settings.snapshot_path, local_files_only=True, trust_remote_code=False
         )
         if self._processor.__class__.__name__ != settings.processor:
             _fail(
                 f"clip_processor_mismatch: expected {settings.processor}, "
                 f"actual {self._processor.__class__.__name__}"
             )
-        self._model = CLIPModel.from_pretrained(settings.snapshot_path, local_files_only=True)
+        self._model = CLIPModel.from_pretrained(
+            settings.snapshot_path, local_files_only=True, trust_remote_code=False
+        )
         self._model = self._model.to("cuda").eval()
 
     def execute(
@@ -153,9 +155,7 @@ class TritonPythonModel:
                 responses.append(pb_utils.InferenceResponse(output_tensors=[output]))
             except torch.cuda.OutOfMemoryError as error:
                 responses.append(
-                    pb_utils.InferenceResponse(
-                        error=pb_utils.TritonError(f"clip_gpu_oom: {error}")
-                    )
+                    pb_utils.InferenceResponse(error=pb_utils.TritonError(f"clip_gpu_oom: {error}"))
                 )
             except UnicodeError as error:
                 responses.append(
@@ -170,9 +170,7 @@ class TritonPythonModel:
                     else "clip_text_inference_failed"
                 )
                 responses.append(
-                    pb_utils.InferenceResponse(
-                        error=pb_utils.TritonError(f"{code}: {error}")
-                    )
+                    pb_utils.InferenceResponse(error=pb_utils.TritonError(f"{code}: {error}"))
                 )
             except (KeyError, TypeError) as error:
                 responses.append(
@@ -216,15 +214,28 @@ def _validate_snapshot_identity(
     """Validate local checkpoint identity and an optional preparation marker."""
     actual_name = snapshot_config.get("_name_or_path")
     expected_name = Path(settings.model_id).name
+    imported = settings.snapshot_path.parent == Path("/models/imported")
     if (
-        isinstance(actual_name, str)
+        not imported
+        and isinstance(actual_name, str)
         and actual_name.strip()
         and Path(actual_name.rstrip("/")).name != expected_name
     ):
-        _fail(
-            f"clip_model_id_mismatch: expected {settings.model_id}, "
-            f"snapshot {actual_name}"
-        )
+        _fail(f"clip_model_id_mismatch: expected {settings.model_id}, snapshot {actual_name}")
+    if imported:
+        manifest_path = settings.snapshot_path / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            _fail(f"clip_snapshot_identity_invalid: {error}")
+        if (
+            settings.snapshot_path.name != settings.revision
+            or manifest.get("model_id") != settings.model_id
+            or manifest.get("revision") != settings.revision
+            or manifest.get("dimension") != settings.dimension
+        ):
+            _fail("clip_snapshot_identity_mismatch")
+        return
     marker_path = settings.snapshot_path / IDENTITY_MARKER_NAME
     if not marker_path.is_file():
         legacy_default = (

@@ -212,11 +212,19 @@ def prepare_model_assets(paths: PreparationPaths) -> PreparedManifest:
         _build_triton_image(paths, image)
     _materialize_assets(paths, lock, paths.source_image or image)
     validated = validate_model_assets(lock, paths.assets_root)
-    expected_packages = tuple(
+    builtin_packages = tuple(
         package
         for package in registry.packages
         if any(model.model_id == package.model_id for model in lock.models)
     )
+    from gods_watching.model_selection.registry import load_clip_registry  # noqa: PLC0415
+
+    imported_packages = tuple(
+        package
+        for package in load_clip_registry(paths.assets_root).packages
+        if package.snapshot_path.parent == Path("/models/imported")
+    )
+    expected_packages = builtin_packages + imported_packages
     proof_text = run_preparation_command(
         (
             "docker",
@@ -243,7 +251,7 @@ def prepare_model_assets(paths: PreparationPaths) -> PreparedManifest:
         cwd=paths.repository_root,
         name="image inspection",
     )
-    _publish_identity_markers(paths, expected_packages, image)
+    _publish_identity_markers(paths, builtin_packages, image)
     manifest = PreparedManifest(
         schema_version="1",
         lock_sha256=_sha256_small(paths.lock_path),
@@ -612,10 +620,10 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         "    return normalized",
         "for spec in specs:",
         """    processor = AutoProcessor.from_pretrained(
-        spec['path'], local_files_only=True
+        spec['path'], local_files_only=True, trust_remote_code=False
     )""",
         """    clip = CLIPModel.from_pretrained(
-        spec['path'], local_files_only=True
+        spec['path'], local_files_only=True, trust_remote_code=False
     ).to('cuda').eval()""",
         """    image_inputs = {
         key: value.to('cuda')

@@ -97,6 +97,22 @@ class PreparedModelCatalog:
         catalog and doctor command.
         """
         with self._lock:
+            if package.snapshot_path.parts[:3] == ("/", "models", "imported"):
+                from .registry import _load_installed_manifest  # noqa: PLC0415
+
+                try:
+                    manifest = _load_installed_manifest(self._snapshot_path(package))
+                    valid = (
+                        manifest["model_id"] == package.model_id
+                        and manifest["revision"] == package.revision
+                        and manifest["dimension"] == package.dimension
+                    )
+                except ValueError:
+                    valid = False
+                return PreparedModelStatus(
+                    prepared=valid,
+                    reason=None if valid else "imported_package_invalid",
+                )
             lock = self._refresh_lock()
             reason: str | None = None
             if lock is None:

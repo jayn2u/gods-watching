@@ -25,10 +25,9 @@ from gods_watching.inference.clip import ClipAdapter, ClipRuntimeManager, Triton
 from gods_watching.inference.detector import DetectorClient, TritonGrpcDetectorTransport
 from gods_watching.ingest import IngestCoordinator
 from gods_watching.live_detections import LiveDetectionPublisher
-from gods_watching.model_selection import ClipModelRegistry
 from gods_watching.model_selection.coordinator import TransitionCoordinator
 from gods_watching.model_selection.models import TransitionRecoveryError
-from gods_watching.model_selection.registry import ClipModelPackage
+from gods_watching.model_selection.registry import ClipModelPackage, load_clip_registry
 from gods_watching.model_selection.service import ModelSelectionService, PipelineLifecyclePort
 from gods_watching.retention import RetentionService
 from gods_watching.status import StatusReporter, WorkerStatusSnapshot
@@ -221,7 +220,7 @@ async def run_pipeline_worker(
     crop_store = CropObjectStore(settings.crops_root)
     detector_transport = TritonGrpcDetectorTransport(url=settings.triton_grpc_url)
     detector = DetectorClient(transport=detector_transport)
-    registry = ClipModelRegistry()
+    registry = load_clip_registry(settings.model_assets_root)
     from gods_watching.model_selection.assets import PreparedModelCatalog  # noqa: PLC0415
 
     prepared = PreparedModelCatalog(
