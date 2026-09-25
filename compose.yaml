@@ -24,7 +24,7 @@ x-application-image: &application-image
   build:
     context: .
     dockerfile: deploy/Dockerfile.app
-  image: gods-watching-app:local
+  image: gods-watching-app:${GW_APP_IMAGE_TAG:-local}
 
 services:
   postgres:

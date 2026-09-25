@@ -34,6 +34,7 @@ import typer  # noqa: E402
 from typer.models import OptionInfo  # noqa: E402
 
 from gods_watching.auth.credentials_command import credentials_app  # noqa: E402
+from gods_watching.journeys.cli import app as journeys_app  # noqa: E402
 from gods_watching.lifecycle import (  # noqa: E402
     LifecycleAction,
     LifecycleCommandError,
@@ -56,6 +57,7 @@ app = typer.Typer(
 )
 app.add_typer(credentials_app, name="credentials")
 app.add_typer(models_app, name="models")
+app.add_typer(journeys_app, name="journeys")
 
 
 def execute_scenario(
