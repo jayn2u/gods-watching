@@ -1,6 +1,7 @@
 """Behavioral tests for retry, Cross-check, and Verdict aggregation."""
 
 import hashlib
+import json
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -67,9 +68,15 @@ class RecordingStack:
     """Record public stack interactions and optionally fail preparation."""
 
     errors: list[StackError | None]
+    evidence_error: StackError | None
 
-    def __init__(self, errors: Sequence[StackError | None] = ()) -> None:
+    def __init__(
+        self,
+        errors: Sequence[StackError | None] = (),
+        evidence_error: StackError | None = None,
+    ) -> None:
         self.errors = list(errors)
+        self.evidence_error = evidence_error
         self.prepared: list[str] = []
         self.evidence_dirs: list[Path] = []
 
@@ -81,14 +88,16 @@ class RecordingStack:
 
     def collect_evidence(self, evidence_dir: Path) -> None:
         self.evidence_dirs.append(evidence_dir)
+        if self.evidence_error is not None:
+            raise self.evidence_error
 
 
 class RecordingExecutor:
     """Return the next configured executor result for each Journey attempt."""
 
-    results: list[ExecutorReport | AgentFailure]
+    results: list[ExecutorReport | AgentFailure | StackError]
 
-    def __init__(self, results: Sequence[ExecutorReport | AgentFailure]) -> None:
+    def __init__(self, results: Sequence[ExecutorReport | AgentFailure | StackError]) -> None:
         self.results = list(results)
         self.evidence_dirs: list[Path] = []
 
@@ -102,7 +111,10 @@ class RecordingExecutor:
     ) -> ExecutorReport | AgentFailure:
         del journey, base_url, credentials
         self.evidence_dirs.append(evidence_dir)
-        return self.results.pop(0)
+        result = self.results.pop(0)
+        if isinstance(result, StackError):
+            raise result
+        return result
 
 
 class RecordingJudge:
@@ -204,6 +216,66 @@ def test_bug_that_is_not_reproduced_becomes_a_flaky_observation(
 def test_reproduced_bug_is_cross_checked_and_reported(tmp_path: Path) -> None:
     """A repeated and confirmed violation becomes a Bug Report with a fingerprint."""
     stack = RecordingStack()
+    executor_reports = [executor_report("bug", "E1"), executor_report("bug", "E1")]
+    judge_report = JudgeReport(
+        decisions=(
+            JudgeDecision(
+                outcome_id="E1",
+                decision="bug",
+                reason="The screenshot confirms it.",
+            ),
+        )
+    )
+    executor = RecordingExecutor(executor_reports)
+    judge = RecordingJudge([judge_report])
+
+    result = run_one(sample_journey("login"), stack, executor, judge, tmp_path)
+
+    assert result.verdict == "bug"
+    assert result.attempts == 2
+    assert result.bug_report is not None
+    assert result.bug_report.journey_id == "login"
+    assert tuple(outcome.id for outcome in result.bug_report.outcomes) == ("E1",)
+    assert tuple(violation.outcome_id for violation in result.bug_report.observed) == ("E1",)
+    assert result.bug_report.judge_reasons == ("The screenshot confirms it.",)
+    assert result.bug_report.fingerprint == fingerprint("login", ("E1",))
+    assert judge.reports[0].violations[0].outcome_id == "E1"
+    for attempt, report in enumerate(executor_reports, start=1):
+        report_path = tmp_path / "login" / f"attempt-{attempt}" / "executor-report.json"
+        assert json.loads(report_path.read_text(encoding="utf-8")) == report.model_dump(
+            mode="json"
+        )
+    judge_path = tmp_path / "login" / "judge-report.json"
+    assert json.loads(judge_path.read_text(encoding="utf-8")) == judge_report.model_dump(
+        mode="json"
+    )
+    assert all(
+        "test-value" not in path.read_text(encoding="utf-8")
+        for path in (
+            tmp_path / "login" / "attempt-1" / "executor-report.json",
+            tmp_path / "login" / "attempt-2" / "executor-report.json",
+            judge_path,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "artifact_name",
+    ["executor-report.json", "judge-report.json"],
+)
+def test_report_write_failure_is_an_observation_without_changing_verdict(
+    tmp_path: Path,
+    artifact_name: str,
+) -> None:
+    """An unwritable report artifact is recorded without changing a bug Verdict."""
+    journey_dir = tmp_path / "login"
+    artifact_path = (
+        journey_dir / "attempt-1" / artifact_name
+        if artifact_name == "executor-report.json"
+        else journey_dir / artifact_name
+    )
+    artifact_path.mkdir(parents=True)
+    stack = RecordingStack()
     executor = RecordingExecutor(
         [executor_report("bug", "E1"), executor_report("bug", "E1")]
     )
@@ -224,14 +296,8 @@ def test_reproduced_bug_is_cross_checked_and_reported(tmp_path: Path) -> None:
     result = run_one(sample_journey("login"), stack, executor, judge, tmp_path)
 
     assert result.verdict == "bug"
-    assert result.attempts == 2
     assert result.bug_report is not None
-    assert result.bug_report.journey_id == "login"
-    assert tuple(outcome.id for outcome in result.bug_report.outcomes) == ("E1",)
-    assert tuple(violation.outcome_id for violation in result.bug_report.observed) == ("E1",)
-    assert result.bug_report.judge_reasons == ("The screenshot confirms it.",)
-    assert result.bug_report.fingerprint == fingerprint("login", ("E1",))
-    assert judge.reports[0].violations[0].outcome_id == "E1"
+    assert any(artifact_name in observation.text for observation in result.observations)
 
 
 @pytest.mark.parametrize(
@@ -299,6 +365,9 @@ def test_judge_failure_makes_the_journey_inconclusive(tmp_path: Path) -> None:
     assert result.failure == "invalid_output"
     assert result.bug_report is None
     assert result.attempts == 2
+    assert json.loads((tmp_path / "sample" / "judge-report.json").read_text(encoding="utf-8")) == {
+        "failure": {"kind": "invalid_output", "detail": "invalid schema"}
+    }
 
 
 @pytest.mark.parametrize("failure_attempt", [1, 2], ids=("first-attempt", "second-attempt"))
@@ -321,6 +390,38 @@ def test_stack_error_makes_the_journey_inconclusive(
     assert result.attempts == failure_attempt
     assert len(executor.evidence_dirs) == failure_attempt - 1
     assert judge.reports == []
+
+
+def test_setup_stack_error_collects_evidence_and_preserves_original_failure(
+    tmp_path: Path,
+) -> None:
+    """Setup failure evidence is best-effort and cannot replace its original reason."""
+    journey = sample_journey("camera-setup")
+    stack = RecordingStack(
+        [StackError("camera setup failed")],
+        evidence_error=StackError("compose log unavailable"),
+    )
+    executor = RecordingExecutor([])
+
+    result = run_one(journey, stack, executor, RecordingJudge([]), tmp_path)
+
+    assert result.verdict == "inconclusive"
+    assert result.failure == "stack: camera setup failed"
+    assert stack.evidence_dirs == [tmp_path / "camera-setup" / "attempt-1"]
+    assert executor.evidence_dirs == []
+
+
+def test_executor_stack_error_collects_attempt_evidence(tmp_path: Path) -> None:
+    """A StackError raised by executor execution still leaves stack evidence."""
+    journey = sample_journey("executor-setup")
+    stack = RecordingStack()
+    executor = RecordingExecutor([StackError("executor setup failed")])
+
+    result = run_one(journey, stack, executor, RecordingJudge([]), tmp_path)
+
+    assert result.verdict == "inconclusive"
+    assert result.failure == "stack: executor setup failed"
+    assert stack.evidence_dirs == [tmp_path / "executor-setup" / "attempt-1"]
 
 
 def test_usage_limit_marks_remaining_journeys_inconclusive_without_preparing_them(
@@ -355,6 +456,11 @@ def test_usage_limit_marks_remaining_journeys_inconclusive_without_preparing_the
     assert tuple(run.attempts for run in runs) == (1, 1, 0, 0)
     assert tuple(run.failure for run in runs) == (None, "usage_limit", "usage_limit", "usage_limit")
     assert stack.prepared == ["journey-1", "journey-2"]
+    assert json.loads(
+        (tmp_path / "journey-2" / "attempt-1" / "executor-report.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {"failure": {"kind": "usage_limit", "detail": "quota reached"}}
 
 
 def test_stack_and_agents_receive_attempt_evidence_directories(tmp_path: Path) -> None:

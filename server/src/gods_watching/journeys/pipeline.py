@@ -1,7 +1,9 @@
 """Retry and Cross-check policy for Journey Run Verdicts."""
 
 import hashlib
+import json
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -14,6 +16,7 @@ from .models import (
     Journey,
     JourneyRun,
     JudgeDecision,
+    JudgeReport,
     Observation,
     OperatorCredentials,
     StackError,
@@ -38,6 +41,7 @@ class _Attempt:
     report: ExecutorReport | None
     failure: str | None
     usage_limit: bool
+    observations: tuple[Observation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,14 +93,18 @@ def _run_journey(journey: Journey, context: _RunContext) -> tuple[JourneyRun, bo
         )
     first_report = first.report
     if first_report is None or (first_report.verdict == "bug" and not first_report.violations):
-        return _inconclusive_run(journey, "invalid_output", 1), False
+        return _inconclusive_run(journey, "invalid_output", 1, _attempt_observations(first)), False
     if first_report.verdict != "bug":
-        return _report_run(journey, first_report, 1), False
+        return _report_run(journey, first_report, 1, first.observations), False
 
     second = _run_attempt(journey, 2, context)
     if second.failure is not None or second.report is None:
         failure = second.failure or "invalid_output"
-        observations = first_report.observations + _attempt_observations(second)
+        observations = (
+            first_report.observations
+            + first.observations
+            + _attempt_observations(second)
+        )
         return (
             _inconclusive_run(journey, failure, 2, observations),
             second.usage_limit,
@@ -105,8 +113,19 @@ def _run_journey(journey: Journey, context: _RunContext) -> tuple[JourneyRun, bo
 
     reproduced_ids = _reproduced_ids(journey, first_report, second_report)
     if second_report.verdict != "bug" or not reproduced_ids:
-        return _flaky_run(journey, first_report, second_report)
-    return _cross_check(journey, first_report, second_report, reproduced_ids, context)
+        return _flaky_run(
+            journey,
+            first_report,
+            second_report,
+            first.observations + second.observations,
+        )
+    return _cross_check(
+        journey,
+        first,
+        second,
+        reproduced_ids,
+        context,
+    )
 
 
 def _run_attempt(journey: Journey, number: int, context: _RunContext) -> _Attempt:
@@ -120,25 +139,48 @@ def _run_attempt(journey: Journey, number: int, context: _RunContext) -> _Attemp
             credentials=context.credentials,
             evidence_dir=evidence_dir,
         )
+    except StackError as error:
+        with suppress(StackError):
+            context.stack.collect_evidence(evidence_dir)
+        return _Attempt(report=None, failure=f"stack: {error}", usage_limit=False)
+    report_observation = _write_agent_report(evidence_dir / "executor-report.json", report)
+    observations = () if report_observation is None else (report_observation,)
+    try:
         context.stack.collect_evidence(evidence_dir)
     except StackError as error:
-        return _Attempt(report=None, failure=f"stack: {error}", usage_limit=False)
+        return _Attempt(
+            report=None,
+            failure=f"stack: {error}",
+            usage_limit=False,
+            observations=observations,
+        )
     if isinstance(report, AgentFailure):
         return _Attempt(
             report=None,
             failure=report.kind,
             usage_limit=report.kind == "usage_limit",
+            observations=observations,
         )
-    return _Attempt(report=report, failure=None, usage_limit=False)
+    return _Attempt(
+        report=report,
+        failure=None,
+        usage_limit=False,
+        observations=observations,
+    )
 
 
 def _cross_check(
     journey: Journey,
-    first: ExecutorReport,
-    second: ExecutorReport,
+    first_attempt: _Attempt,
+    second_attempt: _Attempt,
     reproduced_ids: tuple[str, ...],
     context: _RunContext,
 ) -> tuple[JourneyRun, bool]:
+    first = first_attempt.report
+    second = second_attempt.report
+    if first is None or second is None:
+        error_message = "Cross-check requires reports from both executor attempts"
+        raise RuntimeError(error_message)
     reproduced_violations = tuple(
         violation for violation in first.violations if violation.outcome_id in reproduced_ids
     )
@@ -148,8 +190,19 @@ def _cross_check(
         report_for_judge,
         evidence_dir=context.run_dir / journey.id,
     )
+    judge_observation = _write_agent_report(
+        context.run_dir / journey.id / "judge-report.json",
+        judge_result,
+    )
+    judge_observations = () if judge_observation is None else (judge_observation,)
     if isinstance(judge_result, AgentFailure):
-        observations = first.observations + second.observations
+        observations = (
+            first.observations
+            + second.observations
+            + first_attempt.observations
+            + second_attempt.observations
+            + judge_observations
+        )
         return (
             _inconclusive_run(journey, judge_result.kind, 2, observations),
             judge_result.kind == "usage_limit",
@@ -162,7 +215,14 @@ def _cross_check(
         if (decision := decisions.get(outcome_id)) is not None and decision.decision == "bug"
     )
     rejected = _rejected_observations(reproduced_ids, decisions)
-    observations = first.observations + second.observations + rejected
+    observations = (
+        first.observations
+        + second.observations
+        + first_attempt.observations
+        + second_attempt.observations
+        + judge_observations
+        + rejected
+    )
     if not confirmed_ids:
         return (
             JourneyRun(
@@ -248,11 +308,13 @@ def _flaky_run(
     journey: Journey,
     first: ExecutorReport,
     second: ExecutorReport,
+    additional_observations: tuple[Observation, ...] = (),
 ) -> tuple[JourneyRun, bool]:
     flaky_ids = tuple(sorted({violation.outcome_id for violation in first.violations}))
     observations = (
         first.observations
         + second.observations
+        + additional_observations
         + (Observation(text=f"flaky: {', '.join(flaky_ids)} not reproduced", flaky=True),)
     )
     return (
@@ -268,19 +330,40 @@ def _flaky_run(
     )
 
 
-def _report_run(journey: Journey, report: ExecutorReport, attempts: int) -> JourneyRun:
+def _report_run(
+    journey: Journey,
+    report: ExecutorReport,
+    attempts: int,
+    additional_observations: tuple[Observation, ...] = (),
+) -> JourneyRun:
     return JourneyRun(
         journey_id=journey.id,
         verdict=report.verdict,
         bug_report=None,
-        observations=report.observations,
+        observations=report.observations + additional_observations,
         attempts=attempts,
         failure=None,
     )
 
 
 def _attempt_observations(attempt: _Attempt) -> tuple[Observation, ...]:
-    return attempt.report.observations if attempt.report is not None else ()
+    report_observations = attempt.report.observations if attempt.report is not None else ()
+    return report_observations + attempt.observations
+
+
+def _write_agent_report(
+    path: Path,
+    report: ExecutorReport | JudgeReport | AgentFailure,
+) -> Observation | None:
+    if isinstance(report, AgentFailure):
+        content = json.dumps({"failure": report.model_dump(mode="json")}, indent=2)
+    else:
+        content = report.model_dump_json(indent=2)
+    try:
+        _ = path.write_text(content, encoding="utf-8")
+    except OSError as error:
+        return Observation(text=f"Could not write {path.name}: {error}")
+    return None
 
 
 def _inconclusive_run(

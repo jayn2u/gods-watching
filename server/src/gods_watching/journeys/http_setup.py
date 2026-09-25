@@ -1,7 +1,7 @@
 """Establish Journey preconditions through the product's HTTP contracts."""
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from time import monotonic, sleep
 from typing import Final, Protocol, TypeGuard, cast
@@ -11,17 +11,25 @@ from urllib.request import Request
 
 from pydantic import ValidationError
 
+from gods_watching.cameras import ProbeFailureCode
 from gods_watching.contracts.cameras import CameraCreateRequest, CameraResponse
 from gods_watching.contracts.session import LoginRequest, SessionResponse
 from gods_watching.contracts.status import StatusResponse
 
-from .models import OperatorCredentials, raise_stack_error
+from .models import OperatorCredentials, StackError, raise_stack_error
 
 _HTTP_TIMEOUT_S: Final = 5.0
+_CAMERA_CREATE_TIMEOUT_S: Final = 30.0
+_CAMERA_RETRY_INTERVAL_S: Final = 5.0
+_CAMERA_RETRY_BUDGET_S: Final = 180.0
 _CAMERA_POLL_INTERVAL_S: Final = 2.0
 _CAMERA_COUNT: Final = 4
 _HTTP_OK: Final = 200
 _HTTP_CREATED: Final = 201
+_HTTP_CONFLICT: Final = 409
+_HTTP_UNPROCESSABLE: Final = 422
+_CAMERA_NAME_CONFLICT: Final = "camera_name_conflict"
+_PROBE_FAILURE_CODES: Final = frozenset(code.value for code in ProbeFailureCode)
 
 
 class JourneyHttpResponse(Protocol):
@@ -57,6 +65,8 @@ class HttpSetup:
 
     opener: JourneyHttpOpener
     base_url: str
+    clock: Callable[[], float] = monotonic
+    sleep: Callable[[float], None] = sleep
 
     def __post_init__(self) -> None:
         """Reject non-HTTP origins before constructing requests."""
@@ -122,23 +132,94 @@ class HttpSetup:
                     "detection_threshold": 0.5,
                 }
             )
-            status_code, payload = self._request_json(
-                "POST",
-                "/api/cameras",
-                cast("dict[str, object]", request.model_dump(mode="json")),
-                origin=self.base_url,
-            )
-            if status_code != _HTTP_CREATED:
-                raise_stack_error(f"fixture camera registration returned HTTP {status_code}")
-            try:
-                camera = CameraResponse.model_validate(payload)
-            except ValidationError as error:
-                raise_stack_error(
-                    "fixture camera registration returned an invalid response",
-                    cause=error,
+            camera_ids.append(
+                self._register_fixture_camera(
+                    name,
+                    cast("dict[str, object]", request.model_dump(mode="json")),
                 )
-            camera_ids.append(str(camera.camera_id))
+            )
         return tuple(camera_ids)
+
+    def _register_fixture_camera(self, name: str, payload: Mapping[str, object]) -> str:
+        deadline = self.clock() + _CAMERA_RETRY_BUDGET_S
+        last_reason = "camera creation did not complete"
+        retried = False
+        while True:
+            remaining = deadline - self.clock()
+            if remaining <= 0:
+                _raise_camera_retry_exhausted(name, last_reason)
+            try:
+                status_code, response_payload = self._request_json(
+                    "POST",
+                    "/api/cameras",
+                    payload,
+                    origin=self.base_url,
+                    timeout=min(_CAMERA_CREATE_TIMEOUT_S, remaining),
+                    include_http_errors=True,
+                )
+            except StackError as error:
+                cause = error.__cause__
+                if not _is_retryable_connection_failure(cause):
+                    raise
+                last_reason = _connection_failure_reason(cause)
+            else:
+                if status_code == _HTTP_CREATED:
+                    return _camera_id_from_response(response_payload)
+                error_code, error_message = _api_error_details(response_payload)
+                if (
+                    retried
+                    and status_code == _HTTP_CONFLICT
+                    and error_code == _CAMERA_NAME_CONFLICT
+                ):
+                    return self._camera_id_by_name(name)
+                if (
+                    status_code == _HTTP_UNPROCESSABLE
+                    and error_code in _PROBE_FAILURE_CODES
+                ):
+                    last_reason = _format_api_error(status_code, error_code, error_message)
+                else:
+                    reason = _format_api_error(status_code, error_code, error_message)
+                    raise_stack_error(f"fixture camera {name} registration returned {reason}")
+
+            remaining = deadline - self.clock()
+            if remaining <= _CAMERA_RETRY_INTERVAL_S:
+                _raise_camera_retry_exhausted(name, last_reason)
+            self.sleep(_CAMERA_RETRY_INTERVAL_S)
+            retried = True
+
+    def _camera_id_by_name(self, name: str) -> str:  # noqa: RET503
+        request = Request(  # noqa: S310
+            f"{self.base_url.rstrip('/')}/api/cameras",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        try:
+            response = self.opener.open(request, timeout=_HTTP_TIMEOUT_S)
+            if response is None:
+                raise_stack_error("GET /api/cameras returned no response")
+            try:
+                status_code = response.status
+                decoded = cast("object", json.loads(response.read()))
+            finally:
+                response.close()
+        except HTTPError as error:
+            raise_stack_error(f"GET /api/cameras returned HTTP {error.code}", cause=error)
+        except (OSError, TimeoutError, URLError) as error:
+            raise_stack_error("GET /api/cameras request failed", cause=error)
+        except (UnicodeError, json.JSONDecodeError) as error:
+            raise_stack_error("GET /api/cameras returned invalid JSON", cause=error)
+        if status_code != _HTTP_OK:
+            raise_stack_error(f"GET /api/cameras returned HTTP {status_code}")
+        if not isinstance(decoded, list):
+            raise_stack_error("GET /api/cameras response must be a JSON array")
+        for item in cast("list[object]", decoded):
+            try:
+                camera = CameraResponse.model_validate(item)
+            except ValidationError as error:
+                raise_stack_error("GET /api/cameras returned an invalid camera", cause=error)
+            if camera.name == name:
+                return str(camera.camera_id)
+        raise_stack_error(f"fixture camera {name} was not found after a name conflict")
 
     def wait_cameras_streaming(
         self,
@@ -149,7 +230,7 @@ class HttpSetup:
         if not camera_ids:
             return
         expected_ids = set(camera_ids)
-        deadline = monotonic() + timeout_s
+        deadline = self.clock() + timeout_s
         while True:
             _status_code, payload = self._request_json("GET", "/api/status")
             try:
@@ -166,18 +247,20 @@ class HttpSetup:
             }
             if expected_ids.issubset(online_ids):
                 return
-            remaining = deadline - monotonic()
+            remaining = deadline - self.clock()
             if remaining <= 0:
                 raise_stack_error("fixture cameras did not become online before timeout")
-            sleep(min(_CAMERA_POLL_INTERVAL_S, remaining))
+            self.sleep(min(_CAMERA_POLL_INTERVAL_S, remaining))
 
-    def _request_json(
+    def _request_json(  # noqa: PLR0913
         self,
         method: str,
         path: str,
         payload: Mapping[str, object] | None = None,
         *,
         origin: str | None = None,
+        timeout: float = _HTTP_TIMEOUT_S,
+        include_http_errors: bool = False,
     ) -> tuple[int, dict[str, object]]:
         headers: dict[str, str] = {"Accept": "application/json"}
         if payload is not None:
@@ -192,7 +275,7 @@ class HttpSetup:
             method=method,
         )
         try:
-            response = self.opener.open(request, timeout=_HTTP_TIMEOUT_S)
+            response = self.opener.open(request, timeout=timeout)
             if response is None:
                 raise_stack_error(f"{method} {path} returned no response")
             try:
@@ -201,7 +284,15 @@ class HttpSetup:
             finally:
                 response.close()
         except HTTPError as error:
-            raise_stack_error(f"{method} {path} returned HTTP {error.code}", cause=error)
+            if not include_http_errors:
+                raise_stack_error(f"{method} {path} returned HTTP {error.code}", cause=error)
+            try:
+                decoded = cast("object", json.loads(error.read()))
+            except (OSError, UnicodeError, json.JSONDecodeError) as parse_error:
+                raise_stack_error(f"{method} {path} returned invalid JSON", cause=parse_error)
+            finally:
+                error.close()
+            status_code = error.code
         except (OSError, TimeoutError, URLError) as error:
             raise_stack_error(f"{method} {path} request failed", cause=error)
         except (UnicodeError, json.JSONDecodeError) as error:
@@ -209,6 +300,64 @@ class HttpSetup:
         if not _is_json_object(decoded):
             raise_stack_error(f"{method} {path} response must be a JSON object")
         return status_code, decoded
+
+
+def _camera_id_from_response(payload: dict[str, object]) -> str:
+    try:
+        camera = CameraResponse.model_validate(payload)
+    except ValidationError as error:
+        raise_stack_error("fixture camera registration returned an invalid response", cause=error)
+    return str(camera.camera_id)
+
+
+def _api_error_details(payload: Mapping[str, object]) -> tuple[str | None, str | None]:
+    detail = payload.get("detail")
+    if not _is_json_object(detail):
+        return None, None
+    code = detail.get("code")
+    message = detail.get("message")
+    return (
+        code if isinstance(code, str) else None,
+        message if isinstance(message, str) else None,
+    )
+
+
+def _format_api_error(
+    status_code: int,
+    code: str | None,
+    message: str | None,
+) -> str:
+    reason = f"HTTP {status_code}"
+    if code is not None:
+        reason = f"{reason} {code}"
+    if message is not None:
+        reason = f"{reason}: {message}"
+    return reason
+
+
+def _is_retryable_connection_failure(error: BaseException | None) -> bool:
+    return isinstance(error, (OSError, TimeoutError, URLError)) and not isinstance(
+        error,
+        HTTPError,
+    )
+
+
+def _connection_failure_reason(error: BaseException | None) -> str:
+    reason: object = error.reason if isinstance(error, URLError) else error
+    if isinstance(reason, TimeoutError):
+        return "request timed out"
+    if isinstance(reason, OSError):
+        detail = reason.strerror or type(reason).__name__
+        return f"connection failed: {detail}"
+    if isinstance(reason, str):
+        return f"connection failed: {reason}"
+    return "connection failed"
+
+
+def _raise_camera_retry_exhausted(name: str, last_reason: str) -> None:
+    reason = f"{_CAMERA_RETRY_BUDGET_S:g} seconds: {last_reason}"
+    message = f"fixture camera {name} registration retries exhausted within {reason}"
+    raise_stack_error(message)
 
 
 def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:

@@ -1,11 +1,14 @@
 """HTTP contract tests through a typed opener boundary."""
 
+import io
 import json
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from http.client import HTTPMessage
 from typing import TypeGuard, cast
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request
 
@@ -25,6 +28,7 @@ class ServerState:
     camera_payloads: list[dict[str, object]] = field(default_factory=list)
     cookies: list[str | None] = field(default_factory=list)
     camera_ids: list[str] = field(default_factory=list)
+    camera_records: list[dict[str, object]] = field(default_factory=list)
     camera_state: str = "online"
 
 
@@ -85,12 +89,14 @@ class InMemoryOpener:
     def __init__(self, server: RecordingHTTPServer) -> None:
         self.server: RecordingHTTPServer = server
         self.session_cookie: str | None = None
+        self.camera_outcomes: list[JsonResponse | BaseException] = []
+        self.request_timeouts: list[tuple[str, float]] = []
 
-    def open(self, fullurl: Request, *, timeout: float) -> JsonResponse:
+    def open(self, fullurl: Request, *, timeout: float) -> JsonResponse:  # noqa: PLR0911
         """Return the product response matching a session, camera, or status route."""
-        del timeout
         path = urlsplit(fullurl.full_url).path
         method = fullurl.get_method()
+        self.request_timeouts.append((f"{method} {path}", timeout))
         if path == "/api/session" and method == "GET":
             return JsonResponse(status=401, body=b"{}")
         if path == "/api/session" and method == "POST":
@@ -110,6 +116,11 @@ class InMemoryOpener:
             payload = _request_payload(fullurl)
             self.server.state.camera_payloads.append(payload)
             self.server.state.cookies.append(self.session_cookie)
+            if self.camera_outcomes:
+                outcome = self.camera_outcomes.pop(0)
+                if isinstance(outcome, BaseException):
+                    raise outcome
+                return outcome
             index = len(self.server.state.camera_ids) + 1
             camera_id = str(uuid.UUID(int=index))
             self.server.state.camera_ids.append(camera_id)
@@ -117,19 +128,20 @@ class InMemoryOpener:
             if not isinstance(source_url, str):
                 return _json_response(422, {"detail": "source_url must be a string"})
             source_port = int(source_url.rsplit(":", maxsplit=1)[1].split("/", maxsplit=1)[0])
-            return _json_response(
-                201,
-                {
-                    "camera_id": camera_id,
-                    "name": payload.get("name"),
-                    "source_host": "127.0.0.1",
-                    "source_port": source_port,
-                    "detection_enabled": payload.get("detection_enabled"),
-                    "detection_threshold": payload.get("detection_threshold"),
-                    "version": 1,
-                    "deleted_at": None,
-                },
-            )
+            camera = {
+                "camera_id": camera_id,
+                "name": payload.get("name"),
+                "source_host": "127.0.0.1",
+                "source_port": source_port,
+                "detection_enabled": payload.get("detection_enabled"),
+                "detection_threshold": payload.get("detection_threshold"),
+                "version": 1,
+                "deleted_at": None,
+            }
+            self.server.state.camera_records.append(camera)
+            return _json_response(201, camera)
+        if path == "/api/cameras" and method == "GET":
+            return _json_response(200, self.server.state.camera_records)
         if path == "/api/status" and method == "GET":
             return _json_response(200, self.server.status_payload())
         return _json_response(404, {"detail": "not found"})
@@ -185,6 +197,164 @@ def test_http_setup_times_out_when_fixture_cameras_never_come_online() -> None:
             setup.wait_cameras_streaming((str(uuid.UUID(int=1)),), timeout_s=0.01)
 
 
+def test_http_setup_retries_probe_422_until_camera_creation_succeeds() -> None:
+    """A transient RTSP probe failure is retried with a 30-second POST timeout."""
+    with http_endpoint() as (base_url, state, opener):
+        opener.camera_outcomes.append(
+            _http_error(
+                422,
+                {
+                    "detail": {
+                        "code": "decode_failed",
+                        "message": "RTSP source did not decode a video frame",
+                    }
+                },
+            )
+        )
+        clock = FakeClock()
+        setup = HttpSetup(
+            opener=opener,
+            base_url=base_url,
+            clock=clock.now,
+            sleep=clock.sleep,
+        )
+
+        camera_ids = setup.register_fixture_cameras(38554)
+
+    assert camera_ids == tuple(state.camera_ids)
+    assert [payload["name"] for payload in state.camera_payloads] == [
+        "camera-1",
+        "camera-1",
+        "camera-2",
+        "camera-3",
+        "camera-4",
+    ]
+    camera_post_timeouts = [
+        timeout
+        for request, timeout in opener.request_timeouts
+        if request == "POST /api/cameras"
+    ]
+    assert camera_post_timeouts == [
+        30.0,
+        30.0,
+        30.0,
+        30.0,
+        30.0,
+    ]
+    assert clock.sleeps == [5.0]
+
+
+def test_http_setup_recovers_camera_after_timeout_and_name_conflict() -> None:
+    """A retry conflict resolves to the already-created camera by its name."""
+    with http_endpoint() as (base_url, state, opener):
+        existing_id = str(uuid.UUID(int=1))
+        state.camera_ids.append(existing_id)
+        state.camera_records.append(
+            {
+                "camera_id": existing_id,
+                "name": "camera-1",
+                "source_host": "127.0.0.1",
+                "source_port": 38554,
+                "detection_enabled": True,
+                "detection_threshold": 0.5,
+                "version": 1,
+                "deleted_at": None,
+            }
+        )
+        opener.camera_outcomes.extend(
+            [
+                TimeoutError("timed out"),
+                _http_error(
+                    409,
+                    {
+                        "detail": {
+                            "code": "camera_name_conflict",
+                            "message": "camera name is already in use",
+                        }
+                    },
+                ),
+            ]
+        )
+        clock = FakeClock()
+        setup = HttpSetup(
+            opener=opener,
+            base_url=base_url,
+            clock=clock.now,
+            sleep=clock.sleep,
+        )
+
+        camera_ids = setup.register_fixture_cameras(38554)
+
+    assert camera_ids[0] == existing_id
+    assert len(camera_ids) == 4
+    assert clock.sleeps == [5.0]
+    assert ("GET /api/cameras", 5.0) in opener.request_timeouts
+
+
+def test_http_setup_does_not_retry_non_probe_422() -> None:
+    """A camera validation failure returns immediately without a retry."""
+    with http_endpoint() as (base_url, _state, opener):
+        opener.camera_outcomes.append(
+            _http_error(
+                422,
+                {"detail": {"code": "invalid_camera_update", "message": "invalid request"}},
+            )
+        )
+        clock = FakeClock()
+        setup = HttpSetup(
+            opener=opener,
+            base_url=base_url,
+            clock=clock.now,
+            sleep=clock.sleep,
+        )
+
+        with pytest.raises(StackError, match="camera-1.*422.*invalid_camera_update"):
+            _ = setup.register_fixture_cameras(38554)
+
+    assert len(opener.camera_outcomes) == 0
+    camera_post_requests = [
+        request
+        for request, _timeout in opener.request_timeouts
+        if request == "POST /api/cameras"
+    ]
+    assert len(camera_post_requests) == 1
+    assert clock.sleeps == []
+
+
+def test_http_setup_retry_exhaustion_names_camera_and_last_probe_reason() -> None:
+    """An unavailable fixture fails within the per-camera retry budget."""
+    with http_endpoint() as (base_url, _state, opener):
+        opener.camera_outcomes.extend(
+            [
+                _http_error(
+                    422,
+                    {
+                        "detail": {
+                            "code": "decode_failed",
+                            "message": "RTSP source did not decode a video frame",
+                        }
+                    },
+                )
+                for _ in range(40)
+            ]
+        )
+        clock = FakeClock()
+        setup = HttpSetup(
+            opener=opener,
+            base_url=base_url,
+            clock=clock.now,
+            sleep=clock.sleep,
+        )
+
+        with pytest.raises(StackError, match="camera-1.*decode_failed"):
+            _ = setup.register_fixture_cameras(38554)
+
+    assert len(opener.request_timeouts) == 36
+    assert opener.request_timeouts[-1] == ("POST /api/cameras", 5.0)
+    assert clock.now() == 175.0
+    assert clock.sleeps == [5.0] * 35
+
+
 def _request_payload(request: Request) -> dict[str, object]:
     body = request.data
     if not isinstance(body, (bytes, bytearray)):
@@ -195,8 +365,35 @@ def _request_payload(request: Request) -> dict[str, object]:
     return decoded
 
 
-def _json_response(status: int, payload: dict[str, object]) -> JsonResponse:
+def _json_response(status: int, payload: object) -> JsonResponse:
     return JsonResponse(status=status, body=json.dumps(payload).encode())
+
+
+def _http_error(status: int, payload: dict[str, object]) -> HTTPError:
+    return HTTPError(
+        "http://journey-test.invalid/api/cameras",
+        status,
+        "HTTP error",
+        HTTPMessage(),
+        io.BytesIO(json.dumps(payload).encode()),
+    )
+
+
+@dataclass(slots=True)
+class FakeClock:
+    """Advance time only when retry code requests a sleep."""
+
+    current: float = 0.0
+    sleeps: list[float] = field(default_factory=list)
+
+    def now(self) -> float:
+        """Return the deterministic current time."""
+        return self.current
+
+    def sleep(self, seconds: float) -> None:
+        """Advance time without waiting in the test process."""
+        self.sleeps.append(seconds)
+        self.current += seconds
 
 
 def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
