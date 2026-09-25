@@ -613,7 +613,7 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         for package in packages
     ]
     lines = [
-        "import json,subprocess,sys,torch,torchvision",
+        "import json,sys,torch,torchvision",
         "from PIL import Image",
         "from transformers import AutoProcessor,CLIPModel",
         "from ultralytics import YOLO",
@@ -622,12 +622,7 @@ def _gpu_proof_program(packages: Sequence[ClipModelPackage]) -> str:
         "def _gpu_uuid():",
         "    if not available: return ''",
         "    value = getattr(torch.cuda.get_device_properties(0), 'uuid', '')",
-        "    if value: return str(value)",
-        "    result = subprocess.run(",
-        "        ['nvidia-smi', '--query-gpu=uuid', '--format=csv,noheader', '-i', '0'],",
-        "        capture_output=True, text=True, check=False, timeout=10",
-        "    )",
-        "    return result.stdout.strip() if result.returncode == 0 else ''",
+        "    return str(value) if value else ''",
         "detector = YOLO('/models/yolo/yolo11s.pt').to('cuda') if available else None",
         "proofs = []",
         "image = Image.new('RGB', (224, 224), (31, 47, 61))",

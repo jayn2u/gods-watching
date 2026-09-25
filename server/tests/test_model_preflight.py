@@ -220,3 +220,36 @@ def test_truncated_jpeg_that_opens_but_cannot_load_is_skipped(tmp_path: Path) ->
     store = CropObjectStore(tmp_path / "crops")
     key = store.write(output.getvalue()[:-12]).object_key
     assert _count_missing(store, [key]) == 1
+
+
+def test_diagnostic_uuid_does_not_guess_remapped_cuda_ordinal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from gods_watching.model_selection.benchmark import _gpu_uuid
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(
+        get_device_properties=lambda _index: SimpleNamespace(name="same GPU model")
+    ))
+    assert _gpu_uuid(fake_torch) == ""
+
+
+def test_diagnostic_uuid_uses_selected_cuda_device_property(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from gods_watching.model_selection.benchmark import _gpu_uuid
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
+    seen: list[int] = []
+
+    def properties(index: int) -> object:
+        seen.append(index)
+        return SimpleNamespace(uuid="GPU-selected")
+
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(get_device_properties=properties))
+    assert _gpu_uuid(fake_torch) == "GPU-selected"
+    assert seen == [0]

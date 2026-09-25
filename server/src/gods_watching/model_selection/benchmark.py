@@ -7,8 +7,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import shutil
-import subprocess
 import time
 from datetime import UTC, datetime
 from io import BytesIO
@@ -70,13 +68,16 @@ def benchmark_package(
         seconds = time.perf_counter() - start
     if not math.isfinite(seconds) or seconds <= 0:
         raise RuntimeError("invalid measured duration")
+    device_uuid = _gpu_uuid(torch)
+    if not device_uuid.startswith("GPU-"):
+        raise RuntimeError("CUDA device UUID unavailable")
     record = {
         "kind": "embedding_only_diagnostic",
         "model_id": package.model_id,
         "revision": package.revision,
         "dimension": package.dimension,
         "device": torch.cuda.get_device_name(0),
-        "device_uuid": _gpu_uuid(torch),
+        "device_uuid": device_uuid,
         "detector_resident": True,
         "sample_count": len(images),
         "measured_seconds": seconds,
@@ -97,16 +98,6 @@ def benchmark_package(
 
 
 def _gpu_uuid(torch: object) -> str:
-    """Read the stable identity of CUDA device zero in this GPU namespace."""
-    # Torch builds differ in whether device properties expose UUID.
+    """Read only UUID properties attached to the selected CUDA device."""
     value = getattr(torch.cuda.get_device_properties(0), "uuid", "")
-    if value:
-        return str(value)
-    executable = shutil.which("nvidia-smi")
-    if executable is None:
-        return ""
-    result = subprocess.run(  # noqa: S603
-        [executable, "--query-gpu=uuid", "--format=csv,noheader", "-i", "0"],
-        capture_output=True, text=True, check=False, timeout=10,
-    )
-    return result.stdout.strip() if result.returncode == 0 else ""
+    return str(value) if value else ""
