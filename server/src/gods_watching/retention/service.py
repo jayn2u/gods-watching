@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Final, final
 
 import anyio
+from anyio.to_thread import run_sync
 from sqlalchemy import func, select
 
 from gods_watching.appearances.budget import WriterGate, WriterGateProvider
@@ -23,6 +24,7 @@ from gods_watching.storage import (
     Database,
     StorageRepository,
 )
+from gods_watching.storage.physical_usage import managed_crop_bytes
 
 from .filesystem import ManagedFileKind, safe_scan, safe_unlink
 from .models import (
@@ -135,7 +137,11 @@ class RetentionService:
                 pending = await session.scalar(
                     select(func.coalesce(func.sum(CropGarbage.byte_size), 0))
                 )
-            physical = sum(item.byte_size for item in safe_scan(self.crop_store.root))
+            physical = await run_sync(
+                managed_crop_bytes,
+                self.crop_store.root,
+                abandon_on_cancel=False,
+            )
             return StorageAccounting(
                 physical_crop_bytes=physical,
                 pending_gc_bytes=int(pending or 0),
@@ -155,9 +161,11 @@ class RetentionService:
     async def _sweep(self, observed: datetime) -> SweepReport:
         await self._restore_active_suppression()
         before = await self.accounting()
+        current = before
         errors: list[str] = []
         unlinked, gc_failures = await self._drain_gc(errors)
-        current = await self.accounting()
+        if unlinked or gc_failures:
+            current = await self.accounting()
         _, age_candidates = await self._age_candidates(observed)
         tombstoned = 0
         suppressed = 0
@@ -167,11 +175,11 @@ class RetentionService:
         more_unlinked, more_failures = await self._drain_gc(errors)
         unlinked += more_unlinked
         gc_failures += more_failures
-        current = await self.accounting()
+        if tombstoned or more_unlinked or more_failures:
+            current = await self.accounting()
         quota_candidates = 0
         if current.cleanup_required or current.filesystem_guard_active:
             for candidate in await self._all_candidates():
-                current = await self.accounting()
                 if (
                     current.managed_bytes < current.threshold_bytes
                     and not current.filesystem_guard_active
@@ -186,7 +194,7 @@ class RetentionService:
                 drained, failures = await self._drain_gc(errors)
                 unlinked += drained
                 gc_failures += failures
-        current = await self.accounting()
+                current = await self.accounting()
         storage_full = (
             current.managed_bytes >= current.quota_bytes or current.filesystem_guard_active
         )
@@ -244,9 +252,9 @@ class RetentionService:
     ) -> tuple[RetentionSettings, tuple[_Candidate, ...]]:
         async with self.database.transaction() as session:
             settings = await self._settings(session)
-            rows = await self._candidate_rows(session)
-        cutoff = now - timedelta(days=settings.retention_days)
-        return settings, tuple(row for row in rows if row.first_seen <= cutoff)
+            cutoff = now - timedelta(days=settings.retention_days)
+            rows = await self._candidate_rows(session, first_seen_on_or_before=cutoff)
+        return settings, rows
 
     async def _restore_active_suppression(self) -> None:
         if self.publisher is None:
@@ -268,21 +276,34 @@ class RetentionService:
         async with self.database.transaction() as session:
             return await self._candidate_rows(session)
 
-    async def _candidate_rows(self, session: AsyncSession) -> tuple[_Candidate, ...]:
+    async def _candidate_rows(
+        self,
+        session: AsyncSession,
+        *,
+        first_seen_on_or_before: datetime | None = None,
+    ) -> tuple[_Candidate, ...]:
         statement = (
-            select(Appearance, CameraSession)
-            .join(CameraSession, CameraSession.id == Appearance.session_id)
+            select(
+                Appearance.id,
+                Appearance.crop_object_key,
+                Appearance.first_seen,
+                Appearance.ended_at,
+            )
             .where(Appearance.tombstoned_at.is_(None))
-            .order_by(Appearance.first_seen.asc(), Appearance.id.asc())
         )
+        if first_seen_on_or_before is not None:
+            statement = statement.where(Appearance.first_seen <= first_seen_on_or_before)
+        statement = statement.order_by(Appearance.first_seen.asc(), Appearance.id.asc())
         candidates: list[_Candidate] = []
-        for appearance, _camera_session in (await session.execute(statement)).tuples().all():
+        for appearance_id, crop_object_key, first_seen, ended_at in (
+            await session.execute(statement)
+        ).tuples().all():
             candidates.append(
                 _Candidate(
-                    appearance_id=appearance.id,
-                    crop_object_key=appearance.crop_object_key,
-                    first_seen=appearance.first_seen,
-                    active=appearance.ended_at is None,
+                    appearance_id=appearance_id,
+                    crop_object_key=crop_object_key,
+                    first_seen=first_seen,
+                    active=ended_at is None,
                 )
             )
         return tuple(candidates)

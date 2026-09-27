@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast, final
 from unittest.mock import AsyncMock, patch
@@ -17,6 +20,7 @@ from gods_watching.appearances import (
     BudgetSnapshot,
     PublicationAck,
 )
+from gods_watching.appearances.queue import PendingEmbeddingQueue
 from gods_watching.cameras import CameraRepository, CameraService
 from gods_watching.cameras.lifecycle import CameraGenerationId
 from gods_watching.contracts.cameras import CameraCreateRequest
@@ -41,6 +45,7 @@ from gods_watching.storage import (
     Database,
     StorageRepository,
 )
+from gods_watching.storage.physical_usage import PhysicalUsageError, physical_crop_bytes
 from gods_watching.tracking.models import (
     DetectorInputReference,
     LifecycleKind,
@@ -107,6 +112,59 @@ class _Budget:
     async def reserve(self, snapshot: BudgetSnapshot) -> BudgetLease:
         self.snapshots.append(snapshot)
         return BudgetLease(reserved_bytes=1)
+
+
+@final
+class _PauseOnceBudget:
+    def __init__(self) -> None:
+        self.started = anyio.Event()
+        self.release = anyio.Event()
+        self.calls = 0
+
+    async def reserve(self, snapshot: BudgetSnapshot) -> BudgetLease | None:
+        del snapshot
+        self.calls += 1
+        if self.calls == 1:
+            self.started.set()
+            await self.release.wait()
+            return None
+        return BudgetLease(reserved_bytes=1)
+
+
+@final
+class _ReservationSession:
+    def __init__(self) -> None:
+        self._scalar_calls = 0
+
+    async def scalar(self, statement: object) -> object:
+        del statement
+        self._scalar_calls += 1
+        return 0 if self._scalar_calls == 1 else None
+
+
+@final
+class _ReservationTransaction:
+    def __init__(self) -> None:
+        self._session = _ReservationSession()
+
+    async def __aenter__(self) -> _ReservationSession:
+        return self._session
+
+    async def __aexit__(self, *_: object) -> bool:
+        return False
+
+
+@final
+class _ReservationDatabase:
+    def transaction(self) -> _ReservationTransaction:
+        return _ReservationTransaction()
+
+
+@final
+class _ReservationStorage:
+    async def application_relation_sizes(self, session: AsyncSession) -> Mapping[str, int]:
+        del session
+        return {}
 
 
 @final
@@ -196,6 +254,564 @@ def _handoff(  # noqa: PLR0913
         ),
         candidate=None if kind is LifecycleKind.END or not include_candidate else candidate,
     )
+
+
+@pytest.mark.anyio
+async def test_slow_physical_crop_scan_does_not_block_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = CropObjectStore(tmp_path / "crops")
+    existing_crop = store.root / "existing.jpg"
+    _ = existing_crop.write_bytes(b"saved crop")
+    temporary_crop = store.root / "nested" / ".partial.tmp"
+    _ = temporary_crop.parent.mkdir(parents=True, exist_ok=True)
+    _ = temporary_crop.write_bytes(b"partial")
+    _ = (store.root / "notes.txt").write_bytes(b"not counted")
+    outside_crop = tmp_path / "outside.jpg"
+    _ = outside_crop.write_bytes(b"outside")
+    (store.root / "linked.jpg").symlink_to(outside_crop)
+    outside_directory = tmp_path / "outside-directory"
+    _ = outside_directory.mkdir()
+    _ = (outside_directory / "escaped.jpg").write_bytes(b"outside directory")
+    (store.root / "linked-directory").symlink_to(outside_directory, target_is_directory=True)
+    budget = _Budget()
+    publisher = AppearancePublisher(
+        database=cast("Database", _ReservationDatabase()),
+        storage=cast("StorageRepository", _ReservationStorage()),
+        crop_store=store,
+        clip=ClipAdapter(_ClipTransport()),
+        model_id="synthetic/clip",
+        model_revision="fixture",
+        writer_budget=budget,
+    )
+    physical_crop_bytes = publisher._physical_crop_bytes  # noqa: SLF001
+    scan_started = threading.Event()
+    scan_finished = threading.Event()
+    heartbeat_during_scan = anyio.Event()
+    event_loop = asyncio.get_running_loop()
+
+    def record_heartbeat() -> None:
+        if not scan_finished.is_set():
+            heartbeat_during_scan.set()
+
+    def slow_physical_crop_scan() -> int:
+        scan_started.set()
+        event_loop.call_soon_threadsafe(record_heartbeat)
+        time.sleep(0.15)
+        try:
+            return physical_crop_bytes()
+        finally:
+            scan_finished.set()
+
+    monkeypatch.setattr(publisher, "_physical_crop_bytes", slow_physical_crop_scan)
+    lease = await publisher._reserve(new_crop_bytes=1)  # noqa: SLF001
+
+    assert lease is not None
+    try:
+        assert heartbeat_during_scan.is_set()
+        assert budget.snapshots[0].physical_crop_bytes == len(b"saved crop") + len(b"partial")
+    finally:
+        await lease.release()
+
+
+@pytest.mark.anyio
+async def test_physical_size_scan_failure_pauses_and_keeps_work_retryable(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = Database.connect(database_url)
+    repository = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    transport = _ClipTransport()
+    publisher = AppearancePublisher(
+        database=database,
+        storage=repository,
+        crop_store=CropObjectStore(tmp_path / "crops"),
+        clip=ClipAdapter(transport),
+        model_id="synthetic/clip",
+        model_revision="fixture",
+        writer_budget=_Budget(),
+        defer_publication=True,
+    )
+    consumer = AppearanceHandoffConsumer(publisher)
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await repository.add_camera(
+                session,
+                name=f"Publication failed accounting {uuid4().hex}",
+                source_url=_source(f"failed-accounting-{uuid4().hex}"),
+            )
+            camera_session = await repository.start_camera_session(
+                session, camera.id, cause="fixture"
+            )
+            camera_id = camera.id
+            session_id = camera_session.id
+
+        initial = await consumer.consume(
+            _handoff(
+                camera_id=CameraId(camera_id),
+                session_id=CameraSessionId(session_id),
+                db_generation=camera_session.generation_id,
+            )
+        )
+        assert initial.outcome.value == "queued"
+
+        def failed_scan(_root: Path) -> int:
+            raise PhysicalUsageError
+
+        monkeypatch.setattr(
+            "gods_watching.appearances.publication.physical_crop_bytes", failed_scan
+        )
+        paused = await consumer.drain_one()
+        assert paused is not None
+        assert paused.outcome.value == "paused"
+        assert publisher.pending_embeddings == 1
+        assert transport.image_calls == 0
+
+        monkeypatch.setattr(
+            "gods_watching.appearances.publication.physical_crop_bytes", physical_crop_bytes
+        )
+        retried = await consumer.drain_one()
+        assert retried is not None
+        assert retried.outcome.value == "published"
+        assert retried.appearance_id == initial.appearance_id
+        assert transport.image_calls == 1
+    finally:
+        if camera_id is not None:
+            async with database.transaction() as session:
+                _ = await session.execute(
+                    delete(CropGarbage).where(
+                        CropGarbage.appearance_id.in_(
+                            select(Appearance.id).where(Appearance.camera_id == camera_id)
+                        )
+                    )
+                )
+                _ = await session.execute(
+                    delete(Appearance).where(Appearance.camera_id == camera_id)
+                )
+                _ = await session.execute(
+                    delete(CameraSession).where(CameraSession.camera_id == camera_id)
+                )
+                _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_deferred_initial_publication_persists_end_timestamp(
+    database_url: str, tmp_path: Path
+) -> None:
+    database = Database.connect(database_url)
+    repository = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    transport = _ClipTransport()
+    publisher = AppearancePublisher(
+        database=database,
+        storage=repository,
+        crop_store=CropObjectStore(tmp_path / "crops"),
+        clip=ClipAdapter(transport),
+        model_id="synthetic/clip",
+        model_revision="fixture",
+        writer_budget=_Budget(),
+        defer_publication=True,
+    )
+    consumer = AppearanceHandoffConsumer(publisher)
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await repository.add_camera(
+                session,
+                name=f"Publication deferred end {uuid4().hex}",
+                source_url=_source(f"deferred-{uuid4().hex}"),
+            )
+            camera_session = await repository.start_camera_session(
+                session, camera.id, cause="fixture"
+            )
+            camera_id = camera.id
+            session_id = camera_session.id
+
+        source_generation = SourceGenerationId(uuid4())
+        start_time = datetime(2026, 9, 7, 2, 0, tzinfo=UTC)
+        end_time = datetime(2026, 9, 7, 2, 5, tzinfo=UTC)
+        initial = await consumer.consume(
+            _handoff(
+                camera_id=CameraId(camera_id),
+                session_id=CameraSessionId(session_id),
+                db_generation=camera_session.generation_id,
+                source_generation=source_generation,
+                observed_at=start_time,
+            )
+        )
+        ended = await consumer.consume(
+            _handoff(
+                camera_id=CameraId(camera_id),
+                session_id=CameraSessionId(session_id),
+                db_generation=camera_session.generation_id,
+                source_generation=source_generation,
+                kind=LifecycleKind.END,
+                observed_at=end_time,
+            )
+        )
+
+        assert initial.outcome.value == "queued"
+        assert ended.outcome.value == "queued"
+        assert transport.image_calls == 0
+        published = await consumer.drain_one()
+        assert published is not None
+        assert published.outcome.value == "published"
+        async with database.transaction() as session:
+            appearance = await session.scalar(
+                select(Appearance).where(Appearance.camera_id == camera_id)
+            )
+        assert appearance is not None
+        assert appearance.last_seen == end_time
+        assert appearance.ended_at == end_time
+    finally:
+        if camera_id is not None:
+            async with database.transaction() as session:
+                _ = await session.execute(
+                    delete(CropGarbage).where(
+                        CropGarbage.appearance_id.in_(
+                            select(Appearance.id).where(Appearance.camera_id == camera_id)
+                        )
+                    )
+                )
+                _ = await session.execute(
+                    delete(Appearance).where(Appearance.camera_id == camera_id)
+                )
+                _ = await session.execute(
+                    delete(CameraSession).where(CameraSession.camera_id == camera_id)
+                )
+                _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_slow_draining_does_not_block_other_handoffs_and_orders_end(  # noqa: PLR0915
+    database_url: str, tmp_path: Path
+) -> None:
+    database = Database.connect(database_url)
+    repository = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    transport = _DelayedClipTransport()
+    publisher = AppearancePublisher(
+        database=database,
+        storage=repository,
+        crop_store=CropObjectStore(tmp_path / "crops"),
+        clip=ClipAdapter(transport),
+        model_id="synthetic/clip",
+        model_revision="fixture",
+        writer_budget=_Budget(),
+        defer_publication=True,
+    )
+    consumer = AppearanceHandoffConsumer(publisher)
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await repository.add_camera(
+                session,
+                name=f"Publication deferred drain {uuid4().hex}",
+                source_url=_source(f"deferred-drain-{uuid4().hex}"),
+            )
+            camera_session = await repository.start_camera_session(
+                session, camera.id, cause="fixture"
+            )
+            camera_id = camera.id
+            session_id = camera_session.id
+
+        source_generation = SourceGenerationId(uuid4())
+        first = await consumer.consume(
+            _handoff(
+                camera_id=CameraId(camera_id),
+                session_id=CameraSessionId(session_id),
+                db_generation=camera_session.generation_id,
+                source_generation=source_generation,
+                track_id=31,
+            )
+        )
+        assert first.outcome.value == "queued"
+        drained: list[PublicationAck] = []
+        ended: list[PublicationAck] = []
+
+        async def drain_first() -> None:
+            acknowledgement = await consumer.drain_one()
+            assert acknowledgement is not None
+            drained.append(acknowledgement)
+
+        async def end_first() -> None:
+            ended.append(
+                await consumer.consume(
+                    _handoff(
+                        camera_id=CameraId(camera_id),
+                        session_id=CameraSessionId(session_id),
+                        db_generation=camera_session.generation_id,
+                        source_generation=source_generation,
+                        track_id=31,
+                        kind=LifecycleKind.END,
+                        observed_at=datetime(2026, 9, 7, 2, 5, tzinfo=UTC),
+                    )
+                )
+            )
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(drain_first)
+            with anyio.fail_after(10):
+                await transport.started.wait()
+            group.start_soon(end_first)
+            await anyio.lowlevel.checkpoint()
+            try:
+                with anyio.fail_after(2):
+                    other = await consumer.consume(
+                        _handoff(
+                            camera_id=CameraId(camera_id),
+                            session_id=CameraSessionId(session_id),
+                            db_generation=camera_session.generation_id,
+                            source_generation=source_generation,
+                            track_id=32,
+                        )
+                    )
+            finally:
+                transport.release.set()
+
+        assert other.outcome.value == "queued"
+        assert drained[0].outcome.value == "published"
+        assert ended[0].outcome.value == "ended"
+        other_published = await consumer.drain_one()
+        assert other_published is not None
+        assert other_published.outcome.value == "published"
+        async with database.transaction() as session:
+            appearances = tuple(
+                await session.scalars(
+                    select(Appearance).where(Appearance.camera_id == camera_id)
+                )
+            )
+        assert len(appearances) == 2
+        ended_appearance = next(row for row in appearances if row.track_id == 31)
+        assert ended_appearance.ended_at == datetime(2026, 9, 7, 2, 5, tzinfo=UTC)
+    finally:
+        transport.release.set()
+        if camera_id is not None:
+            async with database.transaction() as session:
+                _ = await session.execute(
+                    delete(CropGarbage).where(
+                        CropGarbage.appearance_id.in_(
+                            select(Appearance.id).where(Appearance.camera_id == camera_id)
+                        )
+                    )
+                )
+                _ = await session.execute(
+                    delete(Appearance).where(Appearance.camera_id == camera_id)
+                )
+                _ = await session.execute(
+                    delete(CameraSession).where(CameraSession.camera_id == camera_id)
+                )
+                _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_cancelled_drain_restores_popped_work_ahead_of_queued_items(  # noqa: PLR0915
+    database_url: str, tmp_path: Path
+) -> None:
+    database = Database.connect(database_url)
+    repository = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    transport = _ClipTransport()
+    publisher = AppearancePublisher(
+        database=database,
+        storage=repository,
+        crop_store=CropObjectStore(tmp_path / "crops"),
+        clip=ClipAdapter(transport),
+        model_id="synthetic/clip",
+        model_revision="fixture",
+        writer_budget=_Budget(),
+        defer_publication=True,
+    )
+    consumer = AppearanceHandoffConsumer(publisher)
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await repository.add_camera(
+                session,
+                name=f"Publication cancelled drain {uuid4().hex}",
+                source_url=_source(f"cancelled-drain-{uuid4().hex}"),
+            )
+            camera_session = await repository.start_camera_session(
+                session, camera.id, cause="fixture"
+            )
+            camera_id = camera.id
+            session_id = camera_session.id
+
+        source_generation = SourceGenerationId(uuid4())
+        first = await consumer.consume(
+            _handoff(
+                camera_id=CameraId(camera_id),
+                session_id=CameraSessionId(session_id),
+                db_generation=camera_session.generation_id,
+                source_generation=source_generation,
+                track_id=41,
+            )
+        )
+        second = await consumer.consume(
+            _handoff(
+                camera_id=CameraId(camera_id),
+                session_id=CameraSessionId(session_id),
+                db_generation=camera_session.generation_id,
+                source_generation=source_generation,
+                track_id=42,
+            )
+        )
+        assert first.outcome.value == "queued"
+        assert second.outcome.value == "queued"
+
+        pending = await publisher._take_next()  # noqa: SLF001
+        assert pending is not None
+        state = next(
+            track_state
+            for key, track_state in publisher._states.items()  # noqa: SLF001
+            if key.track_id == 41
+        )
+        state.lock.acquire_nowait()
+
+        async def cancel_before_track_lock() -> None:
+            with anyio.CancelScope() as scope:
+                scope.cancel()
+                await publisher._publish_pending(pending)  # noqa: SLF001
+
+        try:
+            async with anyio.create_task_group() as group:
+                group.start_soon(cancel_before_track_lock)
+        finally:
+            state.lock.release()
+
+        assert publisher.pending_embeddings == 2
+        assert transport.image_calls == 0
+        retried = await consumer.drain_one()
+        assert retried is not None
+        assert retried.outcome.value == "published"
+        assert retried.appearance_id == first.appearance_id
+        assert publisher.pending_embeddings == 1
+        following = await consumer.drain_one()
+        assert following is not None
+        assert following.outcome.value == "published"
+        assert following.appearance_id == second.appearance_id
+    finally:
+        if camera_id is not None:
+            async with database.transaction() as session:
+                _ = await session.execute(
+                    delete(CropGarbage).where(
+                        CropGarbage.appearance_id.in_(
+                            select(Appearance.id).where(Appearance.camera_id == camera_id)
+                        )
+                    )
+                )
+                _ = await session.execute(
+                    delete(Appearance).where(Appearance.camera_id == camera_id)
+                )
+                _ = await session.execute(
+                    delete(CameraSession).where(CameraSession.camera_id == camera_id)
+                )
+                _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_paused_inflight_publication_survives_queue_refill(
+    database_url: str, tmp_path: Path
+) -> None:
+    database = Database.connect(database_url)
+    repository = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    budget = _PauseOnceBudget()
+    publisher = AppearancePublisher(
+        database=database,
+        storage=repository,
+        crop_store=CropObjectStore(tmp_path / "crops"),
+        clip=ClipAdapter(_ClipTransport()),
+        model_id="synthetic/clip",
+        model_revision="fixture",
+        writer_budget=budget,
+        queue=PendingEmbeddingQueue(max_pending=1),
+        defer_publication=True,
+    )
+    consumer = AppearanceHandoffConsumer(publisher)
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    try:
+        async with database.transaction() as session:
+            camera = await repository.add_camera(
+                session,
+                name=f"Publication paused refill {uuid4().hex}",
+                source_url=_source(f"paused-refill-{uuid4().hex}"),
+            )
+            camera_session = await repository.start_camera_session(
+                session, camera.id, cause="fixture"
+            )
+            camera_id = camera.id
+            session_id = camera_session.id
+
+        source_generation = SourceGenerationId(uuid4())
+        first = await consumer.consume(
+            _handoff(
+                camera_id=CameraId(camera_id),
+                session_id=CameraSessionId(session_id),
+                db_generation=camera_session.generation_id,
+                source_generation=source_generation,
+                track_id=51,
+            )
+        )
+        assert first.outcome.value == "queued"
+        drained: list[PublicationAck | None] = []
+
+        async def drain_first() -> None:
+            drained.append(await consumer.drain_one())
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(drain_first)
+            with anyio.fail_after(10):
+                await budget.started.wait()
+            second = await consumer.consume(
+                _handoff(
+                    camera_id=CameraId(camera_id),
+                    session_id=CameraSessionId(session_id),
+                    db_generation=camera_session.generation_id,
+                    source_generation=source_generation,
+                    track_id=52,
+                )
+            )
+            budget.release.set()
+
+        assert second.outcome.value == "queued"
+        assert drained[0] is not None
+        assert drained[0].outcome.value == "paused"
+        assert publisher.pending_embeddings == 2
+        retried = await consumer.drain_one()
+        assert retried is not None
+        assert retried.appearance_id == first.appearance_id
+        assert retried.outcome.value == "published"
+        following = await consumer.drain_one()
+        assert following is not None
+        assert following.appearance_id == second.appearance_id
+        assert following.outcome.value == "published"
+    finally:
+        budget.release.set()
+        if camera_id is not None:
+            async with database.transaction() as session:
+                _ = await session.execute(
+                    delete(CropGarbage).where(
+                        CropGarbage.appearance_id.in_(
+                            select(Appearance.id).where(Appearance.camera_id == camera_id)
+                        )
+                    )
+                )
+                _ = await session.execute(
+                    delete(Appearance).where(Appearance.camera_id == camera_id)
+                )
+                _ = await session.execute(
+                    delete(CameraSession).where(CameraSession.camera_id == camera_id)
+                )
+                _ = await session.execute(delete(Camera).where(Camera.id == camera_id))
+        await database.close()
 
 
 @pytest.mark.anyio

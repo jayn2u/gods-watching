@@ -6,13 +6,15 @@ import shutil
 import time
 from asyncio import CancelledError
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from math import isfinite
 from typing import TYPE_CHECKING, Final
 from uuid import UUID
 
+import anyio
+from anyio.to_thread import run_sync
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -29,6 +31,7 @@ from gods_watching.storage import (
     StorageRepository,
 )
 from gods_watching.storage.managed_files import ManagedFileKind, safe_scan, safe_unlink
+from gods_watching.storage.physical_usage import physical_crop_bytes
 from gods_watching.tracking.models import LifecycleKind
 
 from .budget import (
@@ -141,6 +144,8 @@ class _TrackState:
     rank: CandidateRank | None = None
     last_upgrade_monotonic: float | None = None
     ended: bool = False
+    ended_at: datetime | None = None
+    lock: anyio.Lock = field(default_factory=anyio.Lock, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +171,7 @@ class AppearancePublisher:
         model_revision: str,
         writer_budget: WriterBudget | None = None,
         queue: PendingEmbeddingQueue[PublicationWork] | None = None,
+        defer_publication: bool = False,
         monotonic_clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] | None = None,
         active_binding: Callable[[CameraId], Awaitable[GenerationBinding | None]] | None = None,
@@ -179,11 +185,16 @@ class AppearancePublisher:
         self.model_revision: str = model_revision
         self.writer_budget: WriterBudget | None = writer_budget
         self.queue: PendingEmbeddingQueue[PublicationWork] = queue or PendingEmbeddingQueue()
+        self.defer_publication: bool = defer_publication
         self._monotonic_clock: Callable[[], float] = monotonic_clock
         self._wall_clock: Callable[[], datetime] = wall_clock or (lambda: datetime.now(UTC))
         self._states: dict[QueueKey, _TrackState] = {}
         self._suppressed: set[AppearanceId] = set()
         self._pending_appearance_ids: dict[QueueKey, AppearanceId] = {}
+        self._publishing_keys: set[QueueKey] = set()
+        self._retry_pending: PendingEmbedding[PublicationWork] | None = None
+        self._queue_lock: anyio.Lock = anyio.Lock()
+        self._drain_lock: anyio.Lock = anyio.Lock()
         self._active_binding: Callable[[CameraId], Awaitable[GenerationBinding | None]] | None = (
             active_binding
         )
@@ -195,16 +206,18 @@ class AppearancePublisher:
 
     @property
     def pending_embeddings(self) -> int:
-        """Return the current bounded embedding backlog."""
-        return len(self.queue)
+        """Return queued, in-flight, and cancellation-retry publication work."""
+        return len(self.queue) + len(self._publishing_keys) + int(
+            self._retry_pending is not None
+        )
 
-    async def accept_handoff(  # noqa: C901, PLR0911, PLR0912
+    async def accept_handoff(
         self,
         handoff: PipelineHandoff,
         *,
         now_monotonic: float | None = None,
     ) -> PublicationAck:
-        """Accept one canonical lifecycle handoff and drain eligible work."""
+        """Accept one lifecycle handoff, optionally leaving publication to a drainer."""
         now = self._now(now_monotonic)
         lifecycle = handoff.lifecycle
         key = QueueKey(
@@ -226,8 +239,27 @@ class AppearancePublisher:
                 last_seen=lifecycle.last_seen,
             ),
         )
+        async with state.lock:
+            return await self._accept_handoff_locked(
+                handoff,
+                now=now,
+                key=key,
+                appearance_id=appearance_id,
+                state=state,
+            )
+
+    async def _accept_handoff_locked(  # noqa: C901, PLR0911, PLR0912
+        self,
+        handoff: PipelineHandoff,
+        *,
+        now: float,
+        key: QueueKey,
+        appearance_id: AppearanceId,
+        state: _TrackState,
+    ) -> PublicationAck:
+        lifecycle = handoff.lifecycle
         if lifecycle.kind is LifecycleKind.END:
-            return await self._accept_end(handoff, appearance_id, state, now)
+            return await self._accept_end(handoff, key, appearance_id, state, now)
         if state.ended:
             return self._ack(
                 PublicationOutcome.NOOP,
@@ -272,10 +304,19 @@ class AppearancePublisher:
                 state,
                 detail="late lifecycle event after appearance end",
             )
+        if key in self._publishing_keys:
+            return self._ack(
+                PublicationOutcome.DROPPED,
+                appearance_id,
+                lifecycle.sequence,
+                state,
+                queue_decision=QueueDecision.DROPPED_DUPLICATE,
+                detail="publication for this track is already in flight",
+            )
         if handoff.candidate is None:
             return await self._touch_metadata(handoff, key, appearance_id, state, now)
         try:
-            work = self._work_from_candidate(handoff, key, appearance_id, state)
+            work = await run_sync(self._work_from_candidate, handoff, key, appearance_id, state)
         except CropRejectedError as error:
             return self._ack(
                 PublicationOutcome.REJECTED,
@@ -288,16 +329,22 @@ class AppearancePublisher:
             elapsed = now - (state.last_upgrade_monotonic or 0.0)
             if not should_upgrade(state.rank, work.rank, elapsed):
                 return await self._touch_metadata(handoff, key, appearance_id, state, now)
-        decision = self.queue.enqueue(
-            PendingEmbedding(
-                key=key,
-                is_initial=work.representative_version == 1,
-                representative_version=work.representative_version,
-                jpeg_bytes=work.jpeg_bytes,
-                rank=work.rank,
-                payload=work,
+        async with self._queue_lock:
+            decision = self.queue.enqueue(
+                PendingEmbedding(
+                    key=key,
+                    is_initial=work.representative_version == 1,
+                    representative_version=work.representative_version,
+                    jpeg_bytes=work.jpeg_bytes,
+                    rank=work.rank,
+                    payload=work,
+                )
             )
-        )
+            if decision not in {
+                QueueDecision.DROPPED_DUPLICATE,
+                QueueDecision.DROPPED_OVERLOAD,
+            }:
+                self._pending_appearance_ids[key] = appearance_id
         if decision in {
             QueueDecision.DROPPED_DUPLICATE,
             QueueDecision.DROPPED_OVERLOAD,
@@ -309,9 +356,7 @@ class AppearancePublisher:
                 state,
                 queue_decision=decision,
             )
-        self._pending_appearance_ids[key] = appearance_id
-        pending = self.queue.pop()
-        if pending is None:
+        if self.defer_publication:
             return self._ack(
                 PublicationOutcome.QUEUED,
                 appearance_id,
@@ -319,27 +364,86 @@ class AppearancePublisher:
                 state,
                 queue_decision=decision,
             )
-        pending_appearance_id = self._pending_appearance_ids.pop(pending.key, None)
-        if pending.key != key:
-            _ = self.queue.enqueue(pending)
-            if pending_appearance_id is not None:
-                self._pending_appearance_ids[pending.key] = pending_appearance_id
-            return self._ack(
-                PublicationOutcome.QUEUED,
-                appearance_id,
-                lifecycle.sequence,
-                state,
-                queue_decision=decision,
-            )
-        return await self._publish(pending)
+        async with self._drain_lock:
+            if self._retry_pending is not None:
+                return self._ack(
+                    PublicationOutcome.QUEUED,
+                    appearance_id,
+                    lifecycle.sequence,
+                    state,
+                    queue_decision=decision,
+                )
+            async with self._queue_lock:
+                pending = self.queue.pop()
+                if pending is not None:
+                    pending_appearance_id = self._pending_appearance_ids.pop(pending.key, None)
+                    if pending.key != key:
+                        _ = self.queue.enqueue(pending)
+                        if pending_appearance_id is not None:
+                            self._pending_appearance_ids[pending.key] = pending_appearance_id
+                        pending = None
+                    else:
+                        self._publishing_keys.add(pending.key)
+            if pending is None:
+                return self._ack(
+                    PublicationOutcome.QUEUED,
+                    appearance_id,
+                    lifecycle.sequence,
+                    state,
+                    queue_decision=decision,
+                )
+            return await self._publish_pending(pending, state_locked=True)
 
     async def process_next(self) -> PublicationAck | None:
         """Drain the highest-priority pending representative, if one exists."""
-        pending = self.queue.pop()
-        if pending is None:
-            return None
-        _ = self._pending_appearance_ids.pop(pending.key, None)
-        return await self._publish(pending)
+        async with self._drain_lock:
+            pending = await self._take_next()
+            if pending is None:
+                return None
+            return await self._publish_pending(pending)
+
+    async def _take_next(self) -> PendingEmbedding[PublicationWork] | None:
+        """Pop one queued or cancellation-retry item under the queue lock."""
+        async with self._queue_lock:
+            pending = self._retry_pending
+            if pending is not None:
+                self._retry_pending = None
+            else:
+                pending = self.queue.pop()
+            if pending is not None:
+                _ = self._pending_appearance_ids.pop(pending.key, None)
+                self._publishing_keys.add(pending.key)
+            return pending
+
+    async def _publish_pending(
+        self,
+        pending: PendingEmbedding[PublicationWork],
+        *,
+        state_locked: bool = False,
+    ) -> PublicationAck:
+        """Publish one popped item and restore it if shutdown cancels the attempt."""
+        state = self._states[pending.key]
+        try:
+            if state_locked:
+                return await self._publish(pending)
+            async with state.lock:
+                return await self._publish(pending)
+        except CancelledError:
+            with anyio.CancelScope(shield=True):
+                await self._restore_pending_for_retry(pending)
+            raise
+        finally:
+            self._publishing_keys.discard(pending.key)
+
+    async def _restore_pending_for_retry(
+        self, pending: PendingEmbedding[PublicationWork]
+    ) -> None:
+        async with self._queue_lock:
+            if self._retry_pending is not None:
+                raise PublicationError
+            self._retry_pending = pending
+            if pending.payload is not None:
+                self._pending_appearance_ids[pending.key] = pending.payload.appearance_id
 
     def suppress_track(self, appearance_id: AppearanceId) -> None:
         """Suppress new writes for a quota-evicted track until its END event."""
@@ -348,6 +452,14 @@ class AppearancePublisher:
             if pending_appearance_id == appearance_id:
                 _ = self.queue.discard(key)
                 _ = self._pending_appearance_ids.pop(key, None)
+        pending = self._retry_pending
+        if (
+            pending is not None
+            and pending.payload is not None
+            and pending.payload.appearance_id == appearance_id
+        ):
+            self._retry_pending = None
+            _ = self._pending_appearance_ids.pop(pending.key, None)
 
     def mark_quota_evicted(self, appearance_id: AppearanceId) -> None:
         """Alias the quota eviction hook used by retention workers."""
@@ -384,6 +496,12 @@ class AppearancePublisher:
         work = pending.payload
         if work is None:
             raise PublicationError
+        state = self._states[work.key]
+        work = replace(
+            work,
+            last_seen=max(work.last_seen, state.last_seen),
+            ended_at=state.ended_at or work.ended_at,
+        )
         if not await self._runtime_generation_matches(work.generation):
             return self._ack(
                 PublicationOutcome.STALE_GENERATION,
@@ -393,15 +511,14 @@ class AppearancePublisher:
             )
         lease = await self._reserve(len(work.jpeg_bytes))
         if lease is None:
-            _ = self.queue.enqueue(pending)
-            self._pending_appearance_ids[work.key] = work.appearance_id
+            requeue_decision = await self._pause_pending(pending, work)
             state = self._states[work.key]
             return self._ack(
                 PublicationOutcome.PAUSED,
                 work.appearance_id,
                 work.sequence,
                 state,
-                queue_decision=QueueDecision.ENQUEUED,
+                queue_decision=requeue_decision,
                 detail="writer budget unavailable",
             )
         stored_key: str | None = None
@@ -479,7 +596,6 @@ class AppearancePublisher:
                 with suppress(OSError):
                     self.crop_store.delete(stored_key)
             await lease.release()
-        state = self._states[work.key]
         state.committed_version = work.representative_version
         state.rank = work.rank
         state.last_upgrade_monotonic = self._monotonic_clock()
@@ -492,6 +608,26 @@ class AppearancePublisher:
             t_searchable_monotonic=self._monotonic_clock(),
             representative_version=work.representative_version,
         )
+
+    async def _pause_pending(
+        self,
+        pending: PendingEmbedding[PublicationWork],
+        work: PublicationWork,
+    ) -> QueueDecision:
+        """Restore budget-paused work to a bounded queue or the reserved retry lane."""
+        if self.defer_publication:
+            await self._restore_pending_for_retry(pending)
+            return QueueDecision.ENQUEUED
+        async with self._queue_lock:
+            decision = self.queue.enqueue(pending)
+            if decision not in {
+                QueueDecision.DROPPED_DUPLICATE,
+                QueueDecision.DROPPED_OVERLOAD,
+            }:
+                self._pending_appearance_ids[work.key] = work.appearance_id
+                return decision
+        await self._restore_pending_for_retry(pending)
+        return QueueDecision.ENQUEUED
 
     async def _reserve(self, new_crop_bytes: int) -> BudgetLease | None:
         if self.writer_budget is None:
@@ -508,9 +644,10 @@ class AppearancePublisher:
                 settings = await session.scalar(
                     select(ApplicationSettings).where(ApplicationSettings.singleton.is_(True))
                 )
+                physical_crop_bytes = await run_sync(self._physical_crop_bytes)
                 snapshot = BudgetSnapshot(
                     new_crop_bytes=new_crop_bytes,
-                    physical_crop_bytes=self._physical_crop_bytes(),
+                    physical_crop_bytes=physical_crop_bytes,
                     pending_gc_bytes=int(pending_gc or 0),
                     relation_bytes=sum(relation_sizes.values()),
                     filesystem_free_bytes=shutil.disk_usage(self.crop_store.root).free,
@@ -584,6 +721,7 @@ class AppearancePublisher:
             state.first_seen = appearance.first_seen
             state.last_seen = max(state.last_seen, appearance.last_seen)
             state.ended = appearance.ended_at is not None
+            state.ended_at = appearance.ended_at
             return True
 
     @staticmethod
@@ -710,6 +848,7 @@ class AppearancePublisher:
     async def _accept_end(
         self,
         handoff: PipelineHandoff,
+        key: QueueKey,
         appearance_id: AppearanceId,
         state: _TrackState,
         now: float,
@@ -717,6 +856,8 @@ class AppearancePublisher:
         del now
         current = True
         changed = False
+        last_seen = max(state.last_seen, handoff.lifecycle.last_seen)
+        ended_at = max(handoff.lifecycle.ended_at or handoff.lifecycle.last_seen, last_seen)
         async with self.database.transaction() as session:
             current = await self._verify_end_generation(session, handoff.generation)
             if current:
@@ -726,12 +867,15 @@ class AppearancePublisher:
                     and appearance.tombstoned_at is None
                     and appearance.ended_at is None
                 ):
-                    appearance.last_seen = max(appearance.last_seen, handoff.lifecycle.last_seen)
-                    ended_at = handoff.lifecycle.ended_at or handoff.lifecycle.last_seen
+                    appearance.last_seen = max(appearance.last_seen, last_seen)
                     appearance.ended_at = max(ended_at, appearance.last_seen)
+                    last_seen = appearance.last_seen
+                    ended_at = appearance.ended_at
                     await session.flush()
                     changed = True
         if current:
+            state.last_seen = last_seen
+            state.ended_at = ended_at
             state.ended = True
             self._suppressed.discard(appearance_id)
         if not current:
@@ -740,6 +884,18 @@ class AppearancePublisher:
                 appearance_id,
                 handoff.lifecycle.sequence,
                 state,
+            )
+        if (
+            not changed
+            and self.defer_publication
+            and (key in self._pending_appearance_ids or key in self._publishing_keys)
+        ):
+            return self._ack(
+                PublicationOutcome.QUEUED,
+                appearance_id,
+                handoff.lifecycle.sequence,
+                state,
+                detail="end timestamp attached to pending publication",
             )
         return self._ack(
             PublicationOutcome.ENDED if changed else PublicationOutcome.NOOP,
@@ -780,11 +936,7 @@ class AppearancePublisher:
         return now
 
     def _physical_crop_bytes(self) -> int:
-        return sum(
-            path.stat().st_size
-            for path in self.crop_store.root.rglob("*")
-            if path.is_file() and path.suffix in {".jpg", ".tmp"}
-        )
+        return physical_crop_bytes(self.crop_store.root)
 
     @staticmethod
     def _utc(value: datetime) -> datetime:
