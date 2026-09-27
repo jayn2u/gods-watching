@@ -4,11 +4,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, final, override
+from time import monotonic
+from typing import TYPE_CHECKING, Final, final, override
 
 import anyio
 
@@ -34,7 +36,7 @@ from gods_watching.model_selection.registry import (
 )
 from gods_watching.model_selection.service import ModelSelectionService, PipelineLifecyclePort
 from gods_watching.model_selection.transition_observer import TransitionObserver
-from gods_watching.retention import RetentionService
+from gods_watching.retention import RetentionService, StorageAccounting
 from gods_watching.status import StatusReporter, WorkerStatusSnapshot
 from gods_watching.storage import CredentialCipher, CropObjectStore, Database, StorageRepository
 
@@ -45,6 +47,11 @@ if TYPE_CHECKING:
     from anyio.abc import TaskGroup
 
     from gods_watching.model_selection.service import PreparedModelCatalogPort
+
+_ACCOUNTING_REFRESH_INTERVAL_SECONDS: Final = 10.0
+_ACCOUNTING_STALE_AFTER_SECONDS: Final = 30.0
+_PUBLICATION_SHUTDOWN_DRAIN_SECONDS: Final = 6.0
+_LOGGER: Final = logging.getLogger(__name__)
 
 
 def _coordinator_binding(
@@ -134,6 +141,7 @@ class _PipelineLifecycle(PipelineLifecyclePort):
             model_id=package.model_id,
             model_revision=package.revision,
             writer_budget=budget,
+            defer_publication=True,
             active_binding=_coordinator_binding(coordinator),
         )
         consumer = AppearanceHandoffConsumer(publisher)
@@ -177,20 +185,39 @@ class _PipelineLifecycle(PipelineLifecyclePort):
             return
         with anyio.CancelScope(shield=True):
             generation.stop_event.set()
-            await generation.done_event.wait()
+            with anyio.move_on_after(_PUBLICATION_SHUTDOWN_DRAIN_SECONDS) as scope:
+                await generation.done_event.wait()
+            if scope.cancelled_caught:
+                pending = generation.consumer.stats.pending_embeddings
+                _LOGGER.warning(
+                    "publication drain incomplete (pending_publications=%d)",
+                    pending,
+                )
+                message = "publication drain incomplete; refusing model/pipeline restart"
+                raise TransitionRecoveryError(message)
         if self._generation is generation:
             self._generation = None
 
     async def _run_generation(self, generation: _Generation) -> None:
         try:
             async with anyio.create_task_group() as task_group:
-                task_group.start_soon(_run_pipeline, generation.pipeline, generation.stop_event)
+                pipeline_done = anyio.Event()
+                publications_done = anyio.Event()
+                status_stop_event = anyio.Event()
+                task_group.start_soon(
+                    _run_pipeline,
+                    generation.pipeline,
+                    generation.stop_event,
+                    pipeline_done,
+                )
                 task_group.start_soon(generation.live_detection.run, generation.stop_event)
                 task_group.start_soon(
                     _drain_publications,
                     generation.consumer,
                     generation.stop_event,
                     self._settings.worker_poll_seconds,
+                    pipeline_done,
+                    publications_done,
                 )
                 task_group.start_soon(
                     _report_status,
@@ -201,10 +228,18 @@ class _PipelineLifecycle(PipelineLifecyclePort):
                         detector=self._detector_transport,
                         consumer=generation.consumer,
                     ),
-                    generation.stop_event,
+                    status_stop_event,
                     self._settings.worker_poll_seconds,
                 )
                 await generation.retention.run_forever(generation.stop_event)
+                drained = await _wait_for_shutdown_drain(
+                    pipeline_done,
+                    publications_done,
+                    generation.consumer,
+                )
+                if not drained:
+                    await publications_done.wait()
+                status_stop_event.set()
                 task_group.cancel_scope.cancel()
         finally:
             try:
@@ -416,20 +451,62 @@ async def _run_model_transitions(
             done_event.set()
 
 
-async def _run_pipeline(pipeline: PipelineWorker, stop_event: anyio.Event) -> None:
-    await pipeline.run(stop_event=stop_event)
+async def _run_pipeline(
+    pipeline: PipelineWorker,
+    stop_event: anyio.Event,
+    done_event: anyio.Event,
+) -> None:
+    try:
+        await pipeline.run(stop_event=stop_event)
+    finally:
+        done_event.set()
 
 
 async def _drain_publications(
     consumer: AppearanceHandoffConsumer,
     stop_event: anyio.Event,
     interval_seconds: float,
+    pipeline_done: anyio.Event | None = None,
+    drainer_done: anyio.Event | None = None,
 ) -> None:
-    while not stop_event.is_set():
-        acknowledgement = await consumer.drain_one()
-        if acknowledgement is None or acknowledgement.outcome is PublicationOutcome.PAUSED:
-            with anyio.move_on_after(interval_seconds):
-                await stop_event.wait()
+    pipeline_completion = pipeline_done or stop_event
+    try:
+        while True:
+            if (
+                stop_event.is_set()
+                and pipeline_completion.is_set()
+                and consumer.stats.pending_embeddings == 0
+            ):
+                return
+            acknowledgement = await consumer.drain_one()
+            if acknowledgement is None or acknowledgement.outcome is PublicationOutcome.PAUSED:
+                if stop_event.is_set():
+                    await anyio.sleep(interval_seconds)
+                else:
+                    with anyio.move_on_after(interval_seconds):
+                        await stop_event.wait()
+    finally:
+        if drainer_done is not None:
+            drainer_done.set()
+
+
+async def _wait_for_shutdown_drain(
+    pipeline_done: anyio.Event,
+    drainer_done: anyio.Event,
+    consumer: AppearanceHandoffConsumer,
+) -> bool:
+    with anyio.move_on_after(_PUBLICATION_SHUTDOWN_DRAIN_SECONDS) as scope:
+        await pipeline_done.wait()
+        await drainer_done.wait()
+    if not scope.cancelled_caught:
+        return True
+    _LOGGER.warning(
+        "shutdown drain deadline: pipeline_done=%s drainer_done=%s pending_publications=%d",
+        pipeline_done.is_set(),
+        drainer_done.is_set(),
+        consumer.stats.pending_embeddings,
+    )
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,26 +523,64 @@ async def _report_status(
     stop_event: anyio.Event,
     interval_seconds: float,
 ) -> None:
-    while not stop_event.is_set():
-        accounting = await loop.retention.accounting()
-        publication = loop.consumer.stats
-        async with loop.database.transaction() as session:
-            await loop.reporter.report(
-                session,
-                snapshot=WorkerStatusSnapshot(
-                    observed_at=datetime.now(UTC),
-                    inference_ready=await loop.detector.ready(),
-                    persistence_paused=(
-                        accounting.cleanup_required or accounting.filesystem_guard_active
-                    ),
-                    storage_managed_bytes=accounting.managed_bytes,
-                    storage_quota_bytes=accounting.quota_bytes,
-                    indexing_queue_depth=publication.pending_embeddings,
-                    last_searchable_latency_seconds=(publication.last_searchable_latency_seconds),
-                ),
-            )
-        with anyio.move_on_after(interval_seconds):
-            await stop_event.wait()
+    latest_accounting: StorageAccounting | None = None
+    last_accounting_success: float | None = None
+    accounting_failed = False
+
+    async def refresh_accounting() -> None:
+        nonlocal accounting_failed, last_accounting_success, latest_accounting
+        while not stop_event.is_set():
+            try:
+                latest_accounting = await loop.retention.accounting()
+                last_accounting_success = monotonic()
+                accounting_failed = False
+            except Exception:
+                accounting_failed = True
+                _LOGGER.exception("retention accounting refresh failed")
+            with anyio.move_on_after(_ACCOUNTING_REFRESH_INTERVAL_SECONDS) as scope:
+                await stop_event.wait()
+            if not scope.cancelled_caught:
+                return
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(refresh_accounting)
+        try:
+            while not stop_event.is_set():
+                accounting = latest_accounting
+                accounting_fresh = (
+                    accounting is not None
+                    and last_accounting_success is not None
+                    and monotonic() - last_accounting_success <= _ACCOUNTING_STALE_AFTER_SECONDS
+                )
+                if not accounting_fresh:
+                    accounting = None
+                publication = loop.consumer.stats
+                async with loop.database.transaction() as session:
+                    await loop.reporter.report(
+                        session,
+                        snapshot=WorkerStatusSnapshot(
+                            observed_at=datetime.now(UTC),
+                            inference_ready=await loop.detector.ready(),
+                            persistence_paused=(
+                                accounting_failed
+                                or accounting is None
+                                or accounting.cleanup_required
+                                or accounting.filesystem_guard_active
+                            ),
+                            storage_managed_bytes=(
+                                0 if accounting is None else accounting.managed_bytes
+                            ),
+                            storage_quota_bytes=0 if accounting is None else accounting.quota_bytes,
+                            indexing_queue_depth=publication.pending_embeddings,
+                            last_searchable_latency_seconds=(
+                                publication.last_searchable_latency_seconds
+                            ),
+                        ),
+                    )
+                with anyio.move_on_after(interval_seconds):
+                    await stop_event.wait()
+        finally:
+            task_group.cancel_scope.cancel()
 
 
 __all__ = ["run_pipeline_worker"]

@@ -9,12 +9,15 @@ import os
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Self
 from unittest.mock import patch
 
 import anyio
 import pytest
+from cryptography.fernet import Fernet
 
 from gods_watching.model_selection.preflight import (
     estimate_switch,
@@ -22,7 +25,11 @@ from gods_watching.model_selection.preflight import (
     rehearsal_path,
     runtime_code_sha256,
 )
-from gods_watching.model_selection.registry import DEFAULT_CLIP_MODEL, get_clip_model
+from gods_watching.model_selection.registry import (
+    DEFAULT_CLIP_MODEL,
+    ClipModelRegistry,
+    get_clip_model,
+)
 from gods_watching.model_selection.rehearsal import (
     InnerInputs,
     RehearsalError,
@@ -365,6 +372,133 @@ async def test_inner_refuses_non_stack_urls_before_database_access(tmp_path: Pat
     )
     with pytest.raises(RehearsalError, match="inner_stack_handles_required"):
         await run_inner(inputs)
+
+
+@pytest.mark.anyio
+async def test_run_inner_clears_prior_proof_only_on_isolated_composition(  # noqa: C901
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = ClipModelRegistry((SOURCE, TARGET))
+    monkeypatch.setattr(
+        "gods_watching.model_selection.rehearsal.load_clip_registry",
+        lambda _root: registry,
+    )
+
+    class Database:
+        @asynccontextmanager
+        async def transaction(self) -> AsyncIterator[object]:
+            yield object()
+
+        async def close(self) -> None:
+            return
+
+    database = Database()
+    monkeypatch.setattr("gods_watching.storage.Database.connect", lambda _url: database)
+
+    class Coordinator:
+        @asynccontextmanager
+        async def worker_ownership(self) -> AsyncIterator[None]:
+            yield
+
+    coordinator = Coordinator()
+    monkeypatch.setattr(
+        "gods_watching.model_selection.coordinator.TransitionCoordinator",
+        lambda _database: coordinator,
+    )
+
+    class Runtime:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return
+
+    runtime = Runtime()
+    clip_module = __import__("gods_watching.inference.clip", fromlist=["x"])
+    monkeypatch.setattr(clip_module, "ClipRuntimeManager", lambda _url: runtime)
+
+    class Prepared:
+        def status(self, _package: object) -> object:
+            return SimpleNamespace(prepared=True)
+
+    assets_module = __import__("gods_watching.model_selection.assets", fromlist=["x"])
+    monkeypatch.setattr(assets_module, "PreparedModelCatalog", lambda *_args: Prepared())
+    crop_store = object()
+    monkeypatch.setattr("gods_watching.storage.CropObjectStore", lambda _root: crop_store)
+    detector_module = __import__("gods_watching.inference.detector", fromlist=["x"])
+
+    async def corpus_digest(*_args: object) -> str:
+        return "a" * 64
+
+    async def create_job(*_args: object, **_kwargs: object) -> str:
+        return "job-id"
+
+    class DetectorTransport:
+        async def close(self) -> None:
+            return
+
+    detector_transport = DetectorTransport()
+    monkeypatch.setattr(
+        detector_module,
+        "TritonGrpcDetectorTransport",
+        lambda **_kwargs: detector_transport,
+    )
+    monkeypatch.setattr(detector_module, "DetectorClient", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        "gods_watching.model_selection.rehearsal.retained_corpus_sha256",
+        corpus_digest,
+    )
+    monkeypatch.setattr(
+        "gods_watching.model_selection.rehearsal._queue_verified_job",
+        create_job,
+    )
+
+    @dataclass(frozen=True)
+    class Selection:
+        preflight_assets_root: Path | None
+        preflight_crop_store: object
+
+    selection = Selection(Path("/models"), crop_store)
+    composition = worker_app.OneShotTransition(
+        selection,
+        SimpleNamespace(),
+        runtime,
+        crop_store,
+        "gw-rehearsal-test-triton:8001",
+    )
+    monkeypatch.setattr(
+        worker_app, "compose_one_shot_transition", lambda **_kwargs: composition
+    )
+
+    async def stop_at_transition(
+        self: object, *, observer: TransitionObserver, restart_probe: object = None
+    ) -> None:
+        _ = observer, restart_probe
+        assert self.selection.preflight_assets_root is None
+        assert self.selection.preflight_crop_store is crop_store
+        raise RehearsalError("isolated_transition_reached")
+
+    monkeypatch.setattr(worker_app.OneShotTransition, "run_pending", stop_at_transition)
+
+    key_file = tmp_path / "camera.key"
+    key_file.write_text(Fernet.generate_key().decode("ascii"), encoding="ascii")
+    inputs = InnerInputs(
+        database_url="postgresql+asyncpg://worker:secret@gw-rehearsal-test-pg:5432/clone",
+        triton_url="gw-rehearsal-test-triton:8001",
+        crops_root=Path("/rehearsal/crops"),
+        assets_root=Path("/models"),
+        model_lock=tmp_path / "models.lock.json",
+        target_model_id=TARGET.model_id,
+        source_model_id=SOURCE.model_id,
+        source_revision=SOURCE.revision,
+        source_dimension=SOURCE.dimension,
+        output=Path("/rehearsal/proof/observation.json"),
+        camera_cipher_key_file=key_file,
+    )
+    with pytest.raises(ExceptionGroup) as failure:
+        await run_inner(inputs)
+    assert isinstance(failure.value.exceptions[0], RehearsalError)
+    assert str(failure.value.exceptions[0]) == "isolated_transition_reached"
 
 
 @pytest.mark.anyio

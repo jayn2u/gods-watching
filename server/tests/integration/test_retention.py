@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from threading import Event
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
+import anyio
 import pytest
+from anyio.to_thread import run_sync
 from cryptography.fernet import Fernet
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
 
+from gods_watching.appearances import ConservativeWriterBudget
 from gods_watching.contracts.appearances import AppearancePublication, BoundingBox
 from gods_watching.contracts.cameras import CameraCreateRequest
 from gods_watching.contracts.identifiers import AppearanceId, CameraId, CameraSessionId
@@ -29,6 +33,7 @@ from gods_watching.storage import (
     StaleAppearanceVersionError,
     StorageRepository,
 )
+from gods_watching.storage.physical_usage import managed_crop_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -38,6 +43,174 @@ if TYPE_CHECKING:
 
 
 _NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class _TestSettings:
+    retention_days: int = 7
+    quota_bytes: int = 100_000_000_000
+
+
+class _EmptyRows:
+    def tuples(self) -> _EmptyRows:
+        return self
+
+    def all(self) -> list[tuple[object, ...]]:
+        return []
+
+
+class _AccountingSession:
+    async def scalar(self, statement: object) -> object | None:
+        if "application_settings" in str(statement).lower():
+            return _TestSettings()
+        return None
+
+    async def execute(self, statement: object) -> _EmptyRows:
+        del statement
+        return _EmptyRows()
+
+
+class _AccountingTransaction:
+    async def __aenter__(self) -> _AccountingSession:
+        return _AccountingSession()
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+class _AccountingDatabase:
+    def transaction(self) -> _AccountingTransaction:
+        return _AccountingTransaction()
+
+
+class _AccountingStorage:
+    async def application_relation_sizes(
+        self,
+        session: AsyncSession,
+    ) -> Mapping[str, int]:
+        del session
+        return {"appearances": 0}
+
+
+def _accounting_service(
+    tmp_path: Path,
+    *,
+    writer_budget: ConservativeWriterBudget | None = None,
+) -> RetentionService:
+    return RetentionService(
+        database=cast("Database", cast("object", _AccountingDatabase())),
+        storage=cast("StorageRepository", cast("object", _AccountingStorage())),
+        crop_store=CropObjectStore(tmp_path / "crops"),
+        writer_budget=writer_budget,
+    )
+
+
+@pytest.mark.anyio
+async def test_accounting_keeps_async_tasks_responsive_during_slow_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    budget = ConservativeWriterBudget(minimum_free_bytes=0)
+    service = _accounting_service(tmp_path, writer_budget=budget)
+    scan_started = Event()
+    release_scan = Event()
+    heartbeat_progressed = Event()
+    scan_observed_heartbeat = Event()
+    competing_writer_acquired = anyio.Event()
+
+    def slow_scan(_root: Path) -> int:
+        scan_started.set()
+        _ = release_scan.wait(timeout=0.5)
+        if heartbeat_progressed.is_set():
+            scan_observed_heartbeat.set()
+        return 0
+
+    monkeypatch.setattr("gods_watching.retention.service.managed_crop_bytes", slow_scan)
+
+    async def report_accounting() -> None:
+        _ = await service.accounting()
+
+    async def heartbeat() -> None:
+        with anyio.fail_after(2):
+            _ = await run_sync(scan_started.wait)
+        heartbeat_progressed.set()
+        release_scan.set()
+
+    async def competing_writer() -> None:
+        async with budget.writer_gate.hold():
+            competing_writer_acquired.set()
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(report_accounting)
+        task_group.start_soon(heartbeat)
+        task_group.start_soon(competing_writer)
+        await anyio.lowlevel.checkpoint()
+        assert not competing_writer_acquired.is_set()
+
+    assert scan_observed_heartbeat.is_set()
+    assert competing_writer_acquired.is_set()
+
+
+@pytest.mark.anyio
+async def test_no_change_sweep_scans_managed_files_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = _accounting_service(tmp_path)
+    real_managed_scan = managed_crop_bytes
+    scans = 0
+
+    def count_scans(root: Path) -> int:
+        nonlocal scans
+        scans += 1
+        return real_managed_scan(root)
+
+    monkeypatch.setattr("gods_watching.retention.service.managed_crop_bytes", count_scans)
+
+    report = await service.sweep(now=_NOW)
+
+    assert report.age_candidates == 0
+    assert report.tombstoned == 0
+    assert scans == 1
+
+
+@pytest.mark.anyio
+async def test_age_tombstone_forces_fresh_post_mutation_accounting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = _accounting_service(tmp_path)
+    remaining_file_sizes = [17]
+    scans = 0
+    candidate = object()
+
+    def scan_current_files(_root: Path) -> int:
+        nonlocal scans
+        scans += 1
+        return sum(remaining_file_sizes)
+
+    async def one_expired_candidate(_now: datetime) -> tuple[None, tuple[object, ...]]:
+        return None, (candidate,)
+
+    async def tombstone(_candidate: object) -> bool:
+        remaining_file_sizes.clear()
+        return True
+
+    async def no_pending_gc(_errors: list[str]) -> tuple[int, int]:
+        return 0, 0
+
+    monkeypatch.setattr("gods_watching.retention.service.managed_crop_bytes", scan_current_files)
+    monkeypatch.setattr(service, "_age_candidates", one_expired_candidate)
+    monkeypatch.setattr(service, "_tombstone", tombstone)
+    monkeypatch.setattr(service, "_drain_gc", no_pending_gc)
+
+    report = await service.sweep(now=_NOW)
+
+    assert report.tombstoned == 1
+    assert report.managed_bytes_before == 17
+    assert report.physical_crop_bytes_after == 0
+    assert report.managed_bytes_after == 0
+    assert scans == 2
 
 
 @dataclass
@@ -206,6 +379,74 @@ async def test_age_sweep_hides_vector_and_reclaims_crop(
         assert garbage is None
     finally:
         await _cleanup(database, camera_session_id, appearance_id, crop_object_key)
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_age_sweep_filters_scalar_candidates_in_sql(
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    database = Database.connect(database_url)
+    repository = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    store = CropObjectStore(tmp_path / "crops")
+    expired = await _seed(
+        database,
+        store,
+        repository,
+        camera_name=f"retention-scalar-old-{uuid4().hex}",
+        first_seen=datetime(2026, 8, 1, tzinfo=UTC),
+        track_id=101,
+    )
+    recent = await _seed(
+        database,
+        store,
+        repository,
+        camera_name=f"retention-scalar-recent-{uuid4().hex}",
+        first_seen=datetime(2026, 9, 6, tzinfo=UTC),
+        track_id=102,
+    )
+    statements: list[str] = []
+
+    def capture_sql(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        *_args: object,
+    ) -> None:
+        statements.append(statement.lower())
+
+    try:
+        service = RetentionService(database=database, storage=repository, crop_store=store)
+        event.listen(database.engine.sync_engine, "before_cursor_execute", capture_sql)
+        try:
+            report = await service.sweep(now=_NOW)
+        finally:
+            event.remove(database.engine.sync_engine, "before_cursor_execute", capture_sql)
+
+        candidate_queries = [
+            statement
+            for statement in statements
+            if statement.lstrip().startswith("select")
+            and "from appearances" in statement
+            and "tombstoned_at is null" in statement
+            and "order by appearances.first_seen" in statement
+        ]
+        assert len(candidate_queries) == 1
+        candidate_query = candidate_queries[0]
+        assert "first_seen <=" in candidate_query
+        assert "embedding" not in candidate_query
+        assert "camera_sessions" not in candidate_query
+        assert report.age_candidates == 1
+        assert report.tombstoned == 1
+        async with database.transaction() as session:
+            assert await session.get(Appearance, expired[0]) is None
+            recent_row = await session.get(Appearance, recent[0])
+        assert recent_row is not None
+        assert recent_row.tombstoned_at is None
+    finally:
+        await _cleanup(database, expired[1], expired[0], expired[2])
+        await _cleanup(database, recent[1], recent[0], recent[2])
         await database.close()
 
 

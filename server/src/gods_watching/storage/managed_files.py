@@ -7,13 +7,21 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final, final, override
 
+_HEX_COMPONENT_PATTERN: Final = r"[0-9a-f]{2}"
+_UUID_V4_COMPONENT: Final = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _OBJECT_KEY: Final = re.compile(
-    r"[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg"
+    _HEX_COMPONENT_PATTERN
+    + "/"
+    + _HEX_COMPONENT_PATTERN
+    + "/"
+    + _UUID_V4_COMPONENT
+    + r"\.jpg"
 )
-_TEMP_NAME: Final = re.compile(
-    r"\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp"
-)
+_HEX_COMPONENT: Final = re.compile(_HEX_COMPONENT_PATTERN)
+_OBJECT_FILENAME: Final = re.compile(_UUID_V4_COMPONENT + r"\.jpg")
+_TEMP_NAME: Final = re.compile(r"\." + _UUID_V4_COMPONENT + r"\.tmp")
 _PATH_COMPONENT_COUNT: Final = 3
+_DIRECTORY_COMPONENT_COUNT: Final = _PATH_COMPONENT_COUNT - 1
 
 
 @final
@@ -65,28 +73,34 @@ class ManagedFile:
 def safe_scan(root: Path) -> tuple[ManagedFile, ...]:
     """Enumerate only regular files matching the generated object grammar."""
     root_path = _checked_root(root)
-    pending = [root_path]
+    pending: list[tuple[str, str, int]] = [(os.fspath(root_path), "", 0)]
     files: list[ManagedFile] = []
     while pending:
-        directory = pending.pop()
+        directory, key_prefix, depth = pending.pop()
         with os.scandir(directory) as entries:
             for entry in entries:
-                if entry.is_symlink():
-                    continue
-                if entry.is_dir(follow_symlinks=False):
-                    pending.append(Path(entry.path))
+                if depth < _DIRECTORY_COMPONENT_COUNT:
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                    if _HEX_COMPONENT.fullmatch(entry.name) is None:
+                        continue
+                    next_prefix = (
+                        entry.name if depth == 0 else f"{key_prefix}/{entry.name}"
+                    )
+                    pending.append((entry.path, next_prefix, depth + 1))
                     continue
                 if not entry.is_file(follow_symlinks=False):
                     continue
-                relative = Path(entry.path).relative_to(root_path).as_posix()
-                classified = _classify(relative)
+                classified = _classify_filename(entry.name)
                 if classified is None:
                     continue
                 try:
                     byte_size = entry.stat(follow_symlinks=False).st_size
                 except FileNotFoundError:
                     continue
-                files.append(ManagedFile(relative, classified, byte_size))
+                files.append(
+                    ManagedFile(f"{key_prefix}/{entry.name}", classified, byte_size)
+                )
     return tuple(files)
 
 
@@ -95,7 +109,7 @@ def safe_unlink(root: Path, object_key: str) -> bool:
     components = object_key.split("/")
     if len(components) != _PATH_COMPONENT_COUNT:
         raise ManagedPathError(object_key)
-    kind = _classify(object_key)
+    kind = classify_managed_path(object_key)
     if kind is None:
         raise ManagedPathError(object_key)
     root_path = _checked_root(root)
@@ -135,16 +149,24 @@ def _checked_root(root: Path) -> Path:
     return absolute
 
 
-def _classify(relative: str) -> ManagedFileKind | None:
+def classify_managed_path(relative: str) -> ManagedFileKind | None:
+    """Return the managed kind for an exact generated relative path."""
     parts = relative.split("/")
     if len(parts) != _PATH_COMPONENT_COUNT or not all(
-        re.fullmatch(r"[0-9a-f]{2}", part) for part in parts[:2]
+        _HEX_COMPONENT.fullmatch(part) for part in parts[:2]
     ):
         return None
     if _OBJECT_KEY.fullmatch(relative) is not None:
         return ManagedFileKind.JPEG
-    if _TEMP_NAME.fullmatch(parts[2]) is not None:
-        return ManagedFileKind.TEMPORARY
+    return _classify_filename(parts[2])
+
+
+def _classify_filename(filename: str) -> ManagedFileKind | None:
+    if filename.startswith("."):
+        if _TEMP_NAME.fullmatch(filename) is not None:
+            return ManagedFileKind.TEMPORARY
+    elif _OBJECT_FILENAME.fullmatch(filename) is not None:
+        return ManagedFileKind.JPEG
     return None
 
 
@@ -153,6 +175,7 @@ __all__ = [
     "ManagedFile",
     "ManagedFileKind",
     "ManagedPathError",
+    "classify_managed_path",
     "safe_scan",
     "safe_unlink",
 ]

@@ -94,6 +94,8 @@ def test_one_shot_composes_real_lifecycle_without_polling(tmp_path: Path) -> Non
             )
             assert type(runner.lifecycle) is _PipelineLifecycle
             assert runner.selection.database is resources[0]
+            assert runner.selection.preflight_assets_root == tmp_path
+            assert runner.selection.preflight_crop_store is resources[2]
             assert runner.lifecycle.generation is None
             assert runner.runtime is resources[7]
 

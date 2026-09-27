@@ -265,6 +265,123 @@ async def test_worker_rechecks_corpus_after_terminal_handoff(
 
 
 @pytest.mark.anyio
+async def test_isolated_bootstrap_transitions_with_no_prior_rehearsal_proof(
+    database_url: str, tmp_path: Path
+) -> None:
+    from io import BytesIO
+
+    from PIL import Image
+
+    from gods_watching.model_selection.rehearsal import _queue_verified_job
+    from gods_watching.storage import Camera, CameraSession, Database
+
+    database = Database.connect(database_url)
+    crop_store = CropObjectStore(tmp_path / "isolated-bootstrap-crops")
+    storage = StorageRepository(CredentialCipher(Fernet.generate_key()))
+    source = DEFAULT_CLIP_MODEL
+    target = _target_package()
+    repository = TransitionRepository()
+    service = ModelSelectionService(
+        database=database,
+        registry=ClipModelRegistry((source, target)),
+        prepared=_Prepared(),
+        storage=storage,
+        preflight_crop_store=crop_store,
+    )
+    appearance_ids: list[UUID] = []
+    camera_id: UUID | None = None
+    session_id: UUID | None = None
+    job_id: UUID | None = None
+    try:
+        async with database.transaction() as setup:
+            _ = await repository.active_identity(setup, default=source)
+            camera = await storage.add_camera(
+                setup,
+                name=f"isolated-bootstrap-{uuid4().hex[:8]}",
+                source_url=_source("isolated-bootstrap"),
+            )
+            camera_session = await storage.start_camera_session(
+                setup, camera.id, cause="offline rehearsal"
+            )
+            camera_id, session_id = camera.id, camera_session.id
+            for index in range(16):
+                image = BytesIO()
+                Image.new("RGB", (2, 2), (index * 13, 30, 60)).save(image, format="PNG")
+                crop = crop_store.write(image.getvalue())
+                appearance_id = uuid4()
+                appearance_ids.append(appearance_id)
+                await storage.publish_appearance(
+                    setup,
+                    _publication(
+                        appearance_id=appearance_id,
+                        camera_id=camera.id,
+                        session_id=camera_session.id,
+                        embedding=_unit(source.dimension),
+                        crop_object_key=crop.object_key,
+                        track_id=index + 1,
+                    ),
+                )
+            job_id = UUID(
+                await _queue_verified_job(
+                    repository, setup, crop_store, source=source, target=target
+                )
+            )
+
+        observer = TransitionObserver()
+        runtime = _Runtime()
+        pipeline = _Pipeline()
+        result = await service.run_pending(
+            crop_store=crop_store,
+            runtime=runtime,
+            clip_factory=_working_clip_factory,
+            pipeline=pipeline,
+            observer=observer,
+        )
+
+        assert result is not None
+        assert result.activated
+        assert result.state.id == job_id
+        assert observer.measurement is not None
+        assert observer.measurement.complete
+        assert observer.measurement.completed_crops == 16
+        assert observer.measurement.target_identity == (
+            target.model_id,
+            target.revision,
+            target.dimension,
+        )
+        assert observer.measurement.phase_seconds["corpus_recheck"] > 0
+        assert runtime.loaded == [target.model_id]
+        assert pipeline.starts == [target.model_id]
+        async with database.transaction() as check:
+            active = await repository.active_identity(check)
+            assert (active.model_id, active.model_revision, active.embedding_dimension) == (
+                target.model_id,
+                target.revision,
+                target.dimension,
+            )
+    finally:
+        async with database.transaction() as cleanup:
+            if job_id is not None:
+                await cleanup.execute(
+                    delete(ModelTransitionJob).where(ModelTransitionJob.id == job_id)
+                )
+            if appearance_ids:
+                await cleanup.execute(delete(Appearance).where(Appearance.id.in_(appearance_ids)))
+            if session_id is not None:
+                await cleanup.execute(delete(CameraSession).where(CameraSession.id == session_id))
+            if camera_id is not None:
+                await cleanup.execute(delete(Camera).where(Camera.id == camera_id))
+            active = await cleanup.scalar(
+                select(ActiveModelIdentity).where(ActiveModelIdentity.singleton.is_(True))
+            )
+            if active is not None:
+                active.model_id = source.model_id
+                active.model_revision = source.revision
+                active.embedding_dimension = source.dimension
+        await database.close()
+
+
+@pytest.mark.anyio
 async def test_imported_model_apply_fails_without_real_product_cases() -> None:
     imported = ClipModelPackage(
         model_id="fixture/imported",

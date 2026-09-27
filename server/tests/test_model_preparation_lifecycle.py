@@ -1,4 +1,6 @@
+import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -33,6 +35,46 @@ def test_gpu_proof_specs_identify_builtin_and_imported_packages() -> None:
     exec(spec_line, namespace)  # noqa: S102
     specs = namespace["specs"]
     assert [spec["imported"] for spec in specs] == [False, True]
+
+
+def test_emitted_gpu_proof_helper_normalizes_only_canonical_cuda_uuids() -> None:
+    device_uuid = "17913b0a-8144-5f39-7062-15265e5dca33"
+    cases = (
+        (device_uuid, f"GPU-{device_uuid}"),
+        (f"GPU-{device_uuid}", f"GPU-{device_uuid}"),
+        (None, ""),
+        ("", ""),
+        ("not-a-uuid", ""),
+        ("GPU-not-a-uuid", ""),
+    )
+    program = _gpu_proof_program((ClipModelRegistry().default,))
+    function = next(
+        node
+        for node in ast.parse(program).body
+        if isinstance(node, ast.FunctionDef) and node.name == "_gpu_uuid"
+    )
+    helper_source = ast.get_source_segment(program, function)
+    assert helper_source is not None
+
+    class FakeCuda:
+        def __init__(self, reported_uuid: str | None, device_indices: list[int]) -> None:
+            self.reported_uuid = reported_uuid
+            self.device_indices = device_indices
+
+        def get_device_properties(self, index: int) -> SimpleNamespace:
+            self.device_indices.append(index)
+            return SimpleNamespace(uuid=self.reported_uuid)
+
+    for reported_uuid, expected_uuid in cases:
+        device_indices: list[int] = []
+        namespace: dict[str, object] = {
+            "available": True,
+            "torch": SimpleNamespace(cuda=FakeCuda(reported_uuid, device_indices)),
+        }
+        exec(helper_source, namespace)  # noqa: S102
+
+        assert namespace["_gpu_uuid"]() == expected_uuid
+        assert device_indices == [0]
 
 
 def test_published_builtin_marker_remains_prepared(tmp_path: Path) -> None:

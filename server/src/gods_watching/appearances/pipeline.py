@@ -1,5 +1,6 @@
 """Concrete ingest handoff consumer for appearance publication."""
 
+import logging
 from dataclasses import dataclass
 from typing import final
 
@@ -7,7 +8,15 @@ import anyio
 
 from gods_watching.contracts.pipeline import PipelineHandoff
 
-from .publication import AppearancePublisher, PublicationAck, ReconciliationReport
+from .publication import (
+    AppearancePublisher,
+    PublicationAck,
+    PublicationOutcome,
+    ReconciliationReport,
+)
+from .queue import QueueDecision
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +29,7 @@ class PublicationStatsSnapshot:
 
 @final
 class AppearanceHandoffConsumer:
-    """Serialize ingest handoffs and reconcile crop storage before first use."""
+    """Reconcile crop storage and coordinate lifecycle handoffs with queued writes."""
 
     def __init__(self, publisher: AppearancePublisher) -> None:
         """Bind one publisher to the callable ingest-consumer surface."""
@@ -51,23 +60,30 @@ class AppearanceHandoffConsumer:
             return self._reconciliation
 
     async def consume(self, handoff: PipelineHandoff) -> PublicationAck:
-        """Publish one ordered lifecycle handoff and retain its acknowledgement."""
+        """Accept one ordered lifecycle handoff without waiting on another track's write."""
         _ = await self.start()
+        acknowledgement = await self._publisher.accept_handoff(handoff)
         async with self._lock:
-            acknowledgement = await self._publisher.accept_handoff(handoff)
             self._record(acknowledgement)
-            return acknowledgement
+        return acknowledgement
 
     async def drain_one(self) -> PublicationAck | None:
-        """Retry the highest-priority queued publication once."""
-        async with self._lock:
-            acknowledgement = await self._publisher.process_next()
-            if acknowledgement is not None:
+        """Publish one item outside the consumer lock while preserving queue order."""
+        acknowledgement = await self._publisher.process_next()
+        if acknowledgement is not None:
+            async with self._lock:
                 self._record(acknowledgement)
-            return acknowledgement
+        return acknowledgement
 
     def _record(self, acknowledgement: PublicationAck) -> None:
         self._last_ack = acknowledgement
+        if (
+            acknowledgement.outcome is PublicationOutcome.DROPPED
+            and acknowledgement.queue_decision is QueueDecision.DROPPED_OVERLOAD
+        ):
+            _LOGGER.warning(
+                "Appearance candidate dropped because the bounded publication queue is full"
+            )
         if acknowledgement.t_searchable_monotonic is not None:
             self._last_searchable_latency_seconds = max(
                 0.0,

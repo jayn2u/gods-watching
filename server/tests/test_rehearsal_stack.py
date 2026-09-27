@@ -15,6 +15,7 @@ from gods_watching.model_selection.rehearsal_stack import (
     DockerCommandError,
     RehearsalInputs,
     RehearsalStackError,
+    _wait_postgres,
     isolated_rehearsal_stack,
 )
 from gods_watching.setup.model_preparation import GpuModelProof, PreparedManifest
@@ -112,6 +113,8 @@ class FakeDocker:
             return "pg-container-id" if args[-1].endswith("-pg") else "triton-container-id"
         if "nvidia-smi" in args:
             return self.gpu
+        if any("PGPASSWORD" in argument and "SELECT 1" in argument for argument in args):
+            return "1"
         if "psql" in args and "crop_object_key" in args[-1]:
             return self.crop_keys
         if "psql" in args:
@@ -264,6 +267,41 @@ def test_internal_stack_tears_down(tmp_path: Path) -> None:
         "SELECT crop_object_key FROM appearances WHERE tombstoned_at IS NULL" in call
         for command in runner.calls for call in command
     )
+
+
+def test_postgres_wait_requires_tcp_connection_to_restored_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SocketReadyOnly:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        async def run(self, argv: Sequence[str], *, check: bool = True) -> str:
+            _ = check
+            args = list(argv)
+            self.calls.append(args)
+            if "pg_isready" in args:
+                return "accepting connections"
+            raise DockerCommandError(
+                stderr='FATAL: database "gods_watching" does not exist', returncode=2
+            )
+
+    async def no_wait(_seconds: float) -> None:
+        return
+
+    runner = SocketReadyOnly()
+    monkeypatch.setattr("gods_watching.model_selection.rehearsal_stack.asyncio.sleep", no_wait)
+    with pytest.raises(RehearsalStackError, match="postgres_not_ready"):
+        asyncio.run(_wait_postgres(runner, "gw-rehearsal-test-pg"))
+
+    assert len(runner.calls) == 100
+    probe = runner.calls[0]
+    assert probe[:3] == ["docker", "exec", "gw-rehearsal-test-pg"]
+    command = " ".join(probe)
+    assert "127.0.0.1" in command
+    assert "gods_watching" in command
+    assert "pg_isready" not in command
+    assert 'PGPASSWORD="$POSTGRES_PASSWORD"' in command
 
 
 def test_failed_restore_tears_down(tmp_path: Path) -> None:
