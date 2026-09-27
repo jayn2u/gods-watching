@@ -155,6 +155,76 @@ test.describe("model selector", () => {
     expect(requests).toBe(1)
   })
 
+  test("waits for an in-flight polling preflight before applying", async ({ page }) => {
+    await installAuthenticatedShell(page)
+    let preflightReads = 0
+    let signalPollingPreflightStarted: () => void = () => {}
+    const pollingPreflightStarted = new Promise<void>((resolve) => {
+      signalPollingPreflightStarted = resolve
+    })
+    let releasePollingPreflight: () => void = () => {}
+    const pollingPreflightGate = new Promise<void>((resolve) => {
+      releasePollingPreflight = resolve
+    })
+    const applyBodies: string[] = []
+
+    await page.route(/\/api\/settings\/models(?:\/apply)?$/, async (route) => {
+      if (route.request().method() === "POST") {
+        applyBodies.push(route.request().postData() ?? "")
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify(catalog(B16, transition("queued", 0, 40), true)),
+        })
+        return
+      }
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog()) })
+    })
+    await page.route("**/api/settings/models/preflight?*", async (route) => {
+      preflightReads += 1
+      if (preflightReads === 3) {
+        signalPollingPreflightStarted()
+        await pollingPreflightGate
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          target_model_id: L14,
+          retained_count: 40,
+          estimated_missing_count: 2,
+          measured_crops_per_second: 10,
+          measured_fixed_seconds: 20,
+          estimated_seconds: 23.8,
+          max_seconds: 900,
+          eligible: true,
+          reason: null,
+        }),
+      })
+    })
+
+    await openSettings(page)
+    await page.locator(`input[value="${L14}"]`).check()
+    await expect(page.getByRole("button", { name: "Apply model" })).toBeEnabled()
+    await page.getByRole("button", { name: "Apply model" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog).toBeVisible()
+    await pollingPreflightStarted
+
+    try {
+      const startModelChange = dialog.getByRole("button", { name: "Start model change" })
+      await startModelChange.click()
+      await expect(dialog).toBeVisible()
+      expect(applyBodies).toEqual([])
+      await startModelChange.click()
+      expect(applyBodies).toEqual([])
+    } finally {
+      releasePollingPreflight()
+    }
+
+    await expect.poll(() => applyBodies.length).toBe(1)
+    expect(applyBodies).toEqual([JSON.stringify({ model_id: L14 })])
+  })
+
   test("warns before applying, polls durable progress, and reports skipped crops", async ({
     page,
   }) => {

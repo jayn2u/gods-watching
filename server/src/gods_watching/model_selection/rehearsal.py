@@ -9,7 +9,7 @@ import math
 import os
 import re
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
@@ -237,6 +237,14 @@ async def run_inner(inputs: InnerInputs) -> dict[str, object]:
                         quality_policy_path=Path(
                             "/opt/gods-watching/assets/retrieval-quality-policy.json"
                         ),
+                    )
+                    # This disposable clone has no prior proof: rehearse_switch
+                    # invalidated the shared proof before launching it. Keep the
+                    # observer-driven corpus scan and full transition measurement,
+                    # then let the outer process validate and publish the proof.
+                    composition = replace(
+                        composition,
+                        selection=replace(composition.selection, preflight_assets_root=None),
                     )
                     observer = TransitionObserver()
 

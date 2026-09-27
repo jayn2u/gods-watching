@@ -155,7 +155,13 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
   const [preflightLoading, setPreflightLoading] = useState(false)
   const confirmationPreflight = useRef<SwitchPreflight | null>(null)
   const preflightGeneration = useRef(0)
-  const preflightInFlight = useRef(new Set<string>())
+  const preflightInFlight = useRef(
+    new Map<
+      string,
+      { readonly generation: number; readonly promise: Promise<SwitchPreflight | null> }
+    >(),
+  )
+  const applyInFlight = useRef(false)
   const [formError, setFormError] = useState<string | undefined>(undefined)
   const requestGeneration = useRef(0)
   const activeController = useRef<AbortController | null>(null)
@@ -244,29 +250,40 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
   }, [])
 
   async function refreshPreflight(modelId: string): Promise<SwitchPreflight | null> {
-    if (preflightInFlight.current.has(modelId)) return null
-    preflightInFlight.current.add(modelId)
+    const existing = preflightInFlight.current.get(modelId)
+    if (existing?.generation === preflightGeneration.current) return existing.promise
+
     const generation = ++preflightGeneration.current
     setPreflightLoading(true)
-    try {
-      const result = await client.getModelPreflight(modelId, new AbortController().signal)
-      if (generation === preflightGeneration.current) setPreflight(result)
-      return generation === preflightGeneration.current ? result : null
-    } catch (error) {
-      if (generation === preflightGeneration.current) {
-        setPreflight(null)
-        setFormError(
-          error instanceof HttpError && error.status === 401
-            ? "Session expired. Sign in again."
-            : "Model preflight is unavailable. Try again.",
-        )
-        if (error instanceof HttpError && error.status === 401) onUnauthorized()
+    const request = (async () => {
+      try {
+        const result = await client.getModelPreflight(modelId, new AbortController().signal)
+        if (generation === preflightGeneration.current) setPreflight(result)
+        return generation === preflightGeneration.current ? result : null
+      } catch (error) {
+        if (generation === preflightGeneration.current) {
+          setPreflight(null)
+          setFormError(
+            error instanceof HttpError && error.status === 401
+              ? "Session expired. Sign in again."
+              : "Model preflight is unavailable. Try again.",
+          )
+          if (error instanceof HttpError && error.status === 401) onUnauthorized()
+        }
+        return null
+      } finally {
+        if (generation === preflightGeneration.current) setPreflightLoading(false)
       }
-      return null
-    } finally {
-      preflightInFlight.current.delete(modelId)
-      if (generation === preflightGeneration.current) setPreflightLoading(false)
+    })()
+    const inFlight = { generation, promise: request }
+    preflightInFlight.current.set(modelId, inFlight)
+    const clearInFlight = () => {
+      if (preflightInFlight.current.get(modelId) === inFlight) {
+        preflightInFlight.current.delete(modelId)
+      }
     }
+    void request.then(clearInFlight, clearInFlight)
+    return request
   }
 
   const refreshPreflightRef = useRef<(modelId: string) => Promise<SwitchPreflight | null>>(() =>
@@ -343,6 +360,7 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
     const option = selectedOption()
     if (
       state.kind !== "ready" ||
+      applyInFlight.current ||
       option === undefined ||
       !option.prepared ||
       !option.quality_passed ||
@@ -354,62 +372,67 @@ export function ModelSelector({ client, onUnauthorized }: ModelSelectorProps) {
       return
     }
 
-    const refreshed = await refreshPreflight(selectedModelId)
-    if (refreshed === null || !refreshed.eligible) {
-      setConfirmOpen(false)
-      return
-    }
-    const confirmed = confirmationPreflight.current
-    if (
-      confirmed === null ||
-      refreshed.estimated_seconds !== confirmed.estimated_seconds ||
-      refreshed.retained_count !== confirmed.retained_count ||
-      refreshed.estimated_missing_count !== confirmed.estimated_missing_count
-    ) {
-      setFormError("The estimate changed. Review the updated preflight and confirm again.")
-      setConfirmOpen(false)
-      return
-    }
-    setConfirmOpen(false)
-    clearPoll()
-    setApplying(true)
-    setFormError(undefined)
-    const targetModelId = selectedModelId
-    const { controller, generation } = beginRequest()
+    applyInFlight.current = true
     try {
-      const response = await client.applyModel(targetModelId, controller.signal)
-      if (!isCurrent(generation, controller)) {
+      const refreshed = await refreshPreflight(selectedModelId)
+      if (refreshed === null || !refreshed.eligible) {
+        setConfirmOpen(false)
         return
       }
-      selectionTouched.current = false
-      acceptResponse(response)
-      schedulePoll(response)
-    } catch (error) {
-      if (!isCurrent(generation, controller) || isAbortError(error)) {
-        return
-      }
-      if (error instanceof HttpError && error.status === 401) {
-        onUnauthorized()
-        return
-      }
-      setFormError(apiErrorMessage(error, "apply"))
-      setApplying(false)
-      if (error instanceof HttpError && error.status === 409) {
-        void refreshStatus()
-      } else if (
-        error instanceof NetworkError ||
-        (error instanceof HttpError && error.status >= 500)
+      const confirmed = confirmationPreflight.current
+      if (
+        confirmed === null ||
+        refreshed.estimated_seconds !== confirmed.estimated_seconds ||
+        refreshed.retained_count !== confirmed.retained_count ||
+        refreshed.estimated_missing_count !== confirmed.estimated_missing_count
       ) {
-        setFormError("The model change request could not be confirmed. Refreshing its status…")
-        void refreshStatus()
+        setFormError("The estimate changed. Review the updated preflight and confirm again.")
+        setConfirmOpen(false)
+        return
+      }
+      setConfirmOpen(false)
+      clearPoll()
+      setApplying(true)
+      setFormError(undefined)
+      const targetModelId = selectedModelId
+      const { controller, generation } = beginRequest()
+      try {
+        const response = await client.applyModel(targetModelId, controller.signal)
+        if (!isCurrent(generation, controller)) {
+          return
+        }
+        selectionTouched.current = false
+        acceptResponse(response)
+        schedulePoll(response)
+      } catch (error) {
+        if (!isCurrent(generation, controller) || isAbortError(error)) {
+          return
+        }
+        if (error instanceof HttpError && error.status === 401) {
+          onUnauthorized()
+          return
+        }
+        setFormError(apiErrorMessage(error, "apply"))
+        setApplying(false)
+        if (error instanceof HttpError && error.status === 409) {
+          void refreshStatus()
+        } else if (
+          error instanceof NetworkError ||
+          (error instanceof HttpError && error.status >= 500)
+        ) {
+          setFormError("The model change request could not be confirmed. Refreshing its status…")
+          void refreshStatus()
+        }
+      } finally {
+        if (isCurrent(generation, controller)) {
+          setApplying(false)
+        }
+        if (activeController.current === controller) {
+          activeController.current = null
+        }
       }
     } finally {
-      if (isCurrent(generation, controller)) {
-        setApplying(false)
-      }
-      if (activeController.current === controller) {
-        activeController.current = null
-      }
+      applyInFlight.current = false
     }
   }
 

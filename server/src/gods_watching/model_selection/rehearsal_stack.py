@@ -198,13 +198,27 @@ def _copy_crops(source: Path, target: Path) -> None:
 
 async def _wait_postgres(runner: CommandRunner, name: str) -> None:
     for _ in range(100):
+        ready = False
         try:
-            await runner.run(
-                ["docker", "exec", name, "pg_isready", "-U", "postgres", "-d", "gods_watching"]
+            result = await runner.run(
+                [
+                    "docker",
+                    "exec",
+                    name,
+                    "sh",
+                    "-c",
+                    (
+                        'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 '
+                        '-U postgres -d gods_watching -Atc "SELECT 1"'
+                    ),
+                ]
             )
-            return  # noqa: TRY300
+            ready = result.strip() == "1"
         except RehearsalStackError:
-            await asyncio.sleep(0.1)
+            pass
+        if ready:
+            return
+        await asyncio.sleep(0.1)
     raise RehearsalStackError("postgres_not_ready")
 
 
