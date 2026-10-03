@@ -165,6 +165,7 @@ def ensure_disposable_database(
     database = url.database or ""
     if (
         url.drivername != "postgresql+asyncpg"
+        or bool(url.query)
         or url.host not in {"127.0.0.1", "localhost", "db"}
         or url.username != "postgres"
         or re.fullmatch(r"gw_events_bench_[0-9a-f]{8}", database) is None

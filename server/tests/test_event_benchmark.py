@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
+from sqlalchemy.dialects.postgresql.asyncpg import PGDialect_asyncpg
+from sqlalchemy.engine import make_url
 
 import qa.events.benchmark_export as benchmark_export
 from qa.events.benchmark_export import (
@@ -352,3 +354,42 @@ def test_disposable_database_name_can_be_bound_to_run_id() -> None:
 
     with pytest.raises(ValueError, match="disposable benchmark database"):
         ensure_disposable_database(database_url, expected_database="gw_events_bench_cafebabe")
+
+
+@pytest.mark.parametrize(
+    ("query_option", "effective_key", "effective_value"),
+    [
+        ("host=example.invalid", "host", "example.invalid"),
+        ("database=real_application_db", "database", "real_application_db"),
+        ("user=application", "user", "application"),
+    ],
+)
+def test_disposable_database_rejects_query_overrides_before_engine_creation(
+    query_option: str,
+    effective_key: str,
+    effective_value: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_url = (
+        "postgresql+asyncpg://postgres:synthetic@127.0.0.1:5432/"
+        f"gw_events_bench_deadbeef?{query_option}"
+    )
+    _, effective_connect_options = PGDialect_asyncpg().create_connect_args(
+        make_url(database_url)
+    )
+    assert effective_connect_options[effective_key] == effective_value
+
+    engine_creation_attempted = False
+
+    def fail_if_engine_created(*engine_args: object, **engine_kwargs: object) -> None:
+        nonlocal engine_creation_attempted
+        assert engine_args and engine_kwargs
+        engine_creation_attempted = True
+        raise AssertionError
+
+    monkeypatch.setattr(benchmark_export, "create_async_engine", fail_if_engine_created)
+
+    with pytest.raises(ValueError, match="disposable benchmark database"):
+        _ = benchmark_export._make_engine(database_url)
+
+    assert engine_creation_attempted is False
