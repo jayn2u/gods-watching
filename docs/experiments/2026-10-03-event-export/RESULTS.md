@@ -1,55 +1,65 @@
-# Camera event CSV export benchmark
+# 카메라 이벤트 CSV 내보내기 실험 보고서
 
-The production streaming exporter and a benchmark-only buffered exporter returned correct, identical CSV for all sampled rows. In this reduced local environment, streaming delivered the first CSV body byte much earlier, while total transfer time was similar at 10,000 rows and about 6.1% slower at 50,000 rows. The three-repetition samples do not support a general throughput or memory-improvement claim.
+앱 코드의 스트리밍 내보내기 구현과 실험용 버퍼링 구현는 모든 표본에서 정확하고 동일한 CSV를 반환했다. 축소된 로컬 환경에서 스트리밍은 첫 CSV 본문 바이트를 훨씬 일찍 전달했다. 전체 다운로드 시간은 10,000행에서 비슷했고, 50,000행에서는 스트리밍이 약 6.1% 느렸다. 조건별 3회 측정만으로 일반적인 처리량이나 메모리 사용량의 개선을 주장할 수는 없다.
 
-## Method and environment
+앱의 내보내기 구현은 **읽기 전용 Read Committed 트랜잭션에서 데이터 SELECT 한 번**을 스트리밍한다. 아래의 RC/RR 비교는 **여러 SELECT 사이에 다른 트랜잭션의 커밋을 강제로 배치한 별도 실험**이다. 앱 코드를 Repeatable Read로 바꿔 성능을 개선했다는 결과가 아니다. 이 보고서는 gods-watching 프로젝트의 새 실험이며, 과거 Innodep 근무 당시의 구현이나 성과를 입증하는 자료도 아니다.
 
-The run used an actual migrated `camera_events` table, the real login/session router and cookie, the authenticated `/api/events/export.csv` HTTP route, the production `EventRepository` projection, and the production CSV encoder. The client streamed the body to a temporary file and validated ordered IDs and every CSV field against a manifest written before the writer transaction. At the start of each HTTP export, a real repository writer inserted 100 events after the client had read the first CSV data row. The production exporter had no benchmark mode; only the reduced benchmark app injected the buffered comparator.
+## 실험 방법과 환경
 
-The original run ID was `4bd6ab61`; its follow-up isolation run ID was `103e24dc`. The starting repository revision was `2dbd97a3362061c75397399db17a936dd37c8b13`. Docker server 29.8.1, PostgreSQL 17.8, Python 3.12.11 on the host, and Python 3.12.12 in the cached app image were used. The pinned local images were `pgvector/pgvector:0.8.1-pg17` (`sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21`) and `gods-watching-app:local` (`sha256:d37830285e079b037ad9383eafa3b33ce1a72f36df22083c0c6d652e4512843f`). No image pulls or installs were used. Alembic head was `0008_camera_events`, and the imported auth, model, exporter, and repository modules were all under `/work/server/src`.
+실험에는 실제 마이그레이션을 적용한 `camera_events` 테이블, 실제 로그인·세션 라우터와 쿠키, 인증이 필요한 `/api/events/export.csv` HTTP 경로, 앱의 `EventRepository`의 조회 컬럼 구성, 앱의 CSV 인코더를 사용했다. 클라이언트는 응답 본문을 임시 파일에 기록하고, writer 트랜잭션 전에 만든 기준 파일과 행 순서·ID·모든 CSV 필드를 대조했다. 각 HTTP 내보내기에서 클라이언트가 첫 CSV 데이터 행을 읽은 뒤 실제 repository 쓰기 작업(writer)이 이벤트 100행을 추가했다. 앱의 내보내기 구현에는 실험 모드를 넣지 않았고, 축소된 실험 앱에서만 비교용 버퍼링 구현을 주입했다.
 
-The DB was on an internal Docker network with no published ports, 1 CPU, 384 MiB memory, equal 384 MiB memory+swap limit, and a 256 MiB tmpfs data directory. App and client containers each had 1 CPU and equal 256 MiB memory+swap limits. The app binds `0.0.0.0` only inside its task-owned `--internal` Docker network so the private `app` alias is reachable; no host port is published. This is the controller-approved private-container binding exception. Only task-owned containers and a synthetic database were used; media services and workers were excluded. Exact commands and redacted synthetic credentials are in [`COMMANDS.md`](COMMANDS.md), with the five-trial recovery commands in [`isolation-recovery-103e24dc-commands.md`](isolation-recovery-103e24dc-commands.md).
+최초 실행 ID는 `4bd6ab61`, 후속 격리 수준 실험 ID는 `103e24dc`였다. 시작 시점의 저장소 리비전은 `2dbd97a3362061c75397399db17a936dd37c8b13`이었다. Docker 서버 29.8.1, PostgreSQL 17.8, 호스트 Python 3.12.11, 캐시된 앱 이미지의 Python 3.12.12를 사용했다. 고정한 로컬 이미지는 `pgvector/pgvector:0.8.1-pg17` (`sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21`)과 `gods-watching-app:local` (`sha256:d37830285e079b037ad9383eafa3b33ce1a72f36df22083c0c6d652e4512843f`)이었다. 이미지 다운로드나 소프트웨어 설치는 하지 않았다. Alembic head는 `0008_camera_events`였고, 불러온 auth·model·exporter·repository 모듈은 모두 `/work/server/src` 아래에 있었다.
 
-Both modes passed the 100-row smoke. Each produced 9,834 bytes and SHA-256 `99a073d10efc1924c7e70a84905a7d902f8bf55ce378556ebbb359f687dfc79d`. All 12 measured HTTP samples passed exact ordered-ID and field validation; each writer committed 100 rows. CSV output sizes were 998,936 bytes for 10,000 rows and 5,038,936 bytes for 50,000 rows.
+DB는 호스트에 포트를 공개하지 않는 내부 Docker 네트워크에서 실행했다. DB 제한은 CPU 1개, 메모리 384 MiB, 메모리+swap 합계도 384 MiB, 데이터 디렉터리용 tmpfs 256 MiB였다. 앱과 클라이언트 컨테이너는 각각 CPU 1개, 메모리와 메모리+swap 합계 256 MiB로 제한했다. 앱의 `0.0.0.0` 바인딩은 작업 전용 `--internal` Docker 네트워크 안에서 클라이언트가 `app` 별칭으로 접근하도록 한 것이다. 호스트 포트는 공개하지 않았으며, 이 바인딩은 작업 제어자가 승인한 내부 컨테이너 예외였다. 작업 전용 컨테이너와 합성 데이터베이스만 사용했고, 미디어 서비스와 작업 프로세스는 제외했다. 실행 명령과 가린 합성 자격 증명은 [`COMMANDS.md`](COMMANDS.md), 복구한 5회 실험의 명령은 [`isolation-recovery-103e24dc-commands.md`](isolation-recovery-103e24dc-commands.md)에 있다.
 
-## HTTP results
+두 방식 모두 100행 사전 점검을 통과했다. 출력은 각각 9,834바이트였으며 SHA-256은 `99a073d10efc1924c7e70a84905a7d902f8bf55ce378556ebbb359f687dfc79d`로 같았다. 측정한 HTTP 표본 12개 모두 정확한 ID 순서와 필드 검증을 통과했고, 각 writer는 100행을 커밋했다. CSV 크기는 10,000행에서 998,936바이트, 50,000행에서 5,038,936바이트였다.
 
-“First body byte” is measured from request start through receipt of the first response-body byte, which is the start of the CSV header. It is not first-row latency. Total transfer covers the full streamed response. Each cell has three correctness-passing samples; ranges are min–max. Process RSS is Linux `ru_maxrss` in KiB. Baseline was captured after real login in the fresh app process.
+## HTTP 내보내기 결과
 
-| Rows | Mode | Total transfer median (range), s | First body byte median (range), s | Baseline RSS median (range), KiB | Peak RSS median (range), KiB |
+**첫 본문 바이트 시간**은 요청 시작부터 첫 응답 본문 바이트를 받을 때까지다. 이 바이트는 CSV 헤더의 시작이므로 **첫 데이터 행을 받는 시간은 아니다**. 전체 다운로드 시간은 응답 본문을 모두 받고 출력 파일을 닫을 때까지다. 표의 각 조건은 정확성 검증을 통과한 표본 3개이며, 범위는 최솟값–최댓값이다. 프로세스 RSS는 Linux `ru_maxrss`이며 단위는 KiB다. 기준 RSS는 매번 새로 시작한 앱 프로세스에서 실제 로그인 후 기록했다.
+
+| 행 수 | 방식 | 전체 다운로드 중앙값 (범위), 초 | 첫 본문 바이트 중앙값 (범위), 초 | 기준 RSS 중앙값 (범위), KiB | 최고 RSS 중앙값 (범위), KiB |
 |---:|---|---:|---:|---:|---:|
-| 10,000 | Streaming | 0.107754 (0.106691–0.158920) | 0.017742 (0.014780–0.018633) | 272,364 (264,764–272,532) | 272,364 (264,764–272,532) |
-| 10,000 | Buffered | 0.107506 (0.091024–0.110582) | 0.105886 (0.089433–0.108913) | 270,996 (270,960–272,048) | 270,996 (270,960–272,048) |
-| 50,000 | Streaming | 0.494080 (0.487125–0.543026) | 0.037267 (0.015679–0.079051) | 271,696 (271,664–271,980) | 271,696 (271,664–271,980) |
-| 50,000 | Buffered | 0.465526 (0.463863–0.493671) | 0.459619 (0.457569–0.487950) | 271,328 (270,852–271,608) | 271,328 (270,852–271,608) |
+| 10,000 | 스트리밍 | 0.107754 (0.106691–0.158920) | 0.017742 (0.014780–0.018633) | 272,364 (264,764–272,532) | 272,364 (264,764–272,532) |
+| 10,000 | 버퍼링 | 0.107506 (0.091024–0.110582) | 0.105886 (0.089433–0.108913) | 270,996 (270,960–272,048) | 270,996 (270,960–272,048) |
+| 50,000 | 스트리밍 | 0.494080 (0.487125–0.543026) | 0.037267 (0.015679–0.079051) | 271,696 (271,664–271,980) | 271,696 (271,664–271,980) |
+| 50,000 | 버퍼링 | 0.465526 (0.463863–0.493671) | 0.459619 (0.457569–0.487950) | 271,328 (270,852–271,608) | 271,328 (270,852–271,608) |
 
-Streaming reached its first CSV body byte sooner in both dataset sizes. Median total transfer differed by about 0.2% at 10,000 rows; at 50,000 rows, streaming was about 6.1% slower than buffered in this run. With three samples and a reduced app, these are descriptive observations, not evidence of a general gain. Peak RSS equaled the marked post-login high-water baseline for every sample, so this run observed no export-stage high-water increase; it does not establish lower memory use for streaming.
+두 데이터 크기 모두 스트리밍의 첫 CSV 본문 바이트가 더 일찍 도착했다. 전체 다운로드 중앙값 차이는 10,000행에서 약 0.2%였고, 50,000행에서는 스트리밍이 버퍼링보다 약 6.1% 느렸다. 표본 3개와 축소된 앱에서 관찰한 결과이며, 일반적인 성능 향상의 근거는 아니다. p95나 통계적 유의성도 주장하지 않는다. 모든 표본에서 최고 RSS가 로그인 후 기록한 기존 최고치와 같았다. 따라서 이번 측정에서는 내보내기 단계가 프로세스 RSS 최고치를 더 높이지 않았지만, 스트리밍이 메모리를 덜 쓴다고 입증한 것은 아니다.
 
-The writer transaction activity interval intersected the HTTP transfer in 11/12 samples (streaming 6/6, buffered 5/6), but **the commit itself occurred inside the transfer in 0/12 samples**. All 12 commit timestamps follow transfer end by 3.427–35.963 ms. Thus the writer inserted during transfer, but no sample observed a completed writer commit before the export response ended. The raw monotonic timestamps are unchanged; `results.json` now stores activity intersection and commit-inside-window as separate derived fields. The writer transaction overlapped app-side stream-pull/fetch-plus-encoding spans in all 6 streaming samples and none of the buffered samples. Database fetch time is not instrumented separately from CSV encoding. Buffered preparation completes before the first response body, so absent stream-pull overlap is expected; no artificial delay was added. Writer trigger was after the client read the first CSV data row, not merely after response headers.
+writer 트랜잭션의 활동 구간은 HTTP 다운로드와 11/12 표본에서 겹쳤다(스트리밍 6/6, 버퍼링 5/6). 그러나 **다운로드가 끝나기 전에 writer가 커밋한 표본은 0/12**였다. 12개 모두 커밋 시각이 다운로드 종료보다 3.427–35.963 ms 늦었다. 즉, 다운로드 중 행을 추가하는 활동은 있었지만 응답이 끝나기 전에 커밋이 완료된 경우는 관찰하지 못했다. 원본 단조 시계 타임스탬프는 바꾸지 않았고, `results.json`에는 활동 구간 중첩과 다운로드 구간 내 커밋 여부를 별도 파생 필드로 저장했다.
 
-The app Docker run command set `--memory=256m --memory-swap=256m`; commands are preserved. Per-app cgroup `memory.peak` was not captured before those containers were removed. The observed process `ru_maxrss` values (264,764–272,532 KiB) exceed the nominal 256 MiB container setting; without per-app cgroup counters, the RSS-versus-charged-memory difference remains unresolved. No memory improvement is claimed.
+writer 트랜잭션은 앱 측 스트림 청크를 가져오는 구간(DB fetch와 CSV 인코딩을 포함)과 스트리밍 6개 표본 모두에서 겹쳤고, 버퍼링 표본에서는 하나도 겹치지 않았다. DB fetch 시간과 CSV 인코딩 시간은 따로 계측하지 않았다. 버퍼링 준비는 첫 응답 본문을 보내기 전에 끝나므로, 스트림 청크 구간과 겹치지 않는 것은 예상된 동작이다. 인위적인 지연은 넣지 않았다. writer 시작 조건은 응답 헤더 수신이 아니라 **클라이언트의 첫 CSV 데이터 행 수신**이었다.
 
-## Separate RC/RR multi-SELECT probe
+앱 Docker 실행 명령의 `--memory=256m --memory-swap=256m` 설정은 명령 기록에 남아 있다. 하지만 앱 컨테이너를 삭제하기 전에 각 앱의 cgroup `memory.peak`를 수집하지 못했다. 관찰한 프로세스 `ru_maxrss` 264,764–272,532 KiB는 명목상 컨테이너 설정인 256 MiB보다 크다. 앱별 cgroup 카운터가 없어 프로세스 RSS와 cgroup에 부과된 메모리 사이의 차이는 해소하지 못했다. **메모리 개선을 주장하지 않는다.**
 
-This experiment is separate from the single-SELECT export. Each trial seeded the initial `N` events outside timing, started a transaction, ran `COUNT`, committed a 100-row writer batch, then materialized the repository projection in that transaction. This forced the interleaving and is not a speed comparison between isolation levels.
+## 별도의 RC/RR 다중 SELECT 실험
 
-| Initial rows | Isolation | Trials | Export count each | Exact IDs | Count differs from initial N? | Probe elapsed median (range), s |
+이 실험은 단일 데이터 SELECT를 쓰는 CSV 내보내기 구현과 별개다. 각 실험은 초기 이벤트 `N`개를 측정 구간 밖에서 준비한 뒤, 트랜잭션을 시작하고 `COUNT`를 실행했다. 이어 다른 writer 트랜잭션에서 100행을 추가·커밋한 다음, 앞의 조회 트랜잭션에서 repository 조회 결과를 모두 읽었다. 순서를 강제로 배치했으므로 **격리 수준의 속도 비교가 아니다**. 비교 대상은 Read Committed(RC)와 Repeatable Read(RR)이며, 이 결과에 Serializable 비교는 포함되지 않는다.
+
+| 초기 행 수 | 격리 수준 | 반복 | 매회 조회 행 수 | 정확한 ID 일치 | 초기 N과 행 수가 다른가? | 실험 경과 시간 중앙값 (범위), 초 |
 |---:|---|---:|---:|---|---|---:|
-| 10,000 | READ COMMITTED | 3 | 10,100 | Yes, exact expected IDs | Yes | 0.111054 (0.108182–0.112956) |
-| 10,000 | REPEATABLE READ | 3 | 10,000 | Yes, exact expected IDs | No | 0.108456 (0.107629–0.109694) |
-| 50,000 | READ COMMITTED | 3 | 50,100 | Yes, exact expected IDs | Yes | 0.186313 (0.186021–0.186670) |
-| 50,000 | REPEATABLE READ | 3 | 50,000 | Yes, exact expected IDs | No | 0.186537 (0.186031–0.195411) |
+| 10,000 | READ COMMITTED | 3 | 10,100 | 예, 예상 ID와 정확히 일치 | 예 | 0.111054 (0.108182–0.112956) |
+| 10,000 | REPEATABLE READ | 3 | 10,000 | 예, 예상 ID와 정확히 일치 | 아니오 | 0.108456 (0.107629–0.109694) |
+| 50,000 | READ COMMITTED | 3 | 50,100 | 예, 예상 ID와 정확히 일치 | 예 | 0.186313 (0.186021–0.186670) |
+| 50,000 | REPEATABLE READ | 3 | 50,000 | 예, 예상 ID와 정확히 일치 | 아니오 | 0.186537 (0.186031–0.195411) |
 
-All 12 trials committed the 100-row writer and matched the expected ordered ID list. Under RC the second statement observed the committed inserts; under RR it retained the transaction snapshot. This illustrates the multi-statement snapshot difference only.
+총 12회(RC 6회, RR 6회) 모두 writer가 100행을 커밋했고, 각 격리 수준에서 예상한 정확한 ID 순서를 충족했다. RC의 두 번째 조회는 커밋된 추가 행을 봤고, RR은 트랜잭션 스냅샷을 유지했다. RC에서 초기 `COUNT`와 이후 조회 행 수가 다른 것은 이 실험에서 예상한 현상이며, CSV 필드·ID 검증 실패를 뜻하지 않는다. 확인한 것은 **여러 SQL 문장 사이의 스냅샷 차이**다.
 
-The first run completed 7 isolation trials (all six 10k trials and 50k RC repeat 1) after completing all 12 HTTP samples. While setting up 50k RC repeat 2, PostgreSQL exited with code 1 and the setup utility saw an asyncpg connection reset during its 1,000-row-batched seed. The retained initial and recovery log files were collected by a stdout-only Docker helper; Docker forwarded container stderr separately and that helper discarded it. The absence of a crash message in those files does not establish that no message was emitted. Retained Docker events had no OOM event/attribute; the database had been auto-removed before inspect/cgroup data could be collected. The cause is unresolved. The original raw file is retained as [`initial-run-results.json`](initial-run-results.json); the remaining five coordinates were run once in a fresh bounded DB/network, without rerunning any HTTP sample. The final merged results retain the initial failure in `failures` and identify the recovery run.
+최초 실행은 HTTP 표본 12개와 격리 수준 실험 7회(10k 실험 6회 전부, 50k RC 반복 1)를 마쳤다. 이후 50k RC 반복 2을 준비하던 중 PostgreSQL이 종료 코드 1로 끝났고, 1,000행 단위로 데이터를 준비하던 유틸리티가 asyncpg 연결 재설정을 받았다. 보존한 최초·복구 로그는 Docker stdout만 수집하는 보조 함수를 통해 기록됐다. Docker가 별도로 전달한 컨테이너 stderr는 이 보조 함수가 버렸다. 따라서 로그에 장애 메시지가 없다고 해서 실제로 메시지가 출력되지 않았다고 판단할 수 없다. 보존한 Docker 이벤트에는 OOM 이벤트나 관련 속성이 없었고, DB가 자동 삭제되어 inspect·cgroup 자료를 수집하지 못했다. **최초 종료 원인은 미확인이다.**
 
-Recovery diagnostics confirmed effective PostgreSQL Docker limits of 402,653,184 bytes memory and memory+swap, 1,000,000,000 NanoCPUs (1 CPU), and cgroup `memory.max=402653184`. Its observed `memory.peak` was 227,594,240 bytes; swap current was zero. The 256 MiB data tmpfs reached 160,165,888 bytes used (60%) after recovery trial 5. These recovery-container measurements do not prove the initial failure's cause and do not substitute for app cgroup measurements.
+최초 원본은 [`initial-run-results.json`](initial-run-results.json)에 그대로 보존했다. 남은 5개 조건만 새로 만든 제한된 DB·네트워크에서 한 번씩 실행했으며, HTTP 표본은 다시 측정하지 않았다. 최종 병합 결과에는 최초 실패가 `failures`에 남아 있고, 복구 실행도 구분돼 있다.
 
-## Reproduction and raw evidence
+복구 시 진단에서는 PostgreSQL Docker의 실제 메모리와 메모리+swap 제한이 각각 402,653,184바이트, `NanoCPUs`가 1,000,000,000(CPU 1개), cgroup `memory.max`가 402653184임을 확인했다. 관찰한 `memory.peak`는 227,594,240바이트였고, 현재 swap 사용량은 0이었다. 데이터용 256 MiB tmpfs는 복구 실험 5회 후 160,165,888바이트(60%)를 사용했다. 이 복구 컨테이너의 측정값은 최초 종료 원인을 입증하지 않으며, 앱 cgroup 측정을 대신하지도 않는다.
 
-The full run command was `PYTHONPATH=server/src /mnt/data/gods-watching/.venv/bin/python qa/events/benchmark_export.py run`. Focused validator and regression tests pass 16/16 with `PYTHONPATH=server/src /mnt/data/gods-watching/.venv/bin/python -m pytest -q server/tests/test_event_benchmark.py`; `py_compile` passes for the three benchmark modules and the test module, and Ruff F/E9 checks pass for the benchmark code and tests. The initial pre-implementation pytest failure was collection-only (`ModuleNotFoundError` for the not-yet-created module), not behavioral red-test evidence. The later fix-round red runs showed seven expected regression failures, including the extra-column reproduction where the prior validator returned `correct=True` and `performance_eligible=True`.
+## 재현 명령과 원본 자료
 
-`results.json` contains all 12 HTTP samples, all 12 RC/RR trials, corrected overlap derivations, isolation validity flags/summary, environment, and the original/recovery metadata. `initial-run-results.json` preserves the exact 12-sample/7-trial failed run. `isolation-recovery-103e24dc.json` preserves the five recovered trials and per-trial resource snapshots. The historical files in `logs/` are incomplete as described above; the log capture helper now preserves labeled stdout and stderr for future runs. `environment.json`, `COMMANDS.md`, and the other raw evidence remain available. Setup issues and their corrections are in [`SETUP_ATTEMPTS.json`](SETUP_ATTEMPTS.json).
+전체 실행 명령은 `PYTHONPATH=server/src /mnt/data/gods-watching/.venv/bin/python qa/events/benchmark_export.py run`이었다. 실험 구현 당시 `PYTHONPATH=server/src /mnt/data/gods-watching/.venv/bin/python -m pytest -q server/tests/test_event_benchmark.py`로 CSV 검증기·회귀 테스트 16/16을 통과했다. 실험 모듈 3개와 테스트 모듈의 `py_compile`, 실험 코드·테스트의 Ruff F/E9 검사도 통과했다. 이는 당시 검증 기록이며, 현재 전체 정적 검사 결과와 구분해야 한다.
 
-All containers and the internal recovery network were removed. The task-owned original benchmark network/containers were also removed; unrelated existing containers were left untouched. The early Task 2 historical integration-evidence gap remains as recorded in the Task 2 report; no historical integration evidence was reconstructed here.
+구현 전 최초 pytest 실패는 아직 만들지 않은 모듈 때문에 발생한 수집 오류(`ModuleNotFoundError`)였으므로, 동작을 검증한 실패 테스트 증거가 아니다. 후속 수정 단계의 실패 테스트에서는 예상한 회귀 실패 7개를 확인했다. 그중 추가 CSV 컬럼 재현에서는 이전 검증기가 잘못된 출력에도 `correct=True`, `performance_eligible=True`를 반환했다.
+
+최신 정적 검사와 회귀 검증은 [`VALIDATION.md`](VALIDATION.md)에 기록돼 있다. 23개 변경 Python 파일에서 Ruff 진단 0개, 엄격한 basedpyright 오류·경고 0개를 확인했다. 관련 테스트 70개, 최종 실험 테스트 모듈 27개, DB를 연결하지 않는 스키마 계약 테스트 1개가 통과했다. 이는 전체 저장소 테스트나 GitHub CI가 모두 통과했다는 뜻은 아니다. 이번 한국어 보고서 작성에서는 검사나 실험을 다시 실행하지 않았고, 코드·원본 JSON·측정값도 바꾸지 않았다. 변경은 draft PR 상태이며 병합·배포하지 않았다.
+
+[`results.json`](results.json)에는 HTTP 표본 12개, RC/RR 실험 12회, 바로잡은 중첩 파생 필드, 격리 실험 유효성 표시·요약, 환경, 최초·복구 실행 정보가 들어 있다. [`initial-run-results.json`](initial-run-results.json)은 HTTP 표본 12개와 격리 실험 7회를 마친 실패 실행을 그대로 보존한다. [`isolation-recovery-103e24dc.json`](isolation-recovery-103e24dc.json)에는 복구 실험 5회와 각 실험의 자원 상태 기록이 있다. `logs/`의 과거 기록은 앞서 설명한 것처럼 불완전하다. 로그 수집 보조 함수는 향후 실행을 위해 stdout과 stderr를 구분해 모두 보존하도록 수정됐다. `environment.json`, `COMMANDS.md`와 다른 원본 자료도 보존돼 있다. 환경 준비 문제와 해결 과정은 [`SETUP_ATTEMPTS.json`](SETUP_ATTEMPTS.json)에 있다.
+
+모든 작업 전용 컨테이너와 내부 복구 네트워크를 삭제했고, 최초 실험의 작업 전용 네트워크·컨테이너도 정리했다. 관련 없는 기존 컨테이너는 건드리지 않았다. 초기 Task 2의 과거 통합 테스트 증거 누락은 해당 Task 2 보고서에 기록된 상태로 남아 있으며, 이 보고서에서 과거 증거를 재구성하지 않았다.
