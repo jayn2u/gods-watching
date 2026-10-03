@@ -132,4 +132,4 @@ All spec sections map to Tasks 1-4, and each Review Focus item has a test/valida
 
 Recommend **Subagent-driven** execution: storage/hooks, streaming lifetime and HTTP behavior, and benchmark measurement each deserve an independent gate because an apparently fast export with wrong data or unreleased sessions would invalidate the outcome. Use **GPT-6 Luna at max reasoning for code writing**, as required by the local global AGENTS.md, with separate reviewers after each task and a whole-branch review before PR publication. A Native approach is cheaper but must still satisfy that code-writer instruction and provide independent final review.
 
-The plan is awaiting user review and execution-method selection. No product implementation starts before that response.
+The design and plan are approved (`aa5df2f`, `2274047`). Tasks 1–3 and their review gates are complete; Task 4 is recording bounded verification evidence before the controller's final branch review and publication steps.
