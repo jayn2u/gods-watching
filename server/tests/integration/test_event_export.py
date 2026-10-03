@@ -9,7 +9,9 @@ import anyio
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import event, func, insert, select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.sql import text
 
 from gods_watching.api.camera_routes import AuthenticatedRequest
 from gods_watching.api.event_routes import build_event_router
@@ -162,7 +164,48 @@ async def test_statement_failure_during_prepare_closes_the_connection(
             if message["type"] == "http.response.body"
         )
         assert status == 500
-        assert not body.startswith(CSV_HEADER)
+        assert CSV_HEADER not in body
+        assert _checked_out(database) == 0
+    finally:
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_postgres_statement_failure_returns_http_error_before_csv_and_closes_connection(
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = Database.connect(database_url)
+    original_statement = EventRepository.statement
+
+    def fail_in_postgres(filters: EventExportFilters) -> object:
+        return original_statement(filters).where(
+            text("camera_events.__event_export_missing_column IS NULL")
+        )
+
+    monkeypatch.setattr(EventRepository, "statement", staticmethod(fail_in_postgres))
+    app = FastAPI()
+    app.include_router(build_event_router(database=database, require_session=_guard_factory))
+    try:
+        messages, failure = await _request_database_failure(app)
+
+        assert isinstance(failure, DBAPIError)
+        assert getattr(failure.orig, "sqlstate", None) == "42703"
+        status = cast(
+            "int",
+            next(
+                message["status"]
+                for message in messages
+                if message["type"] == "http.response.start"
+            ),
+        )
+        body = b"".join(
+            message.get("body", b"")
+            for message in messages
+            if message["type"] == "http.response.body"
+        )
+        assert status == 500
+        assert CSV_HEADER not in body
         assert _checked_out(database) == 0
     finally:
         await database.close()
@@ -277,6 +320,42 @@ async def _request_prepare_failure(
     try:
         await app(scope, receive, send)
     except _StatementConstructionFailureError as error:
+        return messages, error
+    return messages, None
+
+
+async def _request_database_failure(
+    app: FastAPI,
+) -> tuple[list[Message], DBAPIError | None]:
+    messages: list[Message] = []
+    request_sent = False
+
+    async def receive() -> Message:
+        nonlocal request_sent
+        if not request_sent:
+            request_sent = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await anyio.sleep_forever()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        messages.append(message)
+
+    scope: Scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/events/export.csv",
+        "raw_path": b"/api/events/export.csv",
+        "query_string": b"",
+        "headers": [(b"host", b"localhost")],
+        "client": ("127.0.0.1", 50000),
+        "server": ("localhost", 80),
+    }
+    try:
+        await app(scope, receive, send)
+    except DBAPIError as error:
         return messages, error
     return messages, None
 
