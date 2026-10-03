@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     LargeBinary,
@@ -55,6 +56,32 @@ class Camera(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class CameraEvent(Base):
+    """Retain an immutable, non-secret snapshot of one camera mutation."""
+
+    __tablename__: str = "camera_events"
+    __table_args__: tuple[CheckConstraint | Index, ...] = (
+        CheckConstraint(
+            "event_type IN ('camera.created', 'camera.updated', 'camera.deleted')",
+            name="ck_camera_events_event_type",
+        ),
+        CheckConstraint(
+            "char_length(camera_name) BETWEEN 1 AND 80",
+            name="ck_camera_events_camera_name_length",
+        ),
+        Index("ix_camera_events_occurred_at_id", "occurred_at", "id"),
+        Index("ix_camera_events_camera_id_id", "camera_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    event_type: Mapped[str] = mapped_column(String(32))
+    camera_id: Mapped[UUID] = mapped_column(postgresql.UUID(as_uuid=True))
+    camera_name: Mapped[str] = mapped_column(String(80))
 
 
 class CameraSession(Base):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import secrets
 import socket
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
@@ -59,7 +60,7 @@ def anyio_backend() -> str:
 
 
 async def _start_database_container() -> _DatabaseContainer:
-    container_name = f"gw-task4-{uuid4().hex[:12]}"
+    container_name = f"gw-camera-events-{uuid4().hex[:12]}"
     postgres_password = uuid4().hex
     host_port = _free_port()
     docker = _executable("docker")
@@ -67,9 +68,16 @@ async def _start_database_container() -> _DatabaseContainer:
         [
             docker,
             "run",
+            "--pull=never",
             "--detach",
             "--name",
             container_name,
+            "--cpus=1",
+            "--memory=384m",
+            "--memory-swap=384m",
+            "--shm-size=64m",
+            "--tmpfs",
+            "/var/lib/postgresql/data:rw,noexec,nosuid,size=256m",
             "--publish",
             f"127.0.0.1:{host_port}:5432",
             "--env",
@@ -127,12 +135,17 @@ async def _start_database_container() -> _DatabaseContainer:
             pytest.fail("disposable PostgreSQL host connection did not become ready")
         migration_env = os.environ.copy()
         migration_env["GW_DATABASE_URL"] = url
-        migration = await anyio.run_process(
-            [_executable("uv"), "run", "alembic", "upgrade", "head"],
-            check=False,
-            cwd=Path(__file__).parents[3],
-            env=migration_env,
+        server_source = Path(__file__).parents[2] / "src"
+        migration_env["PYTHONPATH"] = os.pathsep.join(
+            [str(server_source), migration_env.get("PYTHONPATH", "")]
         )
+        with anyio.fail_after(60):
+            migration = await anyio.run_process(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                check=False,
+                cwd=Path(__file__).parents[3],
+                env=migration_env,
+            )
         if migration.returncode != 0:
             pytest.fail(migration.stderr.decode())
         keep_container = True
@@ -145,9 +158,7 @@ async def _start_database_container() -> _DatabaseContainer:
 
 
 async def _remove_database_container(container: _DatabaseContainer) -> None:
-    _ = await anyio.run_process(
-        [container.docker, "rm", "--force", container.name], check=True
-    )
+    _ = await anyio.run_process([container.docker, "rm", "--force", container.name], check=True)
 
 
 @pytest.fixture(scope="session")
