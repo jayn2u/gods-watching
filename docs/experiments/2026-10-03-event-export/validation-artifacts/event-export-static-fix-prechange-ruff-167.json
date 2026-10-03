@@ -1,0 +1,3742 @@
+[
+  {
+    "cell": null,
+    "code": "INP001",
+    "end_location": {
+      "column": 1,
+      "row": 1
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "File `qa/events/benchmark_app.py` is part of an implicit namespace package. Add an `__init__.py`.",
+    "noqa_row": 1,
+    "url": "https://docs.astral.sh/ruff/rules/implicit-namespace-package"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 50,
+      "row": 26
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 26
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 26,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 56,
+      "row": 35
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from benchmark_export import _writer_insert\nfrom buffered_export import BufferedEventExporter\n\nfrom gods_watching.api.app_settings import ApiSettings\nfrom gods_watching.api.event_routes import build_event_router\nfrom gods_watching.api.session_routes import build_session_router\nfrom gods_watching.api.sessionguard import require_session\nfrom gods_watching.auth import AuthService\nfrom gods_watching.events.export import EventExportService, PreparedCsvExport\nfrom gods_watching.events.repository import EventRepository\nfrom gods_watching.storage import CameraEvent, Database\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 37
+          },
+          "location": {
+            "column": 1,
+            "row": 26
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 26
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "noqa_row": 26,
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 44,
+      "row": 27
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 27
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 27,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 55,
+      "row": 28
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 28
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 28,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 62,
+      "row": 29
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 29
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 29,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 66,
+      "row": 30
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 30
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 30,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 59,
+      "row": 31
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 31
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 31,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 43,
+      "row": 32
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 32
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 32,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 78,
+      "row": 33
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 33
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 33,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 60,
+      "row": 34
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 34
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 34,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 56,
+      "row": 35
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 35
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 35,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "D107",
+    "end_location": {
+      "column": 17,
+      "row": 46
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 46
+    },
+    "message": "Missing docstring in `__init__`",
+    "noqa_row": 46,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-init"
+  },
+  {
+    "cell": null,
+    "code": "ANN401",
+    "end_location": {
+      "column": 37,
+      "row": 46
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 34,
+      "row": 46
+    },
+    "message": "Dynamically typed expressions (typing.Any) are disallowed in `delegate`",
+    "noqa_row": 46,
+    "url": "https://docs.astral.sh/ruff/rules/any-type"
+  },
+  {
+    "cell": null,
+    "code": "D102",
+    "end_location": {
+      "column": 22,
+      "row": 50
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 50
+    },
+    "message": "Missing docstring in public method",
+    "noqa_row": 50,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-method"
+  },
+  {
+    "cell": null,
+    "code": "C901",
+    "end_location": {
+      "column": 15,
+      "row": 88
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 88
+    },
+    "message": "`_build_app` is too complex (13 > 10)",
+    "noqa_row": 88,
+    "url": "https://docs.astral.sh/ruff/rules/complex-structure"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 60,
+      "row": 95
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 95
+    },
+    "message": "`import` should be at the top-level of a file",
+    "noqa_row": 95,
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 98,
+      "row": 119
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 119
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 119,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 97,
+      "row": 119
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"benchmark imported project code outside the mounted worktree source\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 119
+          },
+          "location": {
+            "column": 9,
+            "row": 119
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 97,
+            "row": 119
+          },
+          "location": {
+            "column": 28,
+            "row": 119
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 119
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 119,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "ANN401",
+    "end_location": {
+      "column": 62,
+      "row": 130
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 59,
+      "row": 130
+    },
+    "message": "Dynamically typed expressions (typing.Any) are disallowed in `_require_session_factory`",
+    "noqa_row": 130,
+    "url": "https://docs.astral.sh/ruff/rules/any-type"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 102,
+      "row": 163
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 163
+    },
+    "message": "Line too long (101 > 100)",
+    "noqa_row": 163,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "TRY300",
+    "end_location": {
+      "column": 26,
+      "row": 175
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 175
+    },
+    "message": "Consider moving this statement to an `else` block",
+    "noqa_row": 175,
+    "url": "https://docs.astral.sh/ruff/rules/try-consider-else"
+  },
+  {
+    "cell": null,
+    "code": "D103",
+    "end_location": {
+      "column": 9,
+      "row": 197
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 197
+    },
+    "message": "Missing docstring in public function",
+    "noqa_row": 197,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-function"
+  },
+  {
+    "cell": null,
+    "code": "S104",
+    "end_location": {
+      "column": 23,
+      "row": 200
+    },
+    "filename": "qa/events/benchmark_app.py",
+    "fix": null,
+    "location": {
+      "column": 14,
+      "row": 200
+    },
+    "message": "Possible binding to all interfaces",
+    "noqa_row": 200,
+    "url": "https://docs.astral.sh/ruff/rules/hardcoded-bind-all-interfaces"
+  },
+  {
+    "cell": null,
+    "code": "INP001",
+    "end_location": {
+      "column": 1,
+      "row": 1
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "File `qa/events/benchmark_export.py` is part of an implicit namespace package. Add an `__init__.py`.",
+    "noqa_row": 1,
+    "url": "https://docs.astral.sh/ruff/rules/implicit-namespace-package"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 62,
+      "row": 41
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 41
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 41,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 60,
+      "row": 42
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 42
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 42,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "E402",
+    "end_location": {
+      "column": 56,
+      "row": 43
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 43
+    },
+    "message": "Module level import not at top of file",
+    "noqa_row": 43,
+    "url": "https://docs.astral.sh/ruff/rules/module-import-not-at-top-of-file"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 75,
+      "row": 164
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 164
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 164,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 74,
+      "row": 164
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"target must be a disposable benchmark database\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 164
+          },
+          "location": {
+            "column": 9,
+            "row": 164
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 74,
+            "row": 164
+          },
+          "location": {
+            "column": 26,
+            "row": 164
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 26,
+      "row": 164
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 164,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 75,
+      "row": 174
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 174
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 174,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 74,
+      "row": 174
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"target must be a disposable benchmark database\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 174
+          },
+          "location": {
+            "column": 9,
+            "row": 174
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 74,
+            "row": 174
+          },
+          "location": {
+            "column": 26,
+            "row": 174
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 26,
+      "row": 174
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 174,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "ANN401",
+    "end_location": {
+      "column": 25,
+      "row": 254
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 22,
+      "row": 254
+    },
+    "message": "Dynamically typed expressions (typing.Any) are disallowed in `row`",
+    "noqa_row": 254,
+    "url": "https://docs.astral.sh/ruff/rules/any-type"
+  },
+  {
+    "cell": null,
+    "code": "S603",
+    "end_location": {
+      "column": 35,
+      "row": 271
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 271
+    },
+    "message": "`subprocess` call: check for execution of untrusted input",
+    "noqa_row": 271,
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-without-shell-equals-true"
+  },
+  {
+    "cell": null,
+    "code": "S607",
+    "end_location": {
+      "column": 35,
+      "row": 272
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 272
+    },
+    "message": "Starting a process with a partial executable path",
+    "noqa_row": 272,
+    "url": "https://docs.astral.sh/ruff/rules/start-process-with-partial-path"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 70,
+      "row": 280
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 280
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 280,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 69,
+      "row": 280
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"docker {arguments[0]} failed: {detail}\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 280
+          },
+          "location": {
+            "column": 9,
+            "row": 280
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 69,
+            "row": 280
+          },
+          "location": {
+            "column": 28,
+            "row": 280
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 280
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 280,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "S603",
+    "end_location": {
+      "column": 35,
+      "row": 291
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 291
+    },
+    "message": "`subprocess` call: check for execution of untrusted input",
+    "noqa_row": 291,
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-without-shell-equals-true"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 10,
+      "row": 304
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 301
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 301,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 66,
+      "row": 303
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = (\n            \"docker logs failed:\\n\"\n            f\"--- stdout ---\\n{stdout}\\n--- stderr ---\\n{stderr}\"\n        )\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 301
+          },
+          "location": {
+            "column": 9,
+            "row": 301
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 66,
+            "row": 303
+          },
+          "location": {
+            "column": 13,
+            "row": 302
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 13,
+      "row": 302
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 302,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 64,
+      "row": 410
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 410
+    },
+    "message": "`import` should be at the top-level of a file",
+    "noqa_row": 410,
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLR0913",
+    "end_location": {
+      "column": 25,
+      "row": 447
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 447
+    },
+    "message": "Too many arguments in function definition (7 > 5)",
+    "noqa_row": 447,
+    "url": "https://docs.astral.sh/ruff/rules/too-many-arguments"
+  },
+  {
+    "cell": null,
+    "code": "TRY004",
+    "end_location": {
+      "column": 90,
+      "row": 471
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 471
+    },
+    "message": "Prefer `TypeError` exception for invalid type",
+    "noqa_row": 471,
+    "url": "https://docs.astral.sh/ruff/rules/type-check-without-type-error"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 90,
+      "row": 471
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 471
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 471,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 89,
+      "row": 471
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"benchmark control endpoint returned an invalid response\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 471
+          },
+          "location": {
+            "column": 13,
+            "row": 471
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 89,
+            "row": 471
+          },
+          "location": {
+            "column": 32,
+            "row": 471
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 471
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 471,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY004",
+    "end_location": {
+      "column": 63,
+      "row": 481
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 481
+    },
+    "message": "Prefer `TypeError` exception for invalid type",
+    "noqa_row": 481,
+    "url": "https://docs.astral.sh/ruff/rules/type-check-without-type-error"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 63,
+      "row": 481
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 481
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 481,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 62,
+      "row": 481
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"expected-row manifest is invalid\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 481
+          },
+          "location": {
+            "column": 9,
+            "row": 481
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 62,
+            "row": 481
+          },
+          "location": {
+            "column": 28,
+            "row": 481
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 481
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 481,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY004",
+    "end_location": {
+      "column": 67,
+      "row": 485
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 485
+    },
+    "message": "Prefer `TypeError` exception for invalid type",
+    "noqa_row": 485,
+    "url": "https://docs.astral.sh/ruff/rules/type-check-without-type-error"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 67,
+      "row": 485
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 485
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 485,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 66,
+      "row": 485
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"expected-row manifest is invalid\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 485
+          },
+          "location": {
+            "column": 13,
+            "row": 485
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 66,
+            "row": 485
+          },
+          "location": {
+            "column": 32,
+            "row": 485
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 485
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 485,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 29,
+      "row": 502
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 26,
+      "row": 502
+    },
+    "message": "Magic value used in comparison, consider replacing `200` with a constant variable",
+    "noqa_row": 502,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 88,
+      "row": 508
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 11,
+      "row": 508
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 508,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 87,
+      "row": 508
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"benchmark app was not ready within 60 seconds ({last_error})\"\n    ",
+          "end_location": {
+            "column": 5,
+            "row": 508
+          },
+          "location": {
+            "column": 5,
+            "row": 508
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 87,
+            "row": 508
+          },
+          "location": {
+            "column": 24,
+            "row": 508
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 24,
+      "row": 508
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 508,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "C901",
+    "end_location": {
+      "column": 22,
+      "row": 511
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 511
+    },
+    "message": "`run_client_sample` is too complex (22 > 10)",
+    "noqa_row": 511,
+    "url": "https://docs.astral.sh/ruff/rules/complex-structure"
+  },
+  {
+    "cell": null,
+    "code": "PLR0913",
+    "end_location": {
+      "column": 22,
+      "row": 511
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 511
+    },
+    "message": "Too many arguments in function definition (7 > 5)",
+    "noqa_row": 511,
+    "url": "https://docs.astral.sh/ruff/rules/too-many-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0912",
+    "end_location": {
+      "column": 22,
+      "row": 511
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 511
+    },
+    "message": "Too many branches (17 > 12)",
+    "noqa_row": 511,
+    "url": "https://docs.astral.sh/ruff/rules/too-many-branches"
+  },
+  {
+    "cell": null,
+    "code": "PLR0915",
+    "end_location": {
+      "column": 22,
+      "row": 511
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 511
+    },
+    "message": "Too many statements (98 > 50)",
+    "noqa_row": 511,
+    "url": "https://docs.astral.sh/ruff/rules/too-many-statements"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 36,
+      "row": 537
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 33,
+      "row": 537
+    },
+    "message": "Magic value used in comparison, consider replacing `200` with a constant variable",
+    "noqa_row": 537,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 92,
+      "row": 538
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 538
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 538,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 91,
+      "row": 538
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"real operator login failed with HTTP {login_response.status}\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 538
+          },
+          "location": {
+            "column": 9,
+            "row": 538
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 91,
+            "row": 538
+          },
+          "location": {
+            "column": 28,
+            "row": 538
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 538
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 538,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 81,
+      "row": 543
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 543
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 543,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 80,
+      "row": 543
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"real operator login did not set its session cookie\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 543
+          },
+          "location": {
+            "column": 9,
+            "row": 543
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 80,
+            "row": 543
+          },
+          "location": {
+            "column": 28,
+            "row": 543
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 543
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 543,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 81,
+      "row": 546
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 546
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 546,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 80,
+      "row": 546
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"real operator login response was not authenticated\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 546
+          },
+          "location": {
+            "column": 9,
+            "row": 546
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 80,
+            "row": 546
+          },
+          "location": {
+            "column": 28,
+            "row": 546
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 546
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 546,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 30,
+      "row": 554
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 27,
+      "row": 554
+    },
+    "message": "Magic value used in comparison, consider replacing `200` with a constant variable",
+    "noqa_row": 554,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 71,
+      "row": 555
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 555
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 555,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 70,
+      "row": 555
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"application RSS baseline was unavailable\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 555
+          },
+          "location": {
+            "column": 9,
+            "row": 555
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 70,
+            "row": 555
+          },
+          "location": {
+            "column": 28,
+            "row": 555
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 555
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 555,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 30,
+      "row": 565
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 27,
+      "row": 565
+    },
+    "message": "Magic value used in comparison, consider replacing `200` with a constant variable",
+    "noqa_row": 565,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 94,
+      "row": 568
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 568
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 568,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 93,
+      "row": 568
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"HTTP export failed with status {response.status}: {error_body}\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 568
+          },
+          "location": {
+            "column": 9,
+            "row": 568
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 93,
+            "row": 568
+          },
+          "location": {
+            "column": 28,
+            "row": 568
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 568
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 568,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 72,
+      "row": 571
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 571
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 571,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 71,
+      "row": 571
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"HTTP export content type was not text/csv\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 571
+          },
+          "location": {
+            "column": 9,
+            "row": 571
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 71,
+            "row": 571
+          },
+          "location": {
+            "column": 28,
+            "row": 571
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 571
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 571,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 602
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 602
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 602,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 90,
+      "row": 613
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 27,
+      "row": 613
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 613,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 89,
+      "row": 613
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"HTTP export ended before its first CSV data row\"\n                    ",
+          "end_location": {
+            "column": 21,
+            "row": 613
+          },
+          "location": {
+            "column": 21,
+            "row": 613
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 89,
+            "row": 613
+          },
+          "location": {
+            "column": 40,
+            "row": 613
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 40,
+      "row": 613
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 613,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 104,
+      "row": 621
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 621
+    },
+    "message": "Line too long (103 > 100)",
+    "noqa_row": 621,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 29,
+      "row": 645
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 26,
+      "row": 645
+    },
+    "message": "Magic value used in comparison, consider replacing `200` with a constant variable",
+    "noqa_row": 645,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 75,
+      "row": 646
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 646
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 646,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 74,
+      "row": 646
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"application metrics endpoint was unavailable\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 646
+          },
+          "location": {
+            "column": 9,
+            "row": 646
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 74,
+            "row": 646
+          },
+          "location": {
+            "column": 28,
+            "row": 646
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 28,
+      "row": 646
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 646,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "D107",
+    "end_location": {
+      "column": 17,
+      "row": 691
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 691
+    },
+    "message": "Missing docstring in `__init__`",
+    "noqa_row": 691,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-init"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 762
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 762
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 762,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 793
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 793
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 793,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 102,
+      "row": 813
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 813
+    },
+    "message": "Line too long (101 > 100)",
+    "noqa_row": 813,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 869
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 869
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 869,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 100,
+      "row": 927
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 927
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 927,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 99,
+      "row": 927
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"disposable PostgreSQL did not become ready on the private network\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 927
+          },
+          "location": {
+            "column": 13,
+            "row": 927
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 99,
+            "row": 927
+          },
+          "location": {
+            "column": 32,
+            "row": 927
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 927
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 927,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 100,
+      "row": 964
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 964
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 964,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 99,
+      "row": 964
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"unexpected disposable database Alembic head: {self.alembic_head}\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 964
+          },
+          "location": {
+            "column": 13,
+            "row": 964
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 99,
+            "row": 964
+          },
+          "location": {
+            "column": 32,
+            "row": 964
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 964
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 964,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 107,
+      "row": 1003
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1003
+    },
+    "message": "Line too long (106 > 100)",
+    "noqa_row": 1003,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "PLR0913",
+    "end_location": {
+      "column": 20,
+      "row": 1059
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1059
+    },
+    "message": "Too many arguments in function definition (6 > 5)",
+    "noqa_row": 1059,
+    "url": "https://docs.astral.sh/ruff/rules/too-many-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 55,
+      "row": 1180
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 54,
+      "row": 1180
+    },
+    "message": "Magic value used in comparison, consider replacing `2` with a constant variable",
+    "noqa_row": 1180,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 103,
+      "row": 1196
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1196
+    },
+    "message": "Line too long (102 > 100)",
+    "noqa_row": 1196,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1220
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1220
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 1220,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "S607",
+    "end_location": {
+      "column": 45,
+      "row": 1234
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 1234
+    },
+    "message": "Starting a process with a partial executable path",
+    "noqa_row": 1234,
+    "url": "https://docs.astral.sh/ruff/rules/start-process-with-partial-path"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 113,
+      "row": 1262
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1262
+    },
+    "message": "Line too long (112 > 100)",
+    "noqa_row": 1262,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 120,
+      "row": 1264
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1264
+    },
+    "message": "Line too long (119 > 100)",
+    "noqa_row": 1264,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 104,
+      "row": 1265
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1265
+    },
+    "message": "Line too long (103 > 100)",
+    "noqa_row": 1265,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 117,
+      "row": 1266
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1266
+    },
+    "message": "Line too long (116 > 100)",
+    "noqa_row": 1266,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 121,
+      "row": 1267
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1267
+    },
+    "message": "Line too long (120 > 100)",
+    "noqa_row": 1267,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 112,
+      "row": 1273
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1273
+    },
+    "message": "Line too long (111 > 100)",
+    "noqa_row": 1273,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 111,
+      "row": 1275
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1275
+    },
+    "message": "Line too long (110 > 100)",
+    "noqa_row": 1275,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 118,
+      "row": 1278
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1278
+    },
+    "message": "Line too long (117 > 100)",
+    "noqa_row": 1278,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 105,
+      "row": 1280
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1280
+    },
+    "message": "Line too long (104 > 100)",
+    "noqa_row": 1280,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 102,
+      "row": 1300
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1300
+    },
+    "message": "Line too long (101 > 100)",
+    "noqa_row": 1300,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 123,
+      "row": 1302
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1302
+    },
+    "message": "Line too long (122 > 100)",
+    "noqa_row": 1302,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 138,
+      "row": 1303
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1303
+    },
+    "message": "Line too long (137 > 100)",
+    "noqa_row": 1303,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 128,
+      "row": 1304
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1304
+    },
+    "message": "Line too long (127 > 100)",
+    "noqa_row": 1304,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 101,
+      "row": 1331
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 1331
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1331,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 100,
+      "row": 1331
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"streaming/buffered smoke outputs differed or failed CSV validation\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 1331
+          },
+          "location": {
+            "column": 13,
+            "row": 1331
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 100,
+            "row": 1331
+          },
+          "location": {
+            "column": 32,
+            "row": 1331
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 1331
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 1331,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 104,
+      "row": 1361
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1361
+    },
+    "message": "Line too long (103 > 100)",
+    "noqa_row": 1361,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 26,
+      "row": 1385
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 31,
+      "row": 1382
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1382,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 71,
+      "row": 1384
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = (\n                            \"isolation trial failed validity checks: \"\n                            f\"{row_count} {isolation} repeat {repeat}\"\n                        )\n                        ",
+          "end_location": {
+            "column": 25,
+            "row": 1382
+          },
+          "location": {
+            "column": 25,
+            "row": 1382
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 71,
+            "row": 1384
+          },
+          "location": {
+            "column": 29,
+            "row": 1383
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 29,
+      "row": 1383
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 1383,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "C901",
+    "end_location": {
+      "column": 40,
+      "row": 1387
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1387
+    },
+    "message": "`resume_missing_isolation_trials` is too complex (18 > 10)",
+    "noqa_row": 1387,
+    "url": "https://docs.astral.sh/ruff/rules/complex-structure"
+  },
+  {
+    "cell": null,
+    "code": "PLR0912",
+    "end_location": {
+      "column": 40,
+      "row": 1387
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1387
+    },
+    "message": "Too many branches (17 > 12)",
+    "noqa_row": 1387,
+    "url": "https://docs.astral.sh/ruff/rules/too-many-branches"
+  },
+  {
+    "cell": null,
+    "code": "PLR0915",
+    "end_location": {
+      "column": 40,
+      "row": 1387
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1387
+    },
+    "message": "Too many statements (80 > 50)",
+    "noqa_row": 1387,
+    "url": "https://docs.astral.sh/ruff/rules/too-many-statements"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 50,
+      "row": 1392
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 48,
+      "row": 1392
+    },
+    "message": "Magic value used in comparison, consider replacing `12` with a constant variable",
+    "noqa_row": 1392,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 79,
+      "row": 1392
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 78,
+      "row": 1392
+    },
+    "message": "Magic value used in comparison, consider replacing `7` with a constant variable",
+    "noqa_row": 1392,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 102,
+      "row": 1393
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 1393
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1393,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 101,
+      "row": 1393
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"resume requires the recorded 12 HTTP samples and 7 isolation trials\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 1393
+          },
+          "location": {
+            "column": 13,
+            "row": 1393
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 101,
+            "row": 1393
+          },
+          "location": {
+            "column": 32,
+            "row": 1393
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 1393
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 1393,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 102,
+      "row": 1393
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1393
+    },
+    "message": "Line too long (101 > 100)",
+    "noqa_row": 1393,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 93,
+      "row": 1397
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 1397
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1397,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 92,
+      "row": 1397
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"resume requires every existing isolation trial to be valid\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 1397
+          },
+          "location": {
+            "column": 13,
+            "row": 1397
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 92,
+            "row": 1397
+          },
+          "location": {
+            "column": 32,
+            "row": 1397
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 1397
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 1397,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 73,
+      "row": 1399
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 1399
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1399,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 72,
+      "row": 1399
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"isolation recovery is already recorded\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 1399
+          },
+          "location": {
+            "column": 13,
+            "row": 1399
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 72,
+            "row": 1399
+          },
+          "location": {
+            "column": 32,
+            "row": 1399
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 1399
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 1399,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 89,
+      "row": 1420
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 1420
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1420,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 88,
+      "row": 1420
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"unexpected missing isolation coordinates: {missing!r}\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 1420
+          },
+          "location": {
+            "column": 13,
+            "row": 1420
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 88,
+            "row": 1420
+          },
+          "location": {
+            "column": 32,
+            "row": 1420
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 1420
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 1420,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY301",
+    "end_location": {
+      "column": 90,
+      "row": 1479
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 1479
+    },
+    "message": "Abstract `raise` to an inner function",
+    "noqa_row": 1479,
+    "url": "https://docs.astral.sh/ruff/rules/raise-within-try"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 90,
+      "row": 1479
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 31,
+      "row": 1479
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1479,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 89,
+      "row": 1479
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"isolation trial failed validation: {label}\"\n                        ",
+          "end_location": {
+            "column": 25,
+            "row": 1479
+          },
+          "location": {
+            "column": 25,
+            "row": 1479
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 89,
+            "row": 1479
+          },
+          "location": {
+            "column": 44,
+            "row": 1479
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 44,
+      "row": 1479
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 1479,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 33,
+      "row": 1480
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 24,
+      "row": 1480
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 1480,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1494
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1494
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 1494,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 33,
+      "row": 1511
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 24,
+      "row": 1511
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 1511,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 95,
+      "row": 1532
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 19,
+      "row": 1532
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 1532,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 94,
+      "row": 1532
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"cannot merge invalid isolation trials into completed results\"\n            ",
+          "end_location": {
+            "column": 13,
+            "row": 1532
+          },
+          "location": {
+            "column": 13,
+            "row": 1532
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 94,
+            "row": 1532
+          },
+          "location": {
+            "column": 32,
+            "row": 1532
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 32,
+      "row": 1532
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 1532,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 103,
+      "row": 1545
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1545
+    },
+    "message": "Line too long (102 > 100)",
+    "noqa_row": 1545,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "D102",
+    "end_location": {
+      "column": 12,
+      "row": 1572
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1572
+    },
+    "message": "Missing docstring in public method",
+    "noqa_row": 1572,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-method"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 59,
+      "row": 1588
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 57,
+      "row": 1588
+    },
+    "message": "Magic value used in comparison, consider replacing `12` with a constant variable",
+    "noqa_row": 1588,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "PLR2004",
+    "end_location": {
+      "column": 95,
+      "row": 1588
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 93,
+      "row": 1588
+    },
+    "message": "Magic value used in comparison, consider replacing `12` with a constant variable",
+    "noqa_row": 1588,
+    "url": "https://docs.astral.sh/ruff/rules/magic-value-comparison"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1594
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1594
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 1594,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1617
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1617
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 1617,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 133,
+      "row": 1663
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1663
+    },
+    "message": "Line too long (132 > 100)",
+    "noqa_row": 1663,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "PLW2901",
+    "end_location": {
+      "column": 23,
+      "row": 1669
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 1669
+    },
+    "message": "`with` statement variable `connection` overwritten by assignment target",
+    "noqa_row": 1669,
+    "url": "https://docs.astral.sh/ruff/rules/redefined-loop-name"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 102,
+      "row": 1674
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1674
+    },
+    "message": "Line too long (101 > 100)",
+    "noqa_row": 1674,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 1701
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 1701
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "noqa_row": 1701,
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "D103",
+    "end_location": {
+      "column": 9,
+      "row": 1748
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 1748
+    },
+    "message": "Missing docstring in public function",
+    "noqa_row": 1748,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-function"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 111,
+      "row": 1765
+    },
+    "filename": "qa/events/benchmark_export.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 1765
+    },
+    "message": "Line too long (110 > 100)",
+    "noqa_row": 1765,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "INP001",
+    "end_location": {
+      "column": 1,
+      "row": 1
+    },
+    "filename": "qa/events/buffered_export.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "File `qa/events/buffered_export.py` is part of an implicit namespace package. Add an `__init__.py`.",
+    "noqa_row": 1,
+    "url": "https://docs.astral.sh/ruff/rules/implicit-namespace-package"
+  },
+  {
+    "cell": null,
+    "code": "D107",
+    "end_location": {
+      "column": 17,
+      "row": 47
+    },
+    "filename": "qa/events/buffered_export.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 47
+    },
+    "message": "Missing docstring in `__init__`",
+    "noqa_row": 47,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-init"
+  },
+  {
+    "cell": null,
+    "code": "D102",
+    "end_location": {
+      "column": 22,
+      "row": 61
+    },
+    "filename": "qa/events/buffered_export.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 61
+    },
+    "message": "Missing docstring in public method",
+    "noqa_row": 61,
+    "url": "https://docs.astral.sh/ruff/rules/undocumented-public-method"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 2,
+      "row": 22
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from __future__ import annotations\n\nimport csv\nimport subprocess\nfrom pathlib import Path\nfrom types import SimpleNamespace\n\nimport pytest\nimport qa.events.benchmark_export as benchmark_export\nfrom qa.events.benchmark_export import (\n    BenchmarkRunner,\n    _summarize_isolation,\n    ensure_disposable_database,\n    summarize_samples,\n    summarize_samples_by_dataset,\n    validate_csv_file,\n)\nfrom sqlalchemy.dialects.postgresql.asyncpg import PGDialect_asyncpg\nfrom sqlalchemy.engine import make_url\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 25
+          },
+          "location": {
+            "column": 1,
+            "row": 3
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 3
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "noqa_row": 3,
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "TC003",
+    "end_location": {
+      "column": 25,
+      "row": 8
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 9
+          },
+          "location": {
+            "column": 1,
+            "row": 8
+          }
+        },
+        {
+          "content": "from typing import TYPE_CHECKING\n",
+          "end_location": {
+            "column": 1,
+            "row": 23
+          },
+          "location": {
+            "column": 1,
+            "row": 23
+          }
+        },
+        {
+          "content": "\nif TYPE_CHECKING:\n    from pathlib import Path\n",
+          "end_location": {
+            "column": 1,
+            "row": 23
+          },
+          "location": {
+            "column": 1,
+            "row": 23
+          }
+        }
+      ],
+      "message": "Move into type-checking block"
+    },
+    "location": {
+      "column": 21,
+      "row": 8
+    },
+    "message": "Move standard library import `pathlib.Path` into a type-checking block",
+    "noqa_row": 8,
+    "url": "https://docs.astral.sh/ruff/rules/typing-only-standard-library-import"
+  },
+  {
+    "cell": null,
+    "code": "PLR0402",
+    "end_location": {
+      "column": 54,
+      "row": 14
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from qa.events import benchmark_export",
+          "end_location": {
+            "column": 54,
+            "row": 14
+          },
+          "location": {
+            "column": 1,
+            "row": 14
+          }
+        }
+      ],
+      "message": "Replace with `from qa.events import benchmark_export`"
+    },
+    "location": {
+      "column": 8,
+      "row": 14
+    },
+    "message": "Use `from qa.events import benchmark_export` in lieu of alias",
+    "noqa_row": 14,
+    "url": "https://docs.astral.sh/ruff/rules/manual-from-import"
+  },
+  {
+    "cell": null,
+    "code": "PT018",
+    "end_location": {
+      "column": 65,
+      "row": 194
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "    assert \"stdout\" in logs.lower()\n    assert \"stderr\" in logs.lower()\n",
+          "end_location": {
+            "column": 1,
+            "row": 195
+          },
+          "location": {
+            "column": 1,
+            "row": 194
+          }
+        }
+      ],
+      "message": "Break down assertion into multiple parts"
+    },
+    "location": {
+      "column": 5,
+      "row": 194
+    },
+    "message": "Assertion should be broken down into multiple parts",
+    "noqa_row": 194,
+    "url": "https://docs.astral.sh/ruff/rules/pytest-composite-assertion"
+  },
+  {
+    "cell": null,
+    "code": "SLF001",
+    "end_location": {
+      "column": 36,
+      "row": 196
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 196
+    },
+    "message": "Private member accessed: `_docker`",
+    "noqa_row": 196,
+    "url": "https://docs.astral.sh/ruff/rules/private-member-access"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": {
+      "column": 129,
+      "row": 199
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 101,
+      "row": 199
+    },
+    "message": "Line too long (128 > 100)",
+    "noqa_row": 199,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 75,
+      "row": 219
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 23,
+      "row": 219
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 219,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM101",
+    "end_location": {
+      "column": 74,
+      "row": 219
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = \"docker rm failed: daemon unavailable\"\n                ",
+          "end_location": {
+            "column": 17,
+            "row": 219
+          },
+          "location": {
+            "column": 17,
+            "row": 219
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 74,
+            "row": 219
+          },
+          "location": {
+            "column": 36,
+            "row": 219
+          }
+        }
+      ],
+      "message": "Assign to variable; remove string literal"
+    },
+    "location": {
+      "column": 36,
+      "row": 219
+    },
+    "message": "Exception must not use a string literal, assign to variable first",
+    "noqa_row": 219,
+    "url": "https://docs.astral.sh/ruff/rules/raw-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "TRY003",
+    "end_location": {
+      "column": 76,
+      "row": 221
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 221
+    },
+    "message": "Avoid specifying long messages outside the exception class",
+    "noqa_row": 221,
+    "url": "https://docs.astral.sh/ruff/rules/raise-vanilla-args"
+  },
+  {
+    "cell": null,
+    "code": "EM102",
+    "end_location": {
+      "column": 75,
+      "row": 221
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "msg = f\"unexpected docker command: {arguments[:2]}\"\n        ",
+          "end_location": {
+            "column": 9,
+            "row": 221
+          },
+          "location": {
+            "column": 9,
+            "row": 221
+          }
+        },
+        {
+          "content": "msg",
+          "end_location": {
+            "column": 75,
+            "row": 221
+          },
+          "location": {
+            "column": 30,
+            "row": 221
+          }
+        }
+      ],
+      "message": "Assign to variable; remove f-string literal"
+    },
+    "location": {
+      "column": 30,
+      "row": 221
+    },
+    "message": "Exception must not use an f-string literal, assign to variable first",
+    "noqa_row": 221,
+    "url": "https://docs.astral.sh/ruff/rules/f-string-in-exception"
+  },
+  {
+    "cell": null,
+    "code": "SLF001",
+    "end_location": {
+      "column": 28,
+      "row": 234
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 234
+    },
+    "message": "Private member accessed: `_run_utility`",
+    "noqa_row": 234,
+    "url": "https://docs.astral.sh/ruff/rules/private-member-access"
+  },
+  {
+    "cell": null,
+    "code": "SLF001",
+    "end_location": {
+      "column": 28,
+      "row": 251
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 251
+    },
+    "message": "Private member accessed: `_run_utility`",
+    "noqa_row": 251,
+    "url": "https://docs.astral.sh/ruff/rules/private-member-access"
+  },
+  {
+    "cell": null,
+    "code": "S105",
+    "end_location": {
+      "column": 52,
+      "row": 265
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 32,
+      "row": 265
+    },
+    "message": "Possible hardcoded password assigned to: \"operator_password\"",
+    "noqa_row": 265,
+    "url": "https://docs.astral.sh/ruff/rules/hardcoded-password-string"
+  },
+  {
+    "cell": null,
+    "code": "S105",
+    "end_location": {
+      "column": 53,
+      "row": 266
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 28,
+      "row": 266
+    },
+    "message": "Possible hardcoded password assigned to: \"control_token\"",
+    "noqa_row": 266,
+    "url": "https://docs.astral.sh/ruff/rules/hardcoded-password-string"
+  },
+  {
+    "cell": null,
+    "code": "SLF001",
+    "end_location": {
+      "column": 27,
+      "row": 269
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 269
+    },
+    "message": "Private member accessed: `_run_client`",
+    "noqa_row": 269,
+    "url": "https://docs.astral.sh/ruff/rules/private-member-access"
+  },
+  {
+    "cell": null,
+    "code": "PT018",
+    "end_location": {
+      "column": 45,
+      "row": 386
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "        assert engine_args\n        assert engine_kwargs\n",
+          "end_location": {
+            "column": 1,
+            "row": 387
+          },
+          "location": {
+            "column": 1,
+            "row": 386
+          }
+        }
+      ],
+      "message": "Break down assertion into multiple parts"
+    },
+    "location": {
+      "column": 9,
+      "row": 386
+    },
+    "message": "Assertion should be broken down into multiple parts",
+    "noqa_row": 386,
+    "url": "https://docs.astral.sh/ruff/rules/pytest-composite-assertion"
+  },
+  {
+    "cell": null,
+    "code": "SLF001",
+    "end_location": {
+      "column": 42,
+      "row": 393
+    },
+    "filename": "server/tests/test_event_benchmark.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 393
+    },
+    "message": "Private member accessed: `_make_engine`",
+    "noqa_row": 393,
+    "url": "https://docs.astral.sh/ruff/rules/private-member-access"
+  }
+]

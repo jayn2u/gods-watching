@@ -1,0 +1,182 @@
+{
+  "http_summary": {
+    "10000:buffered": {
+      "application_peak_rss_kib_median": 270996.0,
+      "application_peak_rss_kib_range": [
+        270960.0,
+        272048.0
+      ],
+      "first_byte_latency_seconds_median": 0.10588558402378112,
+      "first_byte_latency_seconds_range": [
+        0.08943270304007456,
+        0.10891340899979696
+      ],
+      "latency_seconds_median": 0.10750583000481129,
+      "latency_seconds_range": [
+        0.09102441900176927,
+        0.1105823129764758
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 270996.0,
+      "startup_login_baseline_rss_kib_range": [
+        270960.0,
+        272048.0
+      ]
+    },
+    "10000:streaming": {
+      "application_peak_rss_kib_median": 272364.0,
+      "application_peak_rss_kib_range": [
+        264764.0,
+        272532.0
+      ],
+      "first_byte_latency_seconds_median": 0.017742365947924554,
+      "first_byte_latency_seconds_range": [
+        0.01477970601990819,
+        0.018632969993632287
+      ],
+      "latency_seconds_median": 0.10775438003474846,
+      "latency_seconds_range": [
+        0.10669093899196014,
+        0.15892004704801366
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 272364.0,
+      "startup_login_baseline_rss_kib_range": [
+        264764.0,
+        272532.0
+      ]
+    },
+    "50000:buffered": {
+      "application_peak_rss_kib_median": 271328.0,
+      "application_peak_rss_kib_range": [
+        270852.0,
+        271608.0
+      ],
+      "first_byte_latency_seconds_median": 0.4596190550364554,
+      "first_byte_latency_seconds_range": [
+        0.45756938599515706,
+        0.48794975003693253
+      ],
+      "latency_seconds_median": 0.4655264359898865,
+      "latency_seconds_range": [
+        0.463863244978711,
+        0.49367088702274486
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 271328.0,
+      "startup_login_baseline_rss_kib_range": [
+        270852.0,
+        271608.0
+      ]
+    },
+    "50000:streaming": {
+      "application_peak_rss_kib_median": 271696.0,
+      "application_peak_rss_kib_range": [
+        271664.0,
+        271980.0
+      ],
+      "first_byte_latency_seconds_median": 0.03726662596454844,
+      "first_byte_latency_seconds_range": [
+        0.015678872994612902,
+        0.07905082998331636
+      ],
+      "latency_seconds_median": 0.4940802420023829,
+      "latency_seconds_range": [
+        0.4871250619762577,
+        0.5430262559675612
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 271696.0,
+      "startup_login_baseline_rss_kib_range": [
+        271664.0,
+        271980.0
+      ]
+    }
+  },
+  "isolation_summary": {
+    "10000:READ COMMITTED": {
+      "count_mismatches": [
+        true,
+        true,
+        true
+      ],
+      "elapsed_seconds_median": 0.1110541500383988,
+      "elapsed_seconds_range": [
+        0.10818224295508116,
+        0.11295560200233012
+      ],
+      "export_counts": [
+        10100,
+        10100,
+        10100
+      ],
+      "initial_count": 10000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    },
+    "10000:REPEATABLE READ": {
+      "count_mismatches": [
+        false,
+        false,
+        false
+      ],
+      "elapsed_seconds_median": 0.1084556489950046,
+      "elapsed_seconds_range": [
+        0.1076287729665637,
+        0.10969374200794846
+      ],
+      "export_counts": [
+        10000,
+        10000,
+        10000
+      ],
+      "initial_count": 10000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    },
+    "50000:READ COMMITTED": {
+      "count_mismatches": [
+        true,
+        true,
+        true
+      ],
+      "elapsed_seconds_median": 0.18631312798243016,
+      "elapsed_seconds_range": [
+        0.18602093699155375,
+        0.18666981399292126
+      ],
+      "export_counts": [
+        50100,
+        50100,
+        50100
+      ],
+      "initial_count": 50000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    },
+    "50000:REPEATABLE READ": {
+      "count_mismatches": [
+        false,
+        false,
+        false
+      ],
+      "elapsed_seconds_median": 0.18653660302516073,
+      "elapsed_seconds_range": [
+        0.18603096302831545,
+        0.19541134702740237
+      ],
+      "export_counts": [
+        50000,
+        50000,
+        50000
+      ],
+      "initial_count": 50000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    }
+  }
+}

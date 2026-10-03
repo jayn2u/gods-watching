@@ -4,10 +4,15 @@
   "pythonPlatform": "All",
   "stubPath": "../../../../server/typings",
   "extraPaths": [
+    "../../../../qa/events",
     "../../../../server/src",
     "../../../../"
   ],
   "include": [
+    "../../../../qa/__init__.py",
+    "../../../../qa/events/__init__.py",
+    "../../../../qa/events/_benchmark_app_bootstrap.py",
+    "../../../../qa/events/_benchmark_export_bootstrap.py",
     "../../../../qa/events/benchmark_app.py",
     "../../../../qa/events/benchmark_export.py",
     "../../../../qa/events/buffered_export.py",

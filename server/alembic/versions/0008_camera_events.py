@@ -13,7 +13,7 @@ depends_on = None
 
 def upgrade() -> None:
     """Create the minimal durable event projection and export indexes."""
-    op.create_table(
+    _ = op.create_table(
         "camera_events",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column(

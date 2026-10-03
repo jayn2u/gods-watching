@@ -1,12 +1,14 @@
 """Transactional storage contracts for camera-management events."""
 
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
 from cryptography.fernet import Fernet
-from sqlalchemy import CheckConstraint, select, text
+from sqlalchemy import CheckConstraint, DateTime, String, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.sql.elements import TextClause
 
 from gods_watching.cameras import (
     CameraRepository,
@@ -41,21 +43,23 @@ def test_event_schema_contract() -> None:
     assert table.c.id.primary_key
     assert table.c.id.type.python_type is int
     assert table.c.id.identity is not None
+    assert isinstance(table.c.occurred_at.type, DateTime)
     assert table.c.occurred_at.type.timezone is True
     assert table.c.occurred_at.server_default is not None
     assert table.c.event_type.nullable is False
     assert table.c.camera_id.nullable is False
     assert table.c.camera_id.type.python_type.__name__ == "UUID"
+    assert isinstance(table.c.camera_name.type, String)
     assert table.c.camera_name.type.length == 80
     assert table.c.camera_name.nullable is False
     assert not table.foreign_keys
 
-    constraints = tuple(
-        constraint.sqltext
-        for constraint in table.constraints
-        if isinstance(constraint, CheckConstraint)
-    )
-    normalized = {" ".join(str(sql).lower().split()) for sql in constraints}
+    normalized: set[str] = set()
+    for constraint in table.constraints:
+        if isinstance(constraint, CheckConstraint):
+            sqltext: object = cast("object", constraint.sqltext)
+            assert isinstance(sqltext, TextClause)
+            normalized.add(" ".join(str(sqltext).lower().split()))
     assert any(
         "camera.created" in sql and "camera.updated" in sql and "camera.deleted" in sql
         for sql in normalized
@@ -183,7 +187,9 @@ async def test_failed_probe_does_not_record(engine: AsyncEngine) -> None:
             _ = await failing_service.update(
                 session,
                 created.camera.camera_id,
-                CameraPatchRequest(source_url="rtsp://operator:new-secret@offline:8554/live"),
+                CameraPatchRequest.model_validate(
+                    {"source_url": "rtsp://operator:new-secret@offline:8554/live"}
+                ),
                 expected_version=created.camera.version,
             )
 
@@ -228,7 +234,7 @@ async def test_event_insert_failure_rolls_back_camera(engine: AsyncEngine) -> No
     service = _service()
     name = "event-write-failure"
     async with engine.begin() as connection:
-        await connection.execute(
+        _ = await connection.execute(
             text(
                 """
                 ALTER TABLE camera_events
@@ -250,7 +256,7 @@ async def test_event_insert_failure_rolls_back_camera(engine: AsyncEngine) -> No
                     await transaction.rollback()
     finally:
         async with engine.begin() as connection:
-            await connection.execute(
+            _ = await connection.execute(
                 text("ALTER TABLE camera_events DROP CONSTRAINT ck_camera_events_test_reject_name")
             )
 
