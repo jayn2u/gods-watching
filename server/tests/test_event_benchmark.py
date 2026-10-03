@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import csv
+import subprocess
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
+import qa.events.benchmark_export as benchmark_export
 from qa.events.benchmark_export import (
+    BenchmarkRunner,
     ensure_disposable_database,
+    _summarize_isolation,
     summarize_samples,
     summarize_samples_by_dataset,
     validate_csv_file,
@@ -84,6 +89,194 @@ def test_field_mismatch_and_invalid_csv_fail_correctness(tmp_path: Path) -> None
     assert invalid_result.correct is False
     assert invalid_result.parse_error is not None
     assert invalid_result.performance_eligible is False
+
+
+def test_csv_row_with_surplus_column_fails_correctness(tmp_path: Path) -> None:
+    output = tmp_path / "extra-column.csv"
+    output.write_text(
+        "id,occurred_at,event_type,camera_id,camera_name\n"
+        "1,2026-10-03T00:00:00Z,camera.created,"
+        "00000000-0000-0000-0000-000000000001,Front door,unexpected\n"
+        "2,2026-10-03T00:00:01Z,camera.updated,"
+        '00000000-0000-0000-0000-000000000002,"Parking, east"\n',
+        encoding="utf-8",
+    )
+
+    result = validate_csv_file(output, _EXPECTED)
+
+    assert result.correct is False
+    assert result.parse_error == "CSV row has missing or extra columns"
+    assert result.performance_eligible is False
+
+
+def test_writer_commit_overlap_is_distinct_from_transaction_activity_overlap() -> None:
+    calculate_metrics = getattr(benchmark_export, "writer_overlap_metrics", None)
+    assert callable(calculate_metrics), "writer overlap metrics helper should be defined"
+    metrics = calculate_metrics(
+        http_start=10.0,
+        http_end=20.0,
+        writer_start=8.0,
+        writer_commit=20.001,
+    )
+
+    assert metrics == {
+        "transaction_activity_overlaps_http_transfer": True,
+        "commit_inside_http_transfer": False,
+    }
+
+
+def test_isolation_validity_requires_snapshot_count_writer_and_ids() -> None:
+    valid_rc = {
+        "dataset_size": 10_000,
+        "isolation": "READ COMMITTED",
+        "error": None,
+        "initial_count": 10_000,
+        "writer_count": 100,
+        "export_count": 10_100,
+        "exact_ids_match": True,
+        "elapsed_seconds": 0.2,
+    }
+    is_valid = getattr(benchmark_export, "isolation_trial_is_valid", None)
+    assert callable(is_valid), "isolation validity predicate should be defined"
+    assert is_valid(valid_rc) is True
+
+    for field, value in (
+        ("error", "DatabaseError"),
+        ("initial_count", 9_999),
+        ("writer_count", 99),
+        ("export_count", 10_000),
+        ("exact_ids_match", False),
+    ):
+        invalid = dict(valid_rc, **{field: value})
+        assert is_valid(invalid) is False
+
+
+def test_invalid_isolation_trials_remain_recorded_but_are_excluded_from_median() -> None:
+    valid = {
+        "dataset_size": 10_000,
+        "isolation": "READ COMMITTED",
+        "error": None,
+        "initial_count": 10_000,
+        "writer_count": 100,
+        "export_count": 10_100,
+        "exact_ids_match": True,
+        "elapsed_seconds": 0.2,
+    }
+    invalid = dict(valid, export_count=10_000, exact_ids_match=False, elapsed_seconds=0.001)
+
+    summary = _summarize_isolation([valid, invalid])["10000:READ COMMITTED"]
+
+    assert summary["trial_count"] == 2
+    assert summary["valid_trial_count"] == 1
+    assert summary["invalid_trial_count"] == 1
+    assert summary["elapsed_seconds_median"] == 0.2
+
+
+def test_log_capture_keeps_stdout_and_stderr_while_structured_docker_keeps_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: object) -> SimpleNamespace:
+        calls.append(command)
+        return SimpleNamespace(stdout="structured stdout", stderr="server diagnostics")
+
+    monkeypatch.setattr(benchmark_export.subprocess, "run", fake_run)
+    capture = getattr(benchmark_export, "_docker_logs", None)
+    assert callable(capture), "log-specific capture helper should be defined"
+
+    logs = capture("db", tail=20)
+
+    assert "structured stdout" in logs
+    assert "server diagnostics" in logs
+    assert "stdout" in logs.lower() and "stderr" in logs.lower()
+    assert calls[-1][:3] == ["docker", "logs", "--tail"]
+    assert benchmark_export._docker(["ps"]) == "structured stdout"
+
+
+def _timeout_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, fail_remove: bool) -> tuple[BenchmarkRunner, list[str]]:
+    runner = BenchmarkRunner.__new__(BenchmarkRunner)
+    runner.run_id = "deadbeef"
+    runner.network_name = "gw-event-export-deadbeef"
+    runner.scratch_root = tmp_path
+    runner.app_database_url = "postgresql+asyncpg://postgres:secret@db:5432/gw_events_bench_deadbeef"
+    runner.database_name = "gw_events_bench_deadbeef"
+    runner.owned_containers = set()
+    runner.cleanup_failures = []
+    calls: list[str] = []
+
+    def fake_run_docker(arguments: list[str], *, timeout: int = 60) -> str:
+        if arguments[0] == "run":
+            name = arguments[arguments.index("--name") + 1]
+            calls.append(f"run:{name}:registered={name in runner.owned_containers}")
+            raise subprocess.TimeoutExpired(["docker", *arguments], timeout)
+        if arguments[:2] == ["rm", "--force"]:
+            name = arguments[2]
+            calls.append(f"remove:{name}")
+            if fail_remove:
+                raise RuntimeError("docker rm failed: daemon unavailable")
+            return name
+        raise AssertionError(f"unexpected docker command: {arguments[:2]}")
+
+    monkeypatch.setattr(runner, "_run_docker", fake_run_docker)
+    return runner, calls
+
+
+def test_timed_out_utility_is_registered_and_force_removed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, calls = _timeout_runner(tmp_path, monkeypatch, fail_remove=False)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner._run_utility(suffix="timeout", command=("seed",), timeout=1)
+
+    assert calls == [
+        "run:gw-event-export-util-deadbeef-timeout:registered=True",
+        "remove:gw-event-export-util-deadbeef-timeout",
+    ]
+    assert not runner.owned_containers
+    assert runner.cleanup_failures == []
+
+
+def test_timed_out_utility_cleanup_failure_is_recorded_and_ownership_retained(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, calls = _timeout_runner(tmp_path, monkeypatch, fail_remove=True)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner._run_utility(suffix="timeout", command=("seed",), timeout=1)
+
+    name = "gw-event-export-util-deadbeef-timeout"
+    assert calls[-1] == f"remove:{name}"
+    assert name in runner.owned_containers
+    assert runner.cleanup_failures[0]["resource"] == name
+    assert "daemon unavailable" in runner.cleanup_failures[0]["error"]
+
+
+def test_timed_out_client_is_registered_and_force_removed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, calls = _timeout_runner(tmp_path, monkeypatch, fail_remove=False)
+    runner.operator_password = "synthetic-password"
+    runner.control_token = "synthetic-control-token"
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner._run_client(
+            app_container="gw-event-export-app-deadbeef-streaming-10000-1",
+            mode="streaming",
+            row_count=10_000,
+            repeat=1,
+            writer_enabled=True,
+            expected_path=tmp_path / "expected.json",
+        )
+
+    name = "gw-event-export-client-deadbeef-streaming-10000-1"
+    assert calls == [f"run:{name}:registered=True", f"remove:{name}"]
+    assert not runner.owned_containers
+    assert runner.cleanup_failures == []
 
 
 def test_incorrect_samples_are_excluded_from_comparison_summary() -> None:

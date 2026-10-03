@@ -99,7 +99,11 @@ def validate_csv_file(
                 parse_error = "CSV header does not match the export contract"
             else:
                 for row in reader:
-                    if row is None or any(row.get(field) is None for field in _CSV_FIELDS):
+                    if (
+                        row is None
+                        or None in row
+                        or any(row.get(field) is None for field in _CSV_FIELDS)
+                    ):
                         parse_error = "CSV row has missing or extra columns"
                         break
                     identifier_text = row["id"]
@@ -274,6 +278,69 @@ def _docker(arguments: Sequence[str], *, timeout: int = 60) -> str:
         detail = error.stderr.strip() or f"exit code {error.returncode}"
         raise RuntimeError(f"docker {arguments[0]} failed: {detail}") from None
     return completed.stdout.strip()
+
+
+def _docker_logs(container_name: str, *, tail: int | None = None) -> str:
+    """Return labeled stdout and stderr from Docker's container log streams."""
+    arguments = ["docker", "logs"]
+    if tail is not None:
+        arguments.extend(["--tail", str(tail)])
+    arguments.append(container_name)
+    try:
+        completed = subprocess.run(
+            arguments,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except subprocess.CalledProcessError as error:
+        stdout = error.stdout or ""
+        stderr = error.stderr or ""
+        raise RuntimeError(
+            "docker logs failed:\n"
+            f"--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+        ) from None
+    return (
+        "--- stdout ---\n"
+        f"{completed.stdout or ''}\n"
+        "--- stderr ---\n"
+        f"{completed.stderr or ''}"
+    )
+
+
+def writer_overlap_metrics(
+    *,
+    http_start: float,
+    http_end: float,
+    writer_start: float,
+    writer_commit: float,
+) -> dict[str, bool]:
+    """Separate transaction-activity intersection from commit inside the HTTP window."""
+    return {
+        "transaction_activity_overlaps_http_transfer": (
+            writer_start <= http_end and writer_commit >= http_start
+        ),
+        "commit_inside_http_transfer": http_start <= writer_commit <= http_end,
+    }
+
+
+def isolation_trial_is_valid(trial: Mapping[str, Any]) -> bool:
+    """Validate a forced-interleaving RC/RR result before timing can be summarized."""
+    dataset_size = trial.get("dataset_size")
+    isolation = trial.get("isolation")
+    if not isinstance(dataset_size, int) or dataset_size <= 0:
+        return False
+    if isolation not in {"READ COMMITTED", "REPEATABLE READ"}:
+        return False
+    expected_export_count = dataset_size + (_WRITER_COUNT if isolation == "READ COMMITTED" else 0)
+    return (
+        trial.get("error") is None
+        and trial.get("exact_ids_match") is True
+        and trial.get("initial_count") == dataset_size
+        and trial.get("export_count") == expected_export_count
+        and trial.get("writer_count") == _WRITER_COUNT
+    )
 
 
 def _dependency_versions() -> dict[str, str]:
@@ -644,6 +711,7 @@ class BenchmarkRunner:
         self.logs_root.mkdir(parents=True, exist_ok=True)
         self.commands: list[str] = []
         self.owned_containers: set[str] = set()
+        self.cleanup_failures: list[dict[str, str]] = []
         self.network_created = False
         self.database_version = "unavailable"
         self.alembic_head = "unverified"
@@ -673,6 +741,71 @@ class BenchmarkRunner:
                 safe_arguments.append(argument)
         self.commands.append("docker " + " ".join(safe_arguments))
         return _docker(arguments, timeout=timeout)
+
+    def _record_cleanup_failure(self, resource: str, phase: str, error: Exception) -> None:
+        self.cleanup_failures.append(
+            {"resource": resource, "phase": phase, "error": f"{type(error).__name__}: {error}"}
+        )
+
+    def _remove_owned_container(self, container_name: str, *, phase: str) -> None:
+        if container_name not in self.owned_containers:
+            return
+        try:
+            self._run_docker(["rm", "--force", container_name], timeout=30)
+        except RuntimeError as error:
+            message = str(error).lower()
+            if "no such container" in message or "no such object" in message:
+                self.owned_containers.discard(container_name)
+                return
+            self._record_cleanup_failure(container_name, phase, error)
+        except Exception as error:
+            self._record_cleanup_failure(container_name, phase, error)
+        else:
+            self.owned_containers.discard(container_name)
+
+    def _run_owned_container(
+        self,
+        container_name: str,
+        arguments: Sequence[str],
+        *,
+        timeout: int,
+    ) -> str:
+        self.owned_containers.add(container_name)
+        try:
+            return self._run_docker(arguments, timeout=timeout)
+        finally:
+            self._remove_owned_container(container_name, phase="container run finalizer")
+
+    def _cleanup_task_resources(self, *, phase: str) -> None:
+        for container_name in tuple(self.owned_containers):
+            self._remove_owned_container(container_name, phase=phase)
+        if not self.network_created:
+            return
+        try:
+            self._run_docker(["network", "rm", self.network_name], timeout=30)
+        except RuntimeError as error:
+            message = str(error).lower()
+            if "no such network" in message or "not found" in message:
+                self.network_created = False
+                return
+            self._record_cleanup_failure(self.network_name, phase, error)
+        except Exception as error:
+            self._record_cleanup_failure(self.network_name, phase, error)
+        else:
+            self.network_created = False
+
+    def _capture_container_logs(
+        self,
+        container_name: str,
+        *,
+        tail: int | None = None,
+    ) -> str:
+        command = ["docker", "logs"]
+        if tail is not None:
+            command.extend(["--tail", str(tail)])
+        command.append(container_name)
+        self.commands.append(" ".join(command))
+        return _docker_logs(container_name, tail=tail)
 
     def _database_diagnostics(self, label: str) -> dict[str, Any]:
         """Capture effective Docker limits, cgroup counters, and tmpfs state."""
@@ -729,16 +862,17 @@ class BenchmarkRunner:
             except RuntimeError as error:
                 snapshot["live_probe_error"] = f"{type(error).__name__}: {error}"
         try:
-            snapshot["postgres_log_tail"] = self._run_docker(
-                ["logs", "--tail", "200", self.db_container], timeout=15
+            snapshot["postgres_log_tail"] = self._capture_container_logs(
+                self.db_container, tail=200
             )
-        except RuntimeError as error:
+        except Exception as error:
             snapshot["postgres_log_error"] = f"{type(error).__name__}: {error}"
         return snapshot
 
     def _start_environment(self) -> None:
         self._run_docker(["network", "create", "--internal", self.network_name])
         self.network_created = True
+        self.owned_containers.add(self.db_container)
         self._run_docker(
             [
                 "run",
@@ -764,7 +898,6 @@ class BenchmarkRunner:
             ],
             timeout=60,
         )
-        self.owned_containers.add(self.db_container)
         self._initialize_database()
 
     def _initialize_database(self) -> None:
@@ -842,7 +975,6 @@ class BenchmarkRunner:
         arguments = [
             "run",
             "--pull=never",
-            "--rm",
             "--name",
             utility_name,
             "--network",
@@ -878,9 +1010,10 @@ class BenchmarkRunner:
             arguments.extend(["/work/events/benchmark_export.py", *command])
         else:
             arguments.extend(command)
-        self._run_docker(arguments, timeout=timeout)
+        self._run_owned_container(utility_name, arguments, timeout=timeout)
 
     def _start_app(self, *, mode: str, container_name: str) -> None:
+        self.owned_containers.add(container_name)
         self._run_docker(
             [
                 "run",
@@ -921,7 +1054,6 @@ class BenchmarkRunner:
             ],
             timeout=60,
         )
-        self.owned_containers.add(container_name)
 
     def _run_client(
         self,
@@ -939,7 +1071,6 @@ class BenchmarkRunner:
         command = [
             "run",
             "--pull=never",
-            "--rm",
             "--name",
             client_name,
             "--network",
@@ -974,7 +1105,7 @@ class BenchmarkRunner:
         ]
         if writer_enabled:
             command.append("--writer")
-        self._run_docker(command, timeout=300)
+        self._run_owned_container(client_name, command, timeout=300)
         result = json.loads(result_path.read_text(encoding="utf-8"))
         result["mode"] = mode
         result["dataset_size"] = row_count
@@ -1000,8 +1131,8 @@ class BenchmarkRunner:
         expected_path: Path,
     ) -> dict[str, Any]:
         app_container = f"gw-event-export-app-{self.run_id}-{mode}-{row_count}-{repeat}"
-        self._start_app(mode=mode, container_name=app_container)
         try:
+            self._start_app(mode=mode, container_name=app_container)
             result = self._run_client(
                 app_container=app_container,
                 mode=mode,
@@ -1021,11 +1152,25 @@ class BenchmarkRunner:
             )
             http_start = result.get("http_request_started_monotonic")
             http_end = result.get("http_transfer_ended_monotonic")
-            http_overlap = False
+            transaction_activity_overlap = False
+            commit_inside_http = False
             fetch_encode_overlap: bool | None = None
-            if writer_interval and isinstance(http_start, (int, float)) and isinstance(http_end, (int, float)):
+            if (
+                writer_interval
+                and isinstance(http_start, (int, float))
+                and isinstance(http_end, (int, float))
+            ):
                 writer_start, writer_commit = writer_interval
-                http_overlap = writer_start <= http_end and writer_commit >= http_start
+                overlap = writer_overlap_metrics(
+                    http_start=float(http_start),
+                    http_end=float(http_end),
+                    writer_start=float(writer_start),
+                    writer_commit=float(writer_commit),
+                )
+                transaction_activity_overlap = overlap[
+                    "transaction_activity_overlaps_http_transfer"
+                ]
+                commit_inside_http = overlap["commit_inside_http_transfer"]
                 spans = result.get("application_metrics", {}).get("chunk_pull_spans", [])
                 fetch_spans = [
                     span
@@ -1040,7 +1185,11 @@ class BenchmarkRunner:
                     and writer_commit >= float(span["start"])
                     for span in fetch_spans
                 )
-            result["writer_http_transfer_overlap"] = http_overlap
+            result["writer_http_transfer_overlap"] = commit_inside_http
+            result["writer_commit_inside_http_transfer"] = commit_inside_http
+            result["writer_transaction_activity_overlapped_http_transfer"] = (
+                transaction_activity_overlap
+            )
             result["writer_stream_pull_fetch_encode_overlap"] = fetch_encode_overlap
             result["writer_database_fetch_overlap_status"] = (
                 "not separately observable; app-side stream-pull intervals include fetch and encoding"
@@ -1059,16 +1208,15 @@ class BenchmarkRunner:
                 if isinstance(peak_rss, int) and isinstance(baseline_rss, int)
                 else None
             )
-            self._save_app_log(app_container, mode, row_count, repeat)
             return result
         finally:
-            self._run_docker(["rm", "--force", app_container], timeout=30)
-            self.owned_containers.discard(app_container)
+            self._save_app_log(app_container, mode, row_count, repeat)
+            self._remove_owned_container(app_container, phase="HTTP sample finalizer")
 
     def _save_app_log(self, container_name: str, mode: str, count: int, repeat: int) -> None:
         try:
-            output = _docker(["logs", container_name], timeout=20)
-        except RuntimeError as error:
+            output = self._capture_container_logs(container_name)
+        except Exception as error:
             output = str(error)
         path = self.logs_root / f"{mode}-{count}-{repeat}.app.log"
         path.write_text(output + "\n", encoding="utf-8")
@@ -1144,6 +1292,9 @@ class BenchmarkRunner:
                 "isolation_trials": self.isolation_trials,
                 "isolation_summary": _summarize_isolation(self.isolation_trials),
                 "failures": self.failures,
+                "cleanup_failures": self.cleanup_failures,
+                "remaining_owned_containers": sorted(self.owned_containers),
+                "network_still_owned": self.network_created,
                 "caveats": [
                     "Three repetitions support median and range only; no p95 or significance claim.",
                     "The reduced app composition excludes media services and workers.",
@@ -1223,8 +1374,14 @@ class BenchmarkRunner:
                         timeout=300,
                     )
                     trial = json.loads(result_path.read_text(encoding="utf-8"))
+                    trial["valid"] = isolation_trial_is_valid(trial)
                     self.isolation_trials.append(trial)
                     self._save_results()
+                    if not trial["valid"]:
+                        raise RuntimeError(
+                            "isolation trial failed validity checks: "
+                            f"{row_count} {isolation} repeat {repeat}"
+                        )
 
     def resume_missing_isolation_trials(self) -> int:
         """Run only absent isolation coordinates from the already completed HTTP run."""
@@ -1233,6 +1390,10 @@ class BenchmarkRunner:
         original_trials = list(original.get("isolation_trials", []))
         if len(original.get("samples", [])) != 12 or len(original_trials) != 7:
             raise RuntimeError("resume requires the recorded 12 HTTP samples and 7 isolation trials")
+        for trial in original_trials:
+            trial["valid"] = isolation_trial_is_valid(trial)
+        if any(not trial["valid"] for trial in original_trials):
+            raise RuntimeError("resume requires every existing isolation trial to be valid")
         if original.get("isolation_recovery"):
             raise RuntimeError("isolation recovery is already recorded")
 
@@ -1272,6 +1433,9 @@ class BenchmarkRunner:
                     "requested_coordinates": [list(value) for value in missing],
                     "trials": self.isolation_trials,
                     "failures": self.failures,
+                    "cleanup_failures": self.cleanup_failures,
+                    "remaining_owned_containers": sorted(self.owned_containers),
+                    "network_still_owned": self.network_created,
                     "resource_diagnostics": self.resource_diagnostics,
                 },
             )
@@ -1306,10 +1470,11 @@ class BenchmarkRunner:
                         timeout=300,
                     )
                     trial = json.loads(result_path.read_text(encoding="utf-8"))
+                    trial["valid"] = isolation_trial_is_valid(trial)
                     self.isolation_trials.append(trial)
                     self.resource_diagnostics.append(self._database_diagnostics(f"after-{label}"))
                     save_recovery("in_progress")
-                    if trial.get("error") is not None or trial.get("exact_ids_match") is not True:
+                    if not trial["valid"]:
                         raise RuntimeError(f"isolation trial failed validation: {label}")
                 except Exception as error:
                     self.failures.append(
@@ -1339,23 +1504,14 @@ class BenchmarkRunner:
             if self.db_container in self.owned_containers:
                 try:
                     log_path.write_text(
-                        _docker(["logs", self.db_container], timeout=20) + "\n",
+                        self._capture_container_logs(self.db_container) + "\n",
                         encoding="utf-8",
                     )
-                except RuntimeError as error:
+                except Exception as error:
                     log_path.write_text(f"{error}\n", encoding="utf-8")
-            for container_name in tuple(self.owned_containers):
-                try:
-                    self._run_docker(["rm", "--force", container_name], timeout=30)
-                except RuntimeError:
-                    pass
-                self.owned_containers.discard(container_name)
-            if self.network_created:
-                try:
-                    self._run_docker(["network", "rm", self.network_name], timeout=30)
-                except RuntimeError:
-                    pass
-                self.network_created = False
+            self._cleanup_task_resources(phase="isolation recovery finalizer")
+            if self.cleanup_failures or self.owned_containers or self.network_created:
+                exit_code = 5
             self._write_recovery_commands()
             save_recovery("completed" if exit_code == 0 else "failed")
             shutil.rmtree(self.scratch_root, ignore_errors=True)
@@ -1371,6 +1527,8 @@ class BenchmarkRunner:
         merged["sample_summary"] = summarize_samples_by_dataset(merged["samples"])
         merged["sample_summary_by_dataset_and_mode"] = merged["sample_summary"]
         merged["isolation_trials"] = original_trials + self.isolation_trials
+        if any(not isolation_trial_is_valid(trial) for trial in merged["isolation_trials"]):
+            raise RuntimeError("cannot merge invalid isolation trials into completed results")
         merged["isolation_summary"] = _summarize_isolation(merged["isolation_trials"])
         merged["isolation_recovery"] = {
             "run_id": self.run_id,
@@ -1411,6 +1569,7 @@ class BenchmarkRunner:
         )
 
     def run(self, *, smoke_only: bool = False) -> int:
+        exit_code = 0
         try:
             self.current_phase = "create disposable DB and apply migrations"
             self._start_environment()
@@ -1424,10 +1583,13 @@ class BenchmarkRunner:
                 self._run_isolation()
             self._save_results()
             if not all(sample.get("correctness") is True for sample in self.samples):
-                return 2
+                exit_code = 2
             if not smoke_only and (len(self.samples) != 12 or len(self.isolation_trials) != 12):
-                return 3
-            return 0
+                exit_code = 3
+            if not smoke_only and any(
+                not isolation_trial_is_valid(trial) for trial in self.isolation_trials
+            ):
+                exit_code = 4
         except Exception as error:
             self.failures.append(
                 {
@@ -1436,30 +1598,22 @@ class BenchmarkRunner:
                     "message": str(error)[:2_000],
                 }
             )
-            raise
+            exit_code = 1
         finally:
             self._collect_postgres_log()
-            for container_name in tuple(self.owned_containers):
-                try:
-                    self._run_docker(["rm", "--force", container_name], timeout=30)
-                except RuntimeError:
-                    pass
-                self.owned_containers.discard(container_name)
-            if self.network_created:
-                try:
-                    self._run_docker(["network", "rm", self.network_name], timeout=30)
-                except RuntimeError:
-                    pass
-                self.network_created = False
+            self._cleanup_task_resources(phase="benchmark finalizer")
+            if self.cleanup_failures or self.owned_containers or self.network_created:
+                exit_code = 5
             self._save_results()
             shutil.rmtree(self.scratch_root, ignore_errors=True)
+        return exit_code
 
     def _collect_postgres_log(self) -> None:
         if self.db_container not in self.owned_containers:
             return
         try:
-            output = _docker(["logs", self.db_container], timeout=20)
-        except RuntimeError as error:
+            output = self._capture_container_logs(self.db_container)
+        except Exception as error:
             output = str(error)
         (self.logs_root / "postgres.log").write_text(output + "\n", encoding="utf-8")
 
@@ -1473,9 +1627,16 @@ def _summarize_isolation(trials: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 for trial in trials
                 if trial.get("dataset_size") == size and trial.get("isolation") == isolation
             ]
-            elapsed = [float(trial["elapsed_seconds"]) for trial in selected if trial.get("error") is None]
+            valid_trials = [trial for trial in selected if isolation_trial_is_valid(trial)]
+            elapsed = [
+                float(trial["elapsed_seconds"])
+                for trial in valid_trials
+                if isinstance(trial.get("elapsed_seconds"), (int, float))
+            ]
             summary[f"{size}:{isolation}"] = {
                 "trial_count": len(selected),
+                "valid_trial_count": len(valid_trials),
+                "invalid_trial_count": len(selected) - len(valid_trials),
                 "initial_count": selected[0].get("initial_count") if selected else None,
                 "export_counts": [trial.get("export_count") for trial in selected],
                 "count_mismatches": [trial.get("count_mismatch") for trial in selected],

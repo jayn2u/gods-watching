@@ -35,7 +35,7 @@
     "failed_coordinate": [50000, "READ COMMITTED", 2],
     "utility_error": "asyncpg connection reset during batched seed; Docker utility exited 1",
     "database_docker_event": "exitCode=1; retained event history had no oom action or OOMKilled attribute",
-    "postgres_log": "No crash cause or tmpfs exhaustion was recorded in the retained log.",
+    "postgres_log": "The retained log was captured from Docker stdout only; the old helper discarded Docker stderr, so absence of a crash message there is not evidence no message was emitted.",
     "cause": "Unresolved. The original database container was auto-removed before inspect/cgroup data could be captured; no memory or disk cause is inferred."
   },
   "recovery": {

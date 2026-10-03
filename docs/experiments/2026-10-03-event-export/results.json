@@ -2,11 +2,12 @@
   "caveats": [
     "Three repetitions support median and range only; no p95 or significance claim.",
     "The reduced app composition excludes media services and workers.",
-    "HTTP overlap and app-side stream-pull intervals are separate; stream-pull spans include DB fetch and CSV encoding.",
+    "Writer transaction-activity overlap, commit-inside-transfer, and app-side stream-pull intervals are separate; stream-pull spans include DB fetch and CSV encoding.",
     "A single SELECT uses one Read Committed snapshot; the RC/RR multi-SELECT probe is a separate experiment.",
     "Per-app cgroup memory.peak was not retained before app containers were removed; ru_maxrss exceeded the nominal 256 MiB Docker memory setting, so charged-memory use cannot be inferred from RSS.",
     "The initial disposable database exited with code 1 during isolation setup; cause unresolved. Five absent isolation trials ran in a fresh bounded database, without repeating HTTP samples."
   ],
+  "cleanup_failures": [],
   "environment": {
     "alembic_head": "0008_camera_events",
     "authentication": "synthetic operator credential; actual HTTP login and cookie guard used",
@@ -102,7 +103,9 @@
         10100
       ],
       "initial_count": 10000,
-      "trial_count": 3
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
     },
     "10000:REPEATABLE READ": {
       "count_mismatches": [
@@ -121,7 +124,9 @@
         10000
       ],
       "initial_count": 10000,
-      "trial_count": 3
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
     },
     "50000:READ COMMITTED": {
       "count_mismatches": [
@@ -140,7 +145,9 @@
         50100
       ],
       "initial_count": 50000,
-      "trial_count": 3
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
     },
     "50000:REPEATABLE READ": {
       "count_mismatches": [
@@ -159,7 +166,9 @@
         50000
       ],
       "initial_count": 50000,
-      "trial_count": 3
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
     }
   },
   "isolation_trials": [
@@ -178,6 +187,7 @@
       "initial_count": 10000,
       "isolation": "READ COMMITTED",
       "repeat": 1,
+      "valid": true,
       "writer_commit_seconds": 0.055023098015226424,
       "writer_committed_at_utc": "2026-10-03T09:08:23.216693+00:00",
       "writer_count": 100,
@@ -199,6 +209,7 @@
       "initial_count": 10000,
       "isolation": "READ COMMITTED",
       "repeat": 2,
+      "valid": true,
       "writer_commit_seconds": 0.05359869298990816,
       "writer_committed_at_utc": "2026-10-03T09:08:26.716644+00:00",
       "writer_count": 100,
@@ -220,6 +231,7 @@
       "initial_count": 10000,
       "isolation": "READ COMMITTED",
       "repeat": 3,
+      "valid": true,
       "writer_commit_seconds": 0.05615024903090671,
       "writer_committed_at_utc": "2026-10-03T09:08:30.382043+00:00",
       "writer_count": 100,
@@ -241,6 +253,7 @@
       "initial_count": 10000,
       "isolation": "REPEATABLE READ",
       "repeat": 1,
+      "valid": true,
       "writer_commit_seconds": 0.053107097977772355,
       "writer_committed_at_utc": "2026-10-03T09:08:33.942829+00:00",
       "writer_count": 100,
@@ -262,6 +275,7 @@
       "initial_count": 10000,
       "isolation": "REPEATABLE READ",
       "repeat": 2,
+      "valid": true,
       "writer_commit_seconds": 0.053286641952581704,
       "writer_committed_at_utc": "2026-10-03T09:08:37.540372+00:00",
       "writer_count": 100,
@@ -283,6 +297,7 @@
       "initial_count": 10000,
       "isolation": "REPEATABLE READ",
       "repeat": 3,
+      "valid": true,
       "writer_commit_seconds": 0.05409735400462523,
       "writer_committed_at_utc": "2026-10-03T09:08:41.083613+00:00",
       "writer_count": 100,
@@ -304,6 +319,7 @@
       "initial_count": 50000,
       "isolation": "READ COMMITTED",
       "repeat": 1,
+      "valid": true,
       "writer_commit_seconds": 0.053552146011497825,
       "writer_committed_at_utc": "2026-10-03T09:08:45.828910+00:00",
       "writer_count": 100,
@@ -325,6 +341,7 @@
       "initial_count": 50000,
       "isolation": "READ COMMITTED",
       "repeat": 2,
+      "valid": true,
       "writer_commit_seconds": 0.05354891804745421,
       "writer_committed_at_utc": "2026-10-03T09:21:50.770877+00:00",
       "writer_count": 100,
@@ -346,6 +363,7 @@
       "initial_count": 50000,
       "isolation": "READ COMMITTED",
       "repeat": 3,
+      "valid": true,
       "writer_commit_seconds": 0.05374619201757014,
       "writer_committed_at_utc": "2026-10-03T09:21:55.992825+00:00",
       "writer_count": 100,
@@ -367,6 +385,7 @@
       "initial_count": 50000,
       "isolation": "REPEATABLE READ",
       "repeat": 1,
+      "valid": true,
       "writer_commit_seconds": 0.05424987099831924,
       "writer_committed_at_utc": "2026-10-03T09:22:01.118301+00:00",
       "writer_count": 100,
@@ -388,6 +407,7 @@
       "initial_count": 50000,
       "isolation": "REPEATABLE READ",
       "repeat": 2,
+      "valid": true,
       "writer_commit_seconds": 0.053505224001128227,
       "writer_committed_at_utc": "2026-10-03T09:22:06.263394+00:00",
       "writer_count": 100,
@@ -409,6 +429,7 @@
       "initial_count": 50000,
       "isolation": "REPEATABLE READ",
       "repeat": 3,
+      "valid": true,
       "writer_commit_seconds": 0.057696245959959924,
       "writer_committed_at_utc": "2026-10-03T09:22:11.438242+00:00",
       "writer_count": 100,
@@ -416,6 +437,8 @@
       "writer_started_at_utc": "2026-10-03T09:22:11.380546+00:00"
     }
   ],
+  "network_still_owned": false,
+  "remaining_owned_containers": [],
   "sample_summary": {
     "10000:buffered": {
       "application_peak_rss_kib_median": 270996.0,
@@ -857,11 +880,12 @@
       "performance_eligible": true,
       "repeat": 1,
       "startup_login_baseline_rss_kib": 264764,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266548.06982832,
         "client_started_monotonic": 266547.950063,
@@ -871,6 +895,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -1047,11 +1072,12 @@
       "performance_eligible": true,
       "repeat": 1,
       "startup_login_baseline_rss_kib": 272048,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266563.99175696,
         "client_started_monotonic": 266563.957308654,
@@ -1061,6 +1087,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -1237,11 +1264,12 @@
       "performance_eligible": true,
       "repeat": 2,
       "startup_login_baseline_rss_kib": 270960,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266578.861155777,
         "client_started_monotonic": 266578.826519504,
@@ -1251,6 +1279,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -1487,11 +1516,12 @@
       "performance_eligible": true,
       "repeat": 2,
       "startup_login_baseline_rss_kib": 272532,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266589.029281431,
         "client_started_monotonic": 266588.85547204,
@@ -1501,6 +1531,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -1737,11 +1768,12 @@
       "performance_eligible": true,
       "repeat": 3,
       "startup_login_baseline_rss_kib": 272364,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266599.42488961,
         "client_started_monotonic": 266599.305525263,
@@ -1751,6 +1783,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -1927,6 +1960,7 @@
       "performance_eligible": true,
       "repeat": 3,
       "startup_login_baseline_rss_kib": 270996,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
@@ -1941,6 +1975,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": false,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -2417,11 +2452,12 @@
       "performance_eligible": true,
       "repeat": 1,
       "startup_login_baseline_rss_kib": 271696,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266629.153883975,
         "client_started_monotonic": 266628.68608937,
@@ -2431,6 +2467,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -2607,11 +2644,12 @@
       "performance_eligible": true,
       "repeat": 1,
       "startup_login_baseline_rss_kib": 271608,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266643.529879177,
         "client_started_monotonic": 266643.494390396,
@@ -2621,6 +2659,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -2797,11 +2836,12 @@
       "performance_eligible": true,
       "repeat": 2,
       "startup_login_baseline_rss_kib": 271328,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266655.717886922,
         "client_started_monotonic": 266655.682009966,
@@ -2811,6 +2851,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -3287,11 +3328,12 @@
       "performance_eligible": true,
       "repeat": 2,
       "startup_login_baseline_rss_kib": 271664,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266668.268270561,
         "client_started_monotonic": 266667.793351619,
@@ -3301,6 +3343,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -3777,11 +3820,12 @@
       "performance_eligible": true,
       "repeat": 3,
       "startup_login_baseline_rss_kib": 271980,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266680.399838983,
         "client_started_monotonic": 266679.937921505,
@@ -3791,6 +3835,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     },
     {
@@ -3967,11 +4012,12 @@
       "performance_eligible": true,
       "repeat": 3,
       "startup_login_baseline_rss_kib": 270852,
+      "writer_commit_inside_http_transfer": false,
       "writer_correctness": true,
       "writer_count": 100,
       "writer_count_expected": 100,
       "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
-      "writer_http_transfer_overlap": true,
+      "writer_http_transfer_overlap": false,
       "writer_request": {
         "client_ended_monotonic": 266692.371276562,
         "client_started_monotonic": 266692.333138391,
@@ -3981,6 +4027,7 @@
       },
       "writer_request_errors": [],
       "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
       "writer_triggered_after_first_data_row": true
     }
   ],
@@ -4144,5 +4191,16 @@
       "writer_stream_pull_fetch_encode_overlap": null,
       "writer_triggered_after_first_data_row": false
     }
-  ]
+  ],
+  "writer_overlap_summary": {
+    "commit_after_http_transfer_count": 12,
+    "commit_after_http_transfer_gap_seconds_range": [
+      0.0034265259746462107,
+      0.035963442001957446
+    ],
+    "commit_inside_http_transfer_count": 0,
+    "derived_from_retained_monotonic_timestamps": true,
+    "sample_count": 12,
+    "transaction_activity_overlapped_http_transfer_count": 11
+  }
 }

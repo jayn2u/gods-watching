@@ -1,4 +1,5 @@
 {
+  "cleanup_failures": [],
   "environment": {
     "alembic_head": "0008_camera_events",
     "authentication": "synthetic operator credential; actual HTTP login and cookie guard used",
@@ -54,6 +55,8 @@
     "started_at_utc": "2026-10-03T09:21:39.822269+00:00"
   },
   "failures": [],
+  "network_still_owned": false,
+  "remaining_owned_containers": [],
   "requested_coordinates": [
     [
       50000,
@@ -289,6 +292,7 @@
       "initial_count": 50000,
       "isolation": "READ COMMITTED",
       "repeat": 2,
+      "valid": true,
       "writer_commit_seconds": 0.05354891804745421,
       "writer_committed_at_utc": "2026-10-03T09:21:50.770877+00:00",
       "writer_count": 100,
@@ -310,6 +314,7 @@
       "initial_count": 50000,
       "isolation": "READ COMMITTED",
       "repeat": 3,
+      "valid": true,
       "writer_commit_seconds": 0.05374619201757014,
       "writer_committed_at_utc": "2026-10-03T09:21:55.992825+00:00",
       "writer_count": 100,
@@ -331,6 +336,7 @@
       "initial_count": 50000,
       "isolation": "REPEATABLE READ",
       "repeat": 1,
+      "valid": true,
       "writer_commit_seconds": 0.05424987099831924,
       "writer_committed_at_utc": "2026-10-03T09:22:01.118301+00:00",
       "writer_count": 100,
@@ -352,6 +358,7 @@
       "initial_count": 50000,
       "isolation": "REPEATABLE READ",
       "repeat": 2,
+      "valid": true,
       "writer_commit_seconds": 0.053505224001128227,
       "writer_committed_at_utc": "2026-10-03T09:22:06.263394+00:00",
       "writer_count": 100,
@@ -373,6 +380,7 @@
       "initial_count": 50000,
       "isolation": "REPEATABLE READ",
       "repeat": 3,
+      "valid": true,
       "writer_commit_seconds": 0.057696245959959924,
       "writer_committed_at_utc": "2026-10-03T09:22:11.438242+00:00",
       "writer_count": 100,
