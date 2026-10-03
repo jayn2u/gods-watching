@@ -1,0 +1,75 @@
+Recovery command: `PYTHONPATH=server/src python qa/events/benchmark_export.py resume-isolation`
+
+Exact per-run Docker commands, with synthetic credentials redacted:
+
+- `docker network create --internal gw-event-export-103e24dc`
+- `docker run --pull=never --detach --name gw-event-export-db-103e24dc --network gw-event-export-103e24dc --network-alias db --cpus=1 --memory=384m --memory-swap=384m --shm-size=64m --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=256m --env POSTGRES_PASSWORD=<redacted synthetic value> --env POSTGRES_DB=gw_events_bench_103e24dc pgvector/pgvector:0.8.1-pg17`
+- `docker exec gw-event-export-db-103e24dc pg_isready -h 127.0.0.1 -U postgres -d gw_events_bench_103e24dc`
+- `docker exec gw-event-export-db-103e24dc pg_isready -h 127.0.0.1 -U postgres -d gw_events_bench_103e24dc`
+- `docker exec gw-event-export-db-103e24dc pg_isready -h 127.0.0.1 -U postgres -d gw_events_bench_103e24dc`
+- `docker exec gw-event-export-db-103e24dc pg_isready -h 127.0.0.1 -U postgres -d gw_events_bench_103e24dc`
+- `docker run --pull=never --rm --name gw-event-export-util-103e24dc-migrate --network gw-event-export-103e24dc --cpus=1 --memory=256m --memory-swap=256m --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/server/src,dst=/work/server/src,readonly --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/qa/events,dst=/work/events,readonly --mount type=bind,src=/tmp/gw-event-export-103e24dc-mymgokm7,dst=/work/results --env PYTHONPATH=/work/server/src --env GW_DATABASE_URL=<redacted synthetic value> --env GW_BENCHMARK_DATABASE_NAME=gw_events_bench_103e24dc --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/server/alembic,dst=/work/server/alembic,readonly --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/alembic.ini,dst=/work/alembic.ini,readonly --workdir /work gods-watching-app:local python -m alembic -c /work/alembic.ini upgrade head`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT version()`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT version_num FROM alembic_version`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker run --pull=never --rm --name gw-event-export-util-103e24dc-recovery-50000-read-committed-2 --network gw-event-export-103e24dc --cpus=1 --memory=256m --memory-swap=256m --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/server/src,dst=/work/server/src,readonly --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/qa/events,dst=/work/events,readonly --mount type=bind,src=/tmp/gw-event-export-103e24dc-mymgokm7,dst=/work/results --env PYTHONPATH=/work/server/src --env GW_DATABASE_URL=<redacted synthetic value> --env GW_BENCHMARK_DATABASE_NAME=gw_events_bench_103e24dc --workdir /work gods-watching-app:local python /work/events/benchmark_export.py isolation-sample --row-count 50000 --isolation READ COMMITTED --repeat 2 --expected /work/results/expected-50000-read-committed-2.json --result /work/results/result-50000-read-committed-2.json`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker run --pull=never --rm --name gw-event-export-util-103e24dc-recovery-50000-read-committed-3 --network gw-event-export-103e24dc --cpus=1 --memory=256m --memory-swap=256m --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/server/src,dst=/work/server/src,readonly --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/qa/events,dst=/work/events,readonly --mount type=bind,src=/tmp/gw-event-export-103e24dc-mymgokm7,dst=/work/results --env PYTHONPATH=/work/server/src --env GW_DATABASE_URL=<redacted synthetic value> --env GW_BENCHMARK_DATABASE_NAME=gw_events_bench_103e24dc --workdir /work gods-watching-app:local python /work/events/benchmark_export.py isolation-sample --row-count 50000 --isolation READ COMMITTED --repeat 3 --expected /work/results/expected-50000-read-committed-3.json --result /work/results/result-50000-read-committed-3.json`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker run --pull=never --rm --name gw-event-export-util-103e24dc-recovery-50000-repeatable-read-1 --network gw-event-export-103e24dc --cpus=1 --memory=256m --memory-swap=256m --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/server/src,dst=/work/server/src,readonly --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/qa/events,dst=/work/events,readonly --mount type=bind,src=/tmp/gw-event-export-103e24dc-mymgokm7,dst=/work/results --env PYTHONPATH=/work/server/src --env GW_DATABASE_URL=<redacted synthetic value> --env GW_BENCHMARK_DATABASE_NAME=gw_events_bench_103e24dc --workdir /work gods-watching-app:local python /work/events/benchmark_export.py isolation-sample --row-count 50000 --isolation REPEATABLE READ --repeat 1 --expected /work/results/expected-50000-repeatable-read-1.json --result /work/results/result-50000-repeatable-read-1.json`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker run --pull=never --rm --name gw-event-export-util-103e24dc-recovery-50000-repeatable-read-2 --network gw-event-export-103e24dc --cpus=1 --memory=256m --memory-swap=256m --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/server/src,dst=/work/server/src,readonly --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/qa/events,dst=/work/events,readonly --mount type=bind,src=/tmp/gw-event-export-103e24dc-mymgokm7,dst=/work/results --env PYTHONPATH=/work/server/src --env GW_DATABASE_URL=<redacted synthetic value> --env GW_BENCHMARK_DATABASE_NAME=gw_events_bench_103e24dc --workdir /work gods-watching-app:local python /work/events/benchmark_export.py isolation-sample --row-count 50000 --isolation REPEATABLE READ --repeat 2 --expected /work/results/expected-50000-repeatable-read-2.json --result /work/results/result-50000-repeatable-read-2.json`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker run --pull=never --rm --name gw-event-export-util-103e24dc-recovery-50000-repeatable-read-3 --network gw-event-export-103e24dc --cpus=1 --memory=256m --memory-swap=256m --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/server/src,dst=/work/server/src,readonly --mount type=bind,src=/home/jwchoi/Documents/Codex/2026-10-03/task/gods-watching/qa/events,dst=/work/events,readonly --mount type=bind,src=/tmp/gw-event-export-103e24dc-mymgokm7,dst=/work/results --env PYTHONPATH=/work/server/src --env GW_DATABASE_URL=<redacted synthetic value> --env GW_BENCHMARK_DATABASE_NAME=gw_events_bench_103e24dc --workdir /work gods-watching-app:local python /work/events/benchmark_export.py isolation-sample --row-count 50000 --isolation REPEATABLE READ --repeat 3 --expected /work/results/expected-50000-repeatable-read-3.json --result /work/results/result-50000-repeatable-read-3.json`
+- `docker inspect gw-event-export-db-103e24dc`
+- `docker exec gw-event-export-db-103e24dc sh -c for item in memory.current memory.peak memory.max memory.swap.current memory.swap.max; do printf '%s=' "$item"; cat "/sys/fs/cgroup/$item" 2>/dev/null || true; done`
+- `docker exec gw-event-export-db-103e24dc df -B1 /var/lib/postgresql/data`
+- `docker exec gw-event-export-db-103e24dc psql -U postgres -d gw_events_bench_103e24dc -Atc SELECT pg_database_size(current_database()), pg_total_relation_size('camera_events')`
+- `docker logs --tail 200 gw-event-export-db-103e24dc`
+- `docker rm --force gw-event-export-db-103e24dc`
+- `docker network rm gw-event-export-103e24dc`

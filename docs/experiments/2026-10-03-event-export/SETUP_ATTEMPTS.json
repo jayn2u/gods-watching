@@ -1,0 +1,48 @@
+{
+  "smoke_setup_attempts": [
+    {
+      "attempt": 1,
+      "outcome": "failed",
+      "error": "disposable PostgreSQL did not become ready on loopback",
+      "cause": "The Docker network was internal, so host-loopback readiness could not reach the database.",
+      "correction": "Moved migration, seeding, and setup utilities into bounded containers on the same private network."
+    },
+    {
+      "attempt": 2,
+      "outcome": "failed",
+      "error": "invalid field 'rw' must be key=value pair",
+      "cause": "The Docker --mount option does not accept the standalone rw modifier used in the mount string.",
+      "correction": "Removed the redundant rw modifier; writable result mounts remain writable by default."
+    },
+    {
+      "attempt": 3,
+      "outcome": "failed",
+      "error": "camera_events relation missing during the smoke request",
+      "cause": "Alembic resolved server/alembic from the cached image workdir instead of the mounted worktree.",
+      "correction": "Set utility and app workdir to /work and PYTHONPATH=/work/server/src; verified Alembic head 0008_camera_events and imported source paths."
+    },
+    {
+      "attempt": 4,
+      "outcome": "passed",
+      "run_id": "c137df57",
+      "evidence": "Real migrations, login, authenticated HTTP route, and both CSV modes passed the 100-row smoke; both outputs were 9834 bytes with SHA-256 99a073d10efc1924c7e70a84905a7d902f8bf55ce378556ebbb359f687dfc79d."
+    }
+  ],
+  "full_matrix_isolation_failure": {
+    "run_id": "4bd6ab61",
+    "http_samples_completed": 12,
+    "isolation_trials_completed": 7,
+    "failed_coordinate": [50000, "READ COMMITTED", 2],
+    "utility_error": "asyncpg connection reset during batched seed; Docker utility exited 1",
+    "database_docker_event": "exitCode=1; retained event history had no oom action or OOMKilled attribute",
+    "postgres_log": "No crash cause or tmpfs exhaustion was recorded in the retained log.",
+    "cause": "Unresolved. The original database container was auto-removed before inspect/cgroup data could be captured; no memory or disk cause is inferred."
+  },
+  "recovery": {
+    "run_id": "103e24dc",
+    "outcome": "passed",
+    "resumed_trials": 5,
+    "same_resource_limits": true,
+    "diagnostics": "Captured effective Docker limits, cgroup counters, tmpfs free space, database/relation size, and Postgres log tail outside trial timing."
+  }
+}

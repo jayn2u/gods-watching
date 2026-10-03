@@ -1,0 +1,383 @@
+{
+  "environment": {
+    "alembic_head": "0008_camera_events",
+    "authentication": "synthetic operator credential; actual HTTP login and cookie guard used",
+    "composition": "real FastAPI session and export routers, real AuthService and Database; no media services",
+    "database": {
+      "container_network": "internal Docker network gw-event-export-103e24dc",
+      "data_storage": "task-owned database container tmpfs, capped at 256MiB",
+      "host_publish": "none; migration and seed utilities share the private network",
+      "name": "gw_events_bench_103e24dc"
+    },
+    "dependencies": {
+      "SQLAlchemy": "2.0.43",
+      "alembic": "1.16.5",
+      "anyio": "4.10.0",
+      "argon2-cffi": "25.1.0",
+      "asyncpg": "0.30.0",
+      "fastapi": "0.116.1",
+      "uvicorn": "0.35.0"
+    },
+    "docker_server_version": "29.8.1",
+    "download": "stdlib HTTP client streams response to a temporary file; no response.read() for full body",
+    "images": {
+      "gods-watching-app:local": "sha256:d37830285e079b037ad9383eafa3b33ce1a72f36df22083c0c6d652e4512843f",
+      "pgvector/pgvector:0.8.1-pg17": "sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21"
+    },
+    "implementation_source_paths": {},
+    "os": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+    "postgresql_server_version": "PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+    "python": "3.12.11 (main, Oct  7 2025, 15:34:39) [Clang 20.1.4 ]",
+    "python_version_app_image": "unavailable",
+    "repository_head_at_start": "2dbd97a3362061c75397399db17a936dd37c8b13",
+    "resource_limits": {
+      "aggregate_database_connections": "<=4; setup utility is sequential and app pool caps at three",
+      "application": {
+        "cpus": 1,
+        "memory_mib": 256,
+        "swap_mib": 256
+      },
+      "client": {
+        "cpus": 1,
+        "memory_mib": 256,
+        "swap_mib": 256
+      },
+      "database": {
+        "cpus": 1,
+        "memory_mib": 384,
+        "swap_mib": 384,
+        "tmpfs_mib": 256
+      }
+    },
+    "rss": "application resource.getrusage(RUSAGE_SELF).ru_maxrss in Linux KiB; baseline is marked after login",
+    "run_id": "103e24dc",
+    "started_at_utc": "2026-10-03T09:21:39.822269+00:00"
+  },
+  "failures": [],
+  "requested_coordinates": [
+    [
+      50000,
+      "READ COMMITTED",
+      2
+    ],
+    [
+      50000,
+      "READ COMMITTED",
+      3
+    ],
+    [
+      50000,
+      "REPEATABLE READ",
+      1
+    ],
+    [
+      50000,
+      "REPEATABLE READ",
+      2
+    ],
+    [
+      50000,
+      "REPEATABLE READ",
+      3
+    ]
+  ],
+  "resource_diagnostics": [
+    {
+      "captured_at_utc": "2026-10-03T09:21:46.970242+00:00",
+      "cgroup_v2": "memory.current=82198528\nmemory.peak=88719360\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "8525491|24576",
+      "label": "after-migration",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks     Used Available Use% Mounted on\ntmpfs          268435456 48508928 219926528  19% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:21:47.129910+00:00",
+      "cgroup_v2": "memory.current=82726912\nmemory.peak=88719360\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "8525491|24576",
+      "label": "before-50000-read-committed-2",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks     Used Available Use% Mounted on\ntmpfs          268435456 48508928 219926528  19% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:21:51.898859+00:00",
+      "cgroup_v2": "memory.current=120635392\nmemory.peak=120795136\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "after-50000-read-committed-2",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks     Used Available Use% Mounted on\ntmpfs          268435456 76279808 192155648  29% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:21:52.104984+00:00",
+      "cgroup_v2": "memory.current=121221120\nmemory.peak=125059072\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "before-50000-read-committed-3",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks     Used Available Use% Mounted on\ntmpfs          268435456 76279808 192155648  29% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:21:57.065762+00:00",
+      "cgroup_v2": "memory.current=148500480\nmemory.peak=159596544\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "after-50000-read-committed-3",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks     Used Available Use% Mounted on\ntmpfs          268435456 93057024 175378432  35% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:21:57.268637+00:00",
+      "cgroup_v2": "memory.current=149733376\nmemory.peak=159596544\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "before-50000-repeatable-read-1",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks     Used Available Use% Mounted on\ntmpfs          268435456 93057024 175378432  35% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:22:02.215476+00:00",
+      "cgroup_v2": "memory.current=182161408\nmemory.peak=190836736\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "after-50000-repeatable-read-1",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks      Used Available Use% Mounted on\ntmpfs          268435456 126611456 141824000  48% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:22:02.419516+00:00",
+      "cgroup_v2": "memory.current=183230464\nmemory.peak=190836736\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "before-50000-repeatable-read-2",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks      Used Available Use% Mounted on\ntmpfs          268435456 126611456 141824000  48% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:22:07.343366+00:00",
+      "cgroup_v2": "memory.current=198459392\nmemory.peak=209829888\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "after-50000-repeatable-read-2",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks      Used Available Use% Mounted on\ntmpfs          268435456 143388672 125046784  54% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:22:07.544199+00:00",
+      "cgroup_v2": "memory.current=200200192\nmemory.peak=209829888\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "before-50000-repeatable-read-3",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks      Used Available Use% Mounted on\ntmpfs          268435456 143388672 125046784  54% /var/lib/postgresql/data"
+    },
+    {
+      "captured_at_utc": "2026-10-03T09:22:12.548282+00:00",
+      "cgroup_v2": "memory.current=216326144\nmemory.peak=227594240\nmemory.max=402653184\nmemory.swap.current=0\nmemory.swap.max=0",
+      "container": {
+        "effective_memory_bytes": 402653184,
+        "effective_memory_swap_bytes": 402653184,
+        "effective_nano_cpus": 1000000000,
+        "error": "",
+        "exit_code": 0,
+        "oom_killed": false,
+        "status": "running"
+      },
+      "database_relation_bytes": "19519155|11018240",
+      "label": "after-50000-repeatable-read-3",
+      "postgres_log_tail": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-03 09:21:42.330 UTC [62] LOG:  starting PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit\n2026-10-03 09:21:42.369 UTC [62] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-03 09:21:42.373 UTC [65] LOG:  database system was shut down at 2026-10-03 09:21:42 UTC\n2026-10-03 09:21:42.382 UTC [62] LOG:  database system is ready to accept connections\n done\nserver started\nCREATE DATABASE\n\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\nwaiting for server to shut down....2026-10-03 09:21:42.519 UTC [62] LOG:  received fast shutdown request\n2026-10-03 09:21:42.519 UTC [62] LOG:  aborting any active transactions\n2026-10-03 09:21:42.520 UTC [62] LOG:  background worker \"logical replication launcher\" (PID 68) exited with exit code 1\n2026-10-03 09:21:42.521 UTC [63] LOG:  shutting down\n2026-10-03 09:21:42.521 UTC [63] LOG:  checkpoint starting: shutdown immediate\n2026-10-03 09:21:42.524 UTC [63] LOG:  checkpoint complete: wrote 921 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.004 s, sync=0.001 s, total=0.004 s; sync files=301, longest=0.001 s, average=0.000 s; distance=4238 kB, estimate=4238 kB; lsn=0/19089A0, redo lsn=0/19089A0\n2026-10-03 09:21:42.528 UTC [62] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.",
+      "tmpfs_df": "Filesystem     1B-blocks      Used Available Use% Mounted on\ntmpfs          268435456 160165888 108269568  60% /var/lib/postgresql/data"
+    }
+  ],
+  "run_id": "103e24dc",
+  "started_at_utc": "2026-10-03T09:21:39.822269+00:00",
+  "status": "completed",
+  "trials": [
+    {
+      "count_mismatch": true,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18631312798243016,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50100,
+      "expected_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "export_count": 50100,
+      "exported_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "READ COMMITTED",
+      "repeat": 2,
+      "writer_commit_seconds": 0.05354891804745421,
+      "writer_committed_at_utc": "2026-10-03T09:21:50.770877+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:21:50.770886+00:00",
+      "writer_started_at_utc": "2026-10-03T09:21:50.717329+00:00"
+    },
+    {
+      "count_mismatch": true,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18602093699155375,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50100,
+      "expected_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "export_count": 50100,
+      "exported_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "READ COMMITTED",
+      "repeat": 3,
+      "writer_commit_seconds": 0.05374619201757014,
+      "writer_committed_at_utc": "2026-10-03T09:21:55.992825+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:21:55.992836+00:00",
+      "writer_started_at_utc": "2026-10-03T09:21:55.939080+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18653660302516073,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50000,
+      "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "export_count": 50000,
+      "exported_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 1,
+      "writer_commit_seconds": 0.05424987099831924,
+      "writer_committed_at_utc": "2026-10-03T09:22:01.118301+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:22:01.118311+00:00",
+      "writer_started_at_utc": "2026-10-03T09:22:01.064052+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18603096302831545,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50000,
+      "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "export_count": 50000,
+      "exported_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 2,
+      "writer_commit_seconds": 0.053505224001128227,
+      "writer_committed_at_utc": "2026-10-03T09:22:06.263394+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:22:06.263404+00:00",
+      "writer_started_at_utc": "2026-10-03T09:22:06.209890+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.19541134702740237,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50000,
+      "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "export_count": 50000,
+      "exported_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 3,
+      "writer_commit_seconds": 0.057696245959959924,
+      "writer_committed_at_utc": "2026-10-03T09:22:11.438242+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:22:11.438252+00:00",
+      "writer_started_at_utc": "2026-10-03T09:22:11.380546+00:00"
+    }
+  ]
+}
