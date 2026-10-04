@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4
@@ -90,6 +92,15 @@ class TrainingServiceError(RuntimeError):
         super().__init__(message)
 
 
+@dataclass(frozen=True, slots=True)
+class TrainingMemoryRefusalMetadata:
+    """Supervisor observation details attached to a memory refusal when available."""
+
+    reason: str = "insufficient_free_memory"
+    observed_at: datetime | None = None
+    profile_identity: str | None = None
+
+
 class TrainingMemoryRefusedError(TrainingServiceError):
     """Memory admission declined a requested profile without creating a job."""
 
@@ -99,6 +110,8 @@ class TrainingMemoryRefusedError(TrainingServiceError):
     reserve_bytes: int
     training_peak_bytes: int | None
     reason: str
+    observed_at: datetime | None
+    profile_identity: str | None
 
     def __init__(
         self,
@@ -107,14 +120,17 @@ class TrainingMemoryRefusedError(TrainingServiceError):
         free_bytes: int,
         reserve_bytes: int,
         training_peak_bytes: int | None = None,
-        reason: str = "insufficient_free_memory",
+        metadata: TrainingMemoryRefusalMetadata | None = None,
     ) -> None:
         """Store the exact byte counts that explain a memory refusal."""
         self.required_bytes = required_bytes
         self.free_bytes = free_bytes
         self.reserve_bytes = reserve_bytes
         self.training_peak_bytes = training_peak_bytes
-        self.reason = reason
+        details = metadata or TrainingMemoryRefusalMetadata()
+        self.reason = details.reason
+        self.observed_at = details.observed_at
+        self.profile_identity = details.profile_identity
         super().__init__("training memory admission refused")
 
 
@@ -484,12 +500,18 @@ class TrainingService:
         result = response or {}
         if error_code == "training_job_conflict":
             raise TrainingJobConflictError
+        response_reason = result.get("reason")
+        reason = response_reason if isinstance(response_reason, str) else error_code
         raise TrainingMemoryRefusedError(
             required_bytes=_non_negative_response_int(result.get("required_bytes")),
             free_bytes=_non_negative_response_int(result.get("free_bytes")),
             reserve_bytes=_non_negative_response_int(result.get("reserve_bytes")),
             training_peak_bytes=_non_negative_response_int(result.get("training_peak_bytes")),
-            reason=error_code or "memory_profile_unsupported",
+            metadata=TrainingMemoryRefusalMetadata(
+                reason=reason or "memory_profile_unsupported",
+                observed_at=_parse_response_datetime(result.get("observed_at")),
+                profile_identity=_parse_profile_identity(result.get("profile_identity")),
+            ),
         )
 
     @staticmethod
@@ -539,6 +561,21 @@ def _non_negative_response_int(value: object) -> int:
     return value if type(value) is int and value >= 0 else 0
 
 
+def _parse_response_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    normalized = f"{value[:-1]}+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None and parsed.utcoffset() is not None else None
+
+
+def _parse_profile_identity(value: object) -> str | None:
+    return value if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) else None
+
+
 __all__ = [
     "TrainingCursorError",
     "TrainingDatasetUnavailableError",
@@ -546,6 +583,7 @@ __all__ = [
     "TrainingJobConflictError",
     "TrainingJobNotFoundError",
     "TrainingJobStateError",
+    "TrainingMemoryRefusalMetadata",
     "TrainingMemoryRefusedError",
     "TrainingRequestConflictError",
     "TrainingService",

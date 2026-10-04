@@ -338,18 +338,20 @@ def build_training_router(
 
 
 def _raise_memory_refusal(error: TrainingMemoryRefusedError) -> NoReturn:
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": error.code,
-            "message": "training would exceed currently available GPU memory",
-            "reason": error.reason,
-            "training_peak_bytes": error.training_peak_bytes,
-            "reserve_bytes": error.reserve_bytes,
-            "required_bytes": error.required_bytes,
-            "free_bytes": error.free_bytes,
-        },
-    )
+    detail: dict[str, object] = {
+        "code": error.code,
+        "message": "training would exceed currently available GPU memory",
+        "reason": error.reason,
+        "training_peak_bytes": error.training_peak_bytes,
+        "reserve_bytes": error.reserve_bytes,
+        "required_bytes": error.required_bytes,
+        "free_bytes": error.free_bytes,
+    }
+    if error.observed_at is not None:
+        detail["observed_at"] = error.observed_at.isoformat()
+    if error.profile_identity is not None:
+        detail["profile_identity"] = error.profile_identity
+    raise HTTPException(status_code=409, detail=detail)
 
 
 def _raise_error(status_code: int, code: str, message: str) -> NoReturn:

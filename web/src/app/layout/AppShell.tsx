@@ -3,11 +3,12 @@ import { Button } from "../../components/Button"
 import { Status } from "../../components/Status"
 import { CameraScreen } from "../../features/cameras"
 import { SearchScreen } from "../../features/search"
+import { TrainingScreen } from "../../features/training/TrainingScreen"
 import { LiveWall, type WallSettingsState } from "../../features/wall/LiveWall"
 import type { ApiClient, CameraResponse, SettingsResponse, WallSlotIds } from "../client"
 import "./layout.css"
 
-type Screen = "wall" | "search" | "cameras"
+type Screen = "wall" | "search" | "cameras" | "training"
 
 export type CameraState =
   | { readonly kind: "loading" }
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { id: "wall", label: "Live wall" },
   { id: "search", label: "Person search" },
   { id: "cameras", label: "Cameras" },
+  { id: "training", label: "Training" },
 ] as const
 
 export function AppShell({
@@ -116,6 +118,13 @@ export function AppShell({
             onUnauthorized={onSessionExpired}
             settings={settings}
             settingsClient={client}
+          />
+        ) : null}
+        {screen === "training" ? (
+          <TrainingScreen
+            client={client}
+            onOpenModelSelector={() => setScreen("cameras")}
+            onUnauthorized={onSessionExpired}
           />
         ) : null}
         <EventRail />

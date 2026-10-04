@@ -25,6 +25,7 @@ from gods_watching.contracts.training import (
 )
 from gods_watching.training.service import (
     TrainingCursorError,
+    TrainingMemoryRefusalMetadata,
     TrainingMemoryRefusedError,
     TrainingSupervisorUnavailableError,
 )
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 
 _STATUS: Final[TypeAdapter[int]] = TypeAdapter(int)
 _JSON_OBJECT: Final[TypeAdapter[dict[str, object]]] = TypeAdapter(dict[str, object])
+_DETAIL_OBJECT: Final[TypeAdapter[dict[str, object]]] = TypeAdapter(dict[str, object])
 _DATASET = TrainingDatasetSnapshot(
     dataset_id="cuhk-pedes",
     fingerprint="a" * 64,
@@ -270,6 +272,11 @@ async def test_memory_refusal_preserves_required_free_and_reserve_bytes() -> Non
             required_bytes=5 * 1024**3,
             free_bytes=4 * 1024**3,
             reserve_bytes=2 * 1024**3,
+            metadata=TrainingMemoryRefusalMetadata(
+                observed_at=datetime(2026, 10, 4, 12, 30, tzinfo=UTC),
+                profile_identity="b" * 64,
+                reason="insufficient_free_memory",
+            ),
         ),
     )
     app = _app(service, _Guard())
@@ -283,11 +290,15 @@ async def test_memory_refusal_preserves_required_free_and_reserve_bytes() -> Non
     )
 
     assert status_code == 409
-    detail = _JSON_OBJECT.validate_json(body)["detail"]
-    assert isinstance(detail, dict)
+    detail = _DETAIL_OBJECT.validate_python(_JSON_OBJECT.validate_json(body)["detail"])
     assert detail["required_bytes"] == 5 * 1024**3
     assert detail["free_bytes"] == 4 * 1024**3
     assert detail["reserve_bytes"] == 2 * 1024**3
+    observed_at_value: object = detail["observed_at"]
+    assert isinstance(observed_at_value, str)
+    assert datetime.fromisoformat(observed_at_value) == datetime(2026, 10, 4, 12, 30, tzinfo=UTC)
+    assert detail["profile_identity"] == "b" * 64
+    assert detail["reason"] == "insufficient_free_memory"
 
 
 @pytest.mark.anyio
