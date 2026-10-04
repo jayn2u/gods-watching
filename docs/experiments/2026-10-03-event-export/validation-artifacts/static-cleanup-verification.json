@@ -1,0 +1,72 @@
+{
+  "verified_at_utc": "2026-10-03T13:46:47.238517+00:00",
+  "prechange_head": "7f7c4a9e550f427338e53b83d5ae0007773a1db9",
+  "tools": {
+    "python": "3.12.11",
+    "ruff": "0.12.12",
+    "basedpyright": "1.31.4",
+    "pytest": "8.4.2"
+  },
+  "scope": "23 configured changed Python files; no full suite or benchmark rerun",
+  "source_sha256": {
+    "qa/__init__.py": "eb748ef14f7365406947af6f86b60097c85b585c06f2fc3202d5663c429d06b7",
+    "qa/events/__init__.py": "a64111449de46c9c0aae853fc86b1bef35dcc741b9a6be480b1e01d2fc53791b",
+    "qa/events/_benchmark_app_bootstrap.py": "f127f601f016a0e151b5ee644e5e1b7134353dd0fe524835d78e37907f856750",
+    "qa/events/_benchmark_export_bootstrap.py": "f44edb10329375be3af06839b4ac4975d5fcc2c6701332cc1bad239dea5723c0",
+    "qa/events/benchmark_app.py": "f41614ee8f7968017b62aabdf1d7fe74f90f16b7859f00c02489c06d8dcafe61",
+    "qa/events/benchmark_export.py": "aba4fd492d8e1e3d7bcf12e1c90e03876a48f8235534e89e05d0ede88885fafb",
+    "qa/events/buffered_export.py": "7323f8c4df11cbd8444fc786339c49128e744162909eb7e92567acff452fffb9",
+    "server/alembic/versions/0008_camera_events.py": "436b5e426244592624472eb114a898eb90cd0935b14d217dd03f3cd96dbf382a",
+    "server/src/gods_watching/api/application.py": "e0c71ffc7cb2091a4676865061e34b9e40cbaf5c140a81b3281dd4ae35936114",
+    "server/src/gods_watching/api/event_routes.py": "2e76ee208fc8b3ff93a7625143c18fec87f788ea6749cfe01cc70077318dcda6",
+    "server/src/gods_watching/cameras/service.py": "bee1b7976fd39c85c204dbcde7cc09d824a6db25450405cbd80e7b9acc5af43c",
+    "server/src/gods_watching/contracts/events.py": "bb1623b7d56c5566efab66120d7269b0d5582a75b018a8b7cad3791f9d087cbd",
+    "server/src/gods_watching/events/__init__.py": "bbb1eb5106706816c379afcf22397244d8b3a9bbe882c0781de039c3b36e4b88",
+    "server/src/gods_watching/events/export.py": "8876dfefa2eb042c59f6055f2281d26de6b5fb04a91bb5172c3c7d55f34347bb",
+    "server/src/gods_watching/events/repository.py": "e17568dba9b725f64dee3d95a4e2d04545a94bc2fcf4e12f715f00ebf73babdc",
+    "server/src/gods_watching/storage/__init__.py": "6b0708c21153fa7c3fb423165ebe36d9b98148cba1581939a6790d6387be6305",
+    "server/src/gods_watching/storage/models.py": "7d43b51a984e5a059e836d218d63ab9e0e42f5ec10583b0f7efb7244d912959d",
+    "server/tests/integration/conftest.py": "c3b16f8c305427e5ea24feae6309f8b73bb1c5e61ce6eedfa648f8b3b14ef924",
+    "server/tests/integration/test_camera_events.py": "63e5dcbbfd709a6ba8bfff00c0a9a2cf6d79533dc34a9f8a25bc0881c1b36e02",
+    "server/tests/integration/test_event_export.py": "ae3e88e668ca81d410434ca6e5bd49da187d4129caf8da29a7e764fdafb205a5",
+    "server/tests/test_api_events.py": "1caea4cf97c95d95a8c865f0dca7acad068eb9d2e63f9f8073fb268cf5b79e6f",
+    "server/tests/test_event_benchmark.py": "fd0d649b6784992e64d1926425c630562aa7ad2765eca56874eb3c14d70aadb4",
+    "server/tests/test_event_export.py": "ece4b111a06ecb93a5ba8d88fe171d15a16d0e1350fd9b877a260f34502ea4d8"
+  },
+  "measurement_sha256": {
+    "results.json": "92f43e33d259cd13e2acf6fb5884923e001a220749882e59568fc50699113f0c",
+    "initial-run-results.json": "45562f9c0d3488a07a85e80124ece962c9dc8fc9e4b55ea78009397ade3e23dd",
+    "environment.json": "4eb348a9072cf8be5730e54ce35cbc9dedfc28962d5785223ef34efc1c5e8261",
+    "isolation-recovery-103e24dc.json": "5dfee2b15bab95e4c169891202566acb09a48d869a50ae0472e6d8fa8712957f"
+  },
+  "saved_summary_equivalence": true,
+  "ruff": {
+    "exit_code": 0,
+    "files": 23,
+    "diagnostics": 0
+  },
+  "basedpyright": {
+    "filesAnalyzed": 23,
+    "errorCount": 0,
+    "warningCount": 0,
+    "informationCount": 0,
+    "timeInSec": 3.189
+  },
+  "tests": {
+    "controller_focused": {
+      "passed": 70,
+      "seconds": 11.11
+    },
+    "controller_schema_only": {
+      "passed": 1,
+      "deselected": 5,
+      "seconds": 0.73
+    },
+    "writer_after_test_helper_only_correction": {
+      "module": "server/tests/test_event_benchmark.py",
+      "passed": 27,
+      "seconds": 2.12
+    }
+  },
+  "review": "I1/I2 and F1/F2 addressed; no remaining Critical/Important code findings"
+}

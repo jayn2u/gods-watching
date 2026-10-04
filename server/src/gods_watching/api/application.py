@@ -13,6 +13,7 @@ from gods_watching.storage import Camera
 from .appearance_routes import build_appearance_router
 from .camera_routes import AuthenticatedRequest as CameraAuthenticatedRequest
 from .camera_routes import build_camera_router
+from .event_routes import build_event_router
 from .lifespan import build_lifespan
 from .live_routes import build_live_detection_router
 from .model_routes import build_model_router
@@ -54,6 +55,12 @@ def _build_api_router(dependencies: ApiDependencies) -> APIRouter:
     router = APIRouter()
     router.include_router(build_session_router(dependencies.auth, dependencies.config))
     require_camera_session = _camera_session_factory(dependencies)
+    router.include_router(
+        build_event_router(
+            database=dependencies.database,
+            require_session=require_camera_session,
+        )
+    )
     router.include_router(
         build_camera_router(
             database=dependencies.database,

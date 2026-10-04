@@ -1,0 +1,41 @@
+{
+  "typeCheckingMode": "all",
+  "pythonVersion": "3.12",
+  "pythonPlatform": "All",
+  "stubPath": "../../../../server/typings",
+  "extraPaths": [
+    "../../../../qa/events",
+    "../../../../server/src",
+    "../../../../"
+  ],
+  "include": [
+    "../../../../qa/__init__.py",
+    "../../../../qa/events/__init__.py",
+    "../../../../qa/events/_benchmark_app_bootstrap.py",
+    "../../../../qa/events/_benchmark_export_bootstrap.py",
+    "../../../../qa/events/benchmark_app.py",
+    "../../../../qa/events/benchmark_export.py",
+    "../../../../qa/events/buffered_export.py",
+    "../../../../server/alembic/versions/0008_camera_events.py",
+    "../../../../server/src/gods_watching/api/application.py",
+    "../../../../server/src/gods_watching/api/event_routes.py",
+    "../../../../server/src/gods_watching/cameras/service.py",
+    "../../../../server/src/gods_watching/contracts/events.py",
+    "../../../../server/src/gods_watching/events/__init__.py",
+    "../../../../server/src/gods_watching/events/export.py",
+    "../../../../server/src/gods_watching/events/repository.py",
+    "../../../../server/src/gods_watching/storage/__init__.py",
+    "../../../../server/src/gods_watching/storage/models.py",
+    "../../../../server/tests/integration/conftest.py",
+    "../../../../server/tests/integration/test_camera_events.py",
+    "../../../../server/tests/integration/test_event_export.py",
+    "../../../../server/tests/test_api_events.py",
+    "../../../../server/tests/test_event_benchmark.py",
+    "../../../../server/tests/test_event_export.py"
+  ],
+  "reportUnusedCallResult": "warning",
+  "reportUnnecessaryTypeIgnoreComment": "error",
+  "reportUnusedVariable": "error",
+  "reportMissingParameterType": "error",
+  "reportPrivateUsage": "error"
+}

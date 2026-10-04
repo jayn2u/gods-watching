@@ -1,0 +1,4206 @@
+{
+  "caveats": [
+    "Three repetitions support median and range only; no p95 or significance claim.",
+    "The reduced app composition excludes media services and workers.",
+    "Writer transaction-activity overlap, commit-inside-transfer, and app-side stream-pull intervals are separate; stream-pull spans include DB fetch and CSV encoding.",
+    "A single SELECT uses one Read Committed snapshot; the RC/RR multi-SELECT probe is a separate experiment.",
+    "Per-app cgroup memory.peak was not retained before app containers were removed; ru_maxrss exceeded the nominal 256 MiB Docker memory setting, so charged-memory use cannot be inferred from RSS.",
+    "The initial disposable database exited with code 1 during isolation setup; cause unresolved. Five absent isolation trials ran in a fresh bounded database, without repeating HTTP samples."
+  ],
+  "cleanup_failures": [],
+  "environment": {
+    "alembic_head": "0008_camera_events",
+    "authentication": "synthetic operator credential; actual HTTP login and cookie guard used",
+    "composition": "real FastAPI session and export routers, real AuthService and Database; no media services",
+    "database": {
+      "container_network": "internal Docker network gw-event-export-4bd6ab61",
+      "data_storage": "task-owned database container tmpfs, capped at 256MiB",
+      "host_publish": "none; migration and seed utilities share the private network",
+      "name": "gw_events_bench_4bd6ab61"
+    },
+    "dependencies": {
+      "SQLAlchemy": "2.0.43",
+      "alembic": "1.16.5",
+      "anyio": "4.10.0",
+      "argon2-cffi": "25.1.0",
+      "asyncpg": "0.30.0",
+      "fastapi": "0.116.1",
+      "uvicorn": "0.35.0"
+    },
+    "docker_server_version": "29.8.1",
+    "download": "stdlib HTTP client streams response to a temporary file; no response.read() for full body",
+    "images": {
+      "gods-watching-app:local": "sha256:d37830285e079b037ad9383eafa3b33ce1a72f36df22083c0c6d652e4512843f",
+      "pgvector/pgvector:0.8.1-pg17": "sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21"
+    },
+    "implementation_source_paths": {
+      "AuthService": "/work/server/src/gods_watching/auth/service.py",
+      "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+      "EventExportService": "/work/server/src/gods_watching/events/export.py",
+      "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+    },
+    "os": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+    "postgresql_server_version": "PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+    "python": "3.12.11 (main, Oct  7 2025, 15:34:39) [Clang 20.1.4 ]",
+    "python_version_app_image": "Python 3.12.12",
+    "repository_head_at_start": "2dbd97a3362061c75397399db17a936dd37c8b13",
+    "resource_limits": {
+      "aggregate_database_connections": "<=4; setup utility is sequential and app pool caps at three",
+      "application": {
+        "cpus": 1,
+        "memory_mib": 256,
+        "swap_mib": 256
+      },
+      "client": {
+        "cpus": 1,
+        "memory_mib": 256,
+        "swap_mib": 256
+      },
+      "database": {
+        "cpus": 1,
+        "memory_mib": 384,
+        "swap_mib": 384,
+        "tmpfs_mib": 256
+      }
+    },
+    "rss": "application resource.getrusage(RUSAGE_SELF).ru_maxrss in Linux KiB; baseline is marked after login",
+    "run_id": "4bd6ab61",
+    "started_at_utc": "2026-10-03T09:05:00.208650+00:00"
+  },
+  "failures": [
+    {
+      "error_type": "RuntimeError",
+      "message": "docker run failed: Traceback (most recent call last):\n  File \"/usr/local/lib/python3.12/asyncio/selector_events.py\", line 1013, in _read_ready__data_received\n    data = self._sock.recv(self.max_size)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nConnectionResetError: [Errno 104] Connection reset by peer\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/opt/gods-watching/.venv/lib/python3.12/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py\", line 573, in _executemany\n    return await self._connection.executemany(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/gods-watching/.venv/lib/python3.12/site-packages/asyncpg/connection.py\", line 390, in executemany\n    return await self._executemany(command, args, timeout)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/gods-watching/.venv/lib/python3.12/site-packages/asyncpg/connection.py\", line 1988, in _executemany\n    result, _ = await self._do_execute(\n                ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/gods-watching/.venv/lib/python3.12/site-packages/asyncpg/connection.py\", line 2024, in _do_execute\n    result = await executor(stmt, None)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"asyncpg/protocol/protocol.pyx\", line 268, in bind_execute_many\nasyncpg.exceptions.ConnectionDoesNotExistError: connection was closed in the middle of operation\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/opt/gods-watching/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py\", line 1936, in _exec_single_context\n    self.dialect.do_executemany(\n  File \"/opt/gods-watching/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py\", line 948, in do_executemany\n    cursor.executemany(statement, parameters)\n  File \"/opt/gods-watching/.venv/lib/python3.12/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py\", line 585, in executemany\n    return self._adapt_",
+      "phase": "12 RC/RR isolation trials"
+    }
+  ],
+  "isolation_recovery": {
+    "diagnostics_are_outside_trial_timing": true,
+    "initial_run_archive": "initial-run-results.json",
+    "postgres_log": "isolation-recovery-103e24dc-postgres.log",
+    "raw_artifact": "isolation-recovery-103e24dc.json",
+    "resumed_trial_count": 5,
+    "run_id": "103e24dc",
+    "source_run_id": "4bd6ab61",
+    "status": "completed",
+    "total_isolation_trial_count": 12
+  },
+  "isolation_summary": {
+    "10000:READ COMMITTED": {
+      "count_mismatches": [
+        true,
+        true,
+        true
+      ],
+      "elapsed_seconds_median": 0.1110541500383988,
+      "elapsed_seconds_range": [
+        0.10818224295508116,
+        0.11295560200233012
+      ],
+      "export_counts": [
+        10100,
+        10100,
+        10100
+      ],
+      "initial_count": 10000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    },
+    "10000:REPEATABLE READ": {
+      "count_mismatches": [
+        false,
+        false,
+        false
+      ],
+      "elapsed_seconds_median": 0.1084556489950046,
+      "elapsed_seconds_range": [
+        0.1076287729665637,
+        0.10969374200794846
+      ],
+      "export_counts": [
+        10000,
+        10000,
+        10000
+      ],
+      "initial_count": 10000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    },
+    "50000:READ COMMITTED": {
+      "count_mismatches": [
+        true,
+        true,
+        true
+      ],
+      "elapsed_seconds_median": 0.18631312798243016,
+      "elapsed_seconds_range": [
+        0.18602093699155375,
+        0.18666981399292126
+      ],
+      "export_counts": [
+        50100,
+        50100,
+        50100
+      ],
+      "initial_count": 50000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    },
+    "50000:REPEATABLE READ": {
+      "count_mismatches": [
+        false,
+        false,
+        false
+      ],
+      "elapsed_seconds_median": 0.18653660302516073,
+      "elapsed_seconds_range": [
+        0.18603096302831545,
+        0.19541134702740237
+      ],
+      "export_counts": [
+        50000,
+        50000,
+        50000
+      ],
+      "initial_count": 50000,
+      "invalid_trial_count": 0,
+      "trial_count": 3,
+      "valid_trial_count": 3
+    }
+  },
+  "isolation_trials": [
+    {
+      "count_mismatch": true,
+      "dataset_size": 10000,
+      "elapsed_seconds": 0.1110541500383988,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 10000,
+      "expected_export_count": 10100,
+      "expected_ids_sha256": "e366105769a9f30bd0bb1d7f4cf477b68c29056eb0fd5ba3254241976724bfab",
+      "export_count": 10100,
+      "exported_ids_sha256": "e366105769a9f30bd0bb1d7f4cf477b68c29056eb0fd5ba3254241976724bfab",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 10000,
+      "isolation": "READ COMMITTED",
+      "repeat": 1,
+      "valid": true,
+      "writer_commit_seconds": 0.055023098015226424,
+      "writer_committed_at_utc": "2026-10-03T09:08:23.216693+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:08:23.216703+00:00",
+      "writer_started_at_utc": "2026-10-03T09:08:23.161672+00:00"
+    },
+    {
+      "count_mismatch": true,
+      "dataset_size": 10000,
+      "elapsed_seconds": 0.10818224295508116,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 10000,
+      "expected_export_count": 10100,
+      "expected_ids_sha256": "e366105769a9f30bd0bb1d7f4cf477b68c29056eb0fd5ba3254241976724bfab",
+      "export_count": 10100,
+      "exported_ids_sha256": "e366105769a9f30bd0bb1d7f4cf477b68c29056eb0fd5ba3254241976724bfab",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 10000,
+      "isolation": "READ COMMITTED",
+      "repeat": 2,
+      "valid": true,
+      "writer_commit_seconds": 0.05359869298990816,
+      "writer_committed_at_utc": "2026-10-03T09:08:26.716644+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:08:26.716656+00:00",
+      "writer_started_at_utc": "2026-10-03T09:08:26.663046+00:00"
+    },
+    {
+      "count_mismatch": true,
+      "dataset_size": 10000,
+      "elapsed_seconds": 0.11295560200233012,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 10000,
+      "expected_export_count": 10100,
+      "expected_ids_sha256": "e366105769a9f30bd0bb1d7f4cf477b68c29056eb0fd5ba3254241976724bfab",
+      "export_count": 10100,
+      "exported_ids_sha256": "e366105769a9f30bd0bb1d7f4cf477b68c29056eb0fd5ba3254241976724bfab",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 10000,
+      "isolation": "READ COMMITTED",
+      "repeat": 3,
+      "valid": true,
+      "writer_commit_seconds": 0.05615024903090671,
+      "writer_committed_at_utc": "2026-10-03T09:08:30.382043+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:08:30.382053+00:00",
+      "writer_started_at_utc": "2026-10-03T09:08:30.325894+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 10000,
+      "elapsed_seconds": 0.1084556489950046,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 10000,
+      "expected_export_count": 10000,
+      "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+      "export_count": 10000,
+      "exported_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 10000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 1,
+      "valid": true,
+      "writer_commit_seconds": 0.053107097977772355,
+      "writer_committed_at_utc": "2026-10-03T09:08:33.942829+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:08:33.942854+00:00",
+      "writer_started_at_utc": "2026-10-03T09:08:33.889723+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 10000,
+      "elapsed_seconds": 0.1076287729665637,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 10000,
+      "expected_export_count": 10000,
+      "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+      "export_count": 10000,
+      "exported_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 10000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 2,
+      "valid": true,
+      "writer_commit_seconds": 0.053286641952581704,
+      "writer_committed_at_utc": "2026-10-03T09:08:37.540372+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:08:37.540381+00:00",
+      "writer_started_at_utc": "2026-10-03T09:08:37.487086+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 10000,
+      "elapsed_seconds": 0.10969374200794846,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 10000,
+      "expected_export_count": 10000,
+      "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+      "export_count": 10000,
+      "exported_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 10000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 3,
+      "valid": true,
+      "writer_commit_seconds": 0.05409735400462523,
+      "writer_committed_at_utc": "2026-10-03T09:08:41.083613+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:08:41.083622+00:00",
+      "writer_started_at_utc": "2026-10-03T09:08:41.029517+00:00"
+    },
+    {
+      "count_mismatch": true,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18666981399292126,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50100,
+      "expected_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "export_count": 50100,
+      "exported_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "READ COMMITTED",
+      "repeat": 1,
+      "valid": true,
+      "writer_commit_seconds": 0.053552146011497825,
+      "writer_committed_at_utc": "2026-10-03T09:08:45.828910+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:08:45.828920+00:00",
+      "writer_started_at_utc": "2026-10-03T09:08:45.775360+00:00"
+    },
+    {
+      "count_mismatch": true,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18631312798243016,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50100,
+      "expected_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "export_count": 50100,
+      "exported_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "READ COMMITTED",
+      "repeat": 2,
+      "valid": true,
+      "writer_commit_seconds": 0.05354891804745421,
+      "writer_committed_at_utc": "2026-10-03T09:21:50.770877+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:21:50.770886+00:00",
+      "writer_started_at_utc": "2026-10-03T09:21:50.717329+00:00"
+    },
+    {
+      "count_mismatch": true,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18602093699155375,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50100,
+      "expected_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "export_count": 50100,
+      "exported_ids_sha256": "6483e8196cc1f94bf3af2478a044cab1e6f104a4903b2d76634301b3038999dc",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "READ COMMITTED",
+      "repeat": 3,
+      "valid": true,
+      "writer_commit_seconds": 0.05374619201757014,
+      "writer_committed_at_utc": "2026-10-03T09:21:55.992825+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:21:55.992836+00:00",
+      "writer_started_at_utc": "2026-10-03T09:21:55.939080+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18653660302516073,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50000,
+      "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "export_count": 50000,
+      "exported_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 1,
+      "valid": true,
+      "writer_commit_seconds": 0.05424987099831924,
+      "writer_committed_at_utc": "2026-10-03T09:22:01.118301+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:22:01.118311+00:00",
+      "writer_started_at_utc": "2026-10-03T09:22:01.064052+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.18603096302831545,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50000,
+      "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "export_count": 50000,
+      "exported_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 2,
+      "valid": true,
+      "writer_commit_seconds": 0.053505224001128227,
+      "writer_committed_at_utc": "2026-10-03T09:22:06.263394+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:22:06.263404+00:00",
+      "writer_started_at_utc": "2026-10-03T09:22:06.209890+00:00"
+    },
+    {
+      "count_mismatch": false,
+      "dataset_size": 50000,
+      "elapsed_seconds": 0.19541134702740237,
+      "error": null,
+      "exact_ids_match": true,
+      "expected_count": 50000,
+      "expected_export_count": 50000,
+      "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "export_count": 50000,
+      "exported_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+      "forced_interleaving": "initial COUNT, commit writer batch, then materialize repository projection in the same transaction",
+      "initial_count": 50000,
+      "isolation": "REPEATABLE READ",
+      "repeat": 3,
+      "valid": true,
+      "writer_commit_seconds": 0.057696245959959924,
+      "writer_committed_at_utc": "2026-10-03T09:22:11.438242+00:00",
+      "writer_count": 100,
+      "writer_ended_at_utc": "2026-10-03T09:22:11.438252+00:00",
+      "writer_started_at_utc": "2026-10-03T09:22:11.380546+00:00"
+    }
+  ],
+  "network_still_owned": false,
+  "remaining_owned_containers": [],
+  "sample_summary": {
+    "10000:buffered": {
+      "application_peak_rss_kib_median": 270996.0,
+      "application_peak_rss_kib_range": [
+        270960.0,
+        272048.0
+      ],
+      "first_byte_latency_seconds_median": 0.10588558402378112,
+      "first_byte_latency_seconds_range": [
+        0.08943270304007456,
+        0.10891340899979696
+      ],
+      "latency_seconds_median": 0.10750583000481129,
+      "latency_seconds_range": [
+        0.09102441900176927,
+        0.1105823129764758
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 270996.0,
+      "startup_login_baseline_rss_kib_range": [
+        270960.0,
+        272048.0
+      ]
+    },
+    "10000:streaming": {
+      "application_peak_rss_kib_median": 272364.0,
+      "application_peak_rss_kib_range": [
+        264764.0,
+        272532.0
+      ],
+      "first_byte_latency_seconds_median": 0.017742365947924554,
+      "first_byte_latency_seconds_range": [
+        0.01477970601990819,
+        0.018632969993632287
+      ],
+      "latency_seconds_median": 0.10775438003474846,
+      "latency_seconds_range": [
+        0.10669093899196014,
+        0.15892004704801366
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 272364.0,
+      "startup_login_baseline_rss_kib_range": [
+        264764.0,
+        272532.0
+      ]
+    },
+    "50000:buffered": {
+      "application_peak_rss_kib_median": 271328.0,
+      "application_peak_rss_kib_range": [
+        270852.0,
+        271608.0
+      ],
+      "first_byte_latency_seconds_median": 0.4596190550364554,
+      "first_byte_latency_seconds_range": [
+        0.45756938599515706,
+        0.48794975003693253
+      ],
+      "latency_seconds_median": 0.4655264359898865,
+      "latency_seconds_range": [
+        0.463863244978711,
+        0.49367088702274486
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 271328.0,
+      "startup_login_baseline_rss_kib_range": [
+        270852.0,
+        271608.0
+      ]
+    },
+    "50000:streaming": {
+      "application_peak_rss_kib_median": 271696.0,
+      "application_peak_rss_kib_range": [
+        271664.0,
+        271980.0
+      ],
+      "first_byte_latency_seconds_median": 0.03726662596454844,
+      "first_byte_latency_seconds_range": [
+        0.015678872994612902,
+        0.07905082998331636
+      ],
+      "latency_seconds_median": 0.4940802420023829,
+      "latency_seconds_range": [
+        0.4871250619762577,
+        0.5430262559675612
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 271696.0,
+      "startup_login_baseline_rss_kib_range": [
+        271664.0,
+        271980.0
+      ]
+    }
+  },
+  "sample_summary_by_dataset_and_mode": {
+    "10000:buffered": {
+      "application_peak_rss_kib_median": 270996.0,
+      "application_peak_rss_kib_range": [
+        270960.0,
+        272048.0
+      ],
+      "first_byte_latency_seconds_median": 0.10588558402378112,
+      "first_byte_latency_seconds_range": [
+        0.08943270304007456,
+        0.10891340899979696
+      ],
+      "latency_seconds_median": 0.10750583000481129,
+      "latency_seconds_range": [
+        0.09102441900176927,
+        0.1105823129764758
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 270996.0,
+      "startup_login_baseline_rss_kib_range": [
+        270960.0,
+        272048.0
+      ]
+    },
+    "10000:streaming": {
+      "application_peak_rss_kib_median": 272364.0,
+      "application_peak_rss_kib_range": [
+        264764.0,
+        272532.0
+      ],
+      "first_byte_latency_seconds_median": 0.017742365947924554,
+      "first_byte_latency_seconds_range": [
+        0.01477970601990819,
+        0.018632969993632287
+      ],
+      "latency_seconds_median": 0.10775438003474846,
+      "latency_seconds_range": [
+        0.10669093899196014,
+        0.15892004704801366
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 272364.0,
+      "startup_login_baseline_rss_kib_range": [
+        264764.0,
+        272532.0
+      ]
+    },
+    "50000:buffered": {
+      "application_peak_rss_kib_median": 271328.0,
+      "application_peak_rss_kib_range": [
+        270852.0,
+        271608.0
+      ],
+      "first_byte_latency_seconds_median": 0.4596190550364554,
+      "first_byte_latency_seconds_range": [
+        0.45756938599515706,
+        0.48794975003693253
+      ],
+      "latency_seconds_median": 0.4655264359898865,
+      "latency_seconds_range": [
+        0.463863244978711,
+        0.49367088702274486
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 271328.0,
+      "startup_login_baseline_rss_kib_range": [
+        270852.0,
+        271608.0
+      ]
+    },
+    "50000:streaming": {
+      "application_peak_rss_kib_median": 271696.0,
+      "application_peak_rss_kib_range": [
+        271664.0,
+        271980.0
+      ],
+      "first_byte_latency_seconds_median": 0.03726662596454844,
+      "first_byte_latency_seconds_range": [
+        0.015678872994612902,
+        0.07905082998331636
+      ],
+      "latency_seconds_median": 0.4940802420023829,
+      "latency_seconds_range": [
+        0.4871250619762577,
+        0.5430262559675612
+      ],
+      "sample_count": 3,
+      "startup_login_baseline_rss_kib_median": 271696.0,
+      "startup_login_baseline_rss_kib_range": [
+        271664.0,
+        271980.0
+      ]
+    }
+  },
+  "sample_summary_pooled_descriptive_only": {
+    "buffered": {
+      "latency_range_seconds": [
+        0.09102441900176927,
+        0.49367088702274486
+      ],
+      "median_latency_seconds": 0.2872227789775934,
+      "sample_count": 6
+    },
+    "streaming": {
+      "latency_range_seconds": [
+        0.10669093899196014,
+        0.5430262559675612
+      ],
+      "median_latency_seconds": 0.3230225545121357,
+      "sample_count": 6
+    }
+  },
+  "samples": [
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-streaming-10000-1",
+      "application_metrics": {
+        "application_peak_rss_kib": 264764,
+        "baseline": {
+          "captured_monotonic": 266547.931677086,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 264764
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 49,
+            "end": 266547.943617717,
+            "index": 0,
+            "start": 266547.943615864
+          },
+          {
+            "bytes": 98886,
+            "end": 266547.94940683,
+            "index": 1,
+            "start": 266547.943624117
+          },
+          {
+            "bytes": 100000,
+            "end": 266547.957243373,
+            "index": 2,
+            "start": 266547.949497745
+          },
+          {
+            "bytes": 100000,
+            "end": 266547.966341544,
+            "index": 3,
+            "start": 266547.957285851
+          },
+          {
+            "bytes": 100000,
+            "end": 266547.974075616,
+            "index": 4,
+            "start": 266547.966380397
+          },
+          {
+            "bytes": 100000,
+            "end": 266547.996909562,
+            "index": 5,
+            "start": 266547.974110214
+          },
+          {
+            "bytes": 100000,
+            "end": 266548.005023494,
+            "index": 6,
+            "start": 266547.996961783
+          },
+          {
+            "bytes": 100000,
+            "end": 266548.012781109,
+            "index": 7,
+            "start": 266548.005074377
+          },
+          {
+            "bytes": 100000,
+            "end": 266548.021355308,
+            "index": 8,
+            "start": 266548.012827994
+          },
+          {
+            "bytes": 100000,
+            "end": 266548.029088494,
+            "index": 9,
+            "start": 266548.021400639
+          },
+          {
+            "bytes": 100001,
+            "end": 266548.037008364,
+            "index": 10,
+            "start": 266548.029136191
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:05:54.031268+00:00",
+        "mode": "streaming",
+        "prepare_spans": [
+          {
+            "end": 266547.943491804,
+            "start": 266547.934986788
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.11178808799013495,
+          "committed_at_utc": "2026-10-03T09:05:54.030333+00:00",
+          "committed_monotonic": 266548.069495892,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:05:54.030344+00:00",
+          "ended_monotonic": 266548.069508286,
+          "ids": [
+            10001,
+            10002,
+            10003,
+            10004,
+            10005,
+            10006,
+            10007,
+            10008,
+            10009,
+            10010,
+            10011,
+            10012,
+            10013,
+            10014,
+            10015,
+            10016,
+            10017,
+            10018,
+            10019,
+            10020,
+            10021,
+            10022,
+            10023,
+            10024,
+            10025,
+            10026,
+            10027,
+            10028,
+            10029,
+            10030,
+            10031,
+            10032,
+            10033,
+            10034,
+            10035,
+            10036,
+            10037,
+            10038,
+            10039,
+            10040,
+            10041,
+            10042,
+            10043,
+            10044,
+            10045,
+            10046,
+            10047,
+            10048,
+            10049,
+            10050,
+            10051,
+            10052,
+            10053,
+            10054,
+            10055,
+            10056,
+            10057,
+            10058,
+            10059,
+            10060,
+            10061,
+            10062,
+            10063,
+            10064,
+            10065,
+            10066,
+            10067,
+            10068,
+            10069,
+            10070,
+            10071,
+            10072,
+            10073,
+            10074,
+            10075,
+            10076,
+            10077,
+            10078,
+            10079,
+            10080,
+            10081,
+            10082,
+            10083,
+            10084,
+            10085,
+            10086,
+            10087,
+            10088,
+            10089,
+            10090,
+            10091,
+            10092,
+            10093,
+            10094,
+            10095,
+            10096,
+            10097,
+            10098,
+            10099,
+            10100
+          ],
+          "started_at_utc": "2026-10-03T09:05:53.918545+00:00",
+          "started_monotonic": 266547.957707804
+        }
+      },
+      "application_peak_rss_kib": 264764,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "5109b91abe5ce97627e36970a3067380f14fcecf924009af99e1f73034bb2885",
+      "bytes": 998936,
+      "client_container": "gw-event-export-client-4bd6ab61-streaming-10000-1",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 10000,
+        "actual_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 10000,
+        "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 10000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.017742365947924554,
+      "http_request_started_monotonic": 266547.931976311,
+      "http_transfer_ended_monotonic": 266548.03866725,
+      "latency_seconds": 0.10669093899196014,
+      "mode": "streaming",
+      "performance_eligible": true,
+      "repeat": 1,
+      "startup_login_baseline_rss_kib": 264764,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266548.06982832,
+        "client_started_monotonic": 266547.950063,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-buffered-10000-1",
+      "application_metrics": {
+        "application_peak_rss_kib": 272048,
+        "baseline": {
+          "captured_monotonic": 266563.847841795,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 272048
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 998936,
+            "end": 266563.956350426,
+            "index": 0,
+            "start": 266563.956063695
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:06:09.953187+00:00",
+        "mode": "buffered",
+        "prepare_spans": [
+          {
+            "end": 266563.955903475,
+            "start": 266563.850020506
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.033297254994977266,
+          "committed_at_utc": "2026-10-03T09:06:09.952285+00:00",
+          "committed_monotonic": 266563.991447097,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:06:09.952295+00:00",
+          "ended_monotonic": 266563.991458763,
+          "ids": [
+            10001,
+            10002,
+            10003,
+            10004,
+            10005,
+            10006,
+            10007,
+            10008,
+            10009,
+            10010,
+            10011,
+            10012,
+            10013,
+            10014,
+            10015,
+            10016,
+            10017,
+            10018,
+            10019,
+            10020,
+            10021,
+            10022,
+            10023,
+            10024,
+            10025,
+            10026,
+            10027,
+            10028,
+            10029,
+            10030,
+            10031,
+            10032,
+            10033,
+            10034,
+            10035,
+            10036,
+            10037,
+            10038,
+            10039,
+            10040,
+            10041,
+            10042,
+            10043,
+            10044,
+            10045,
+            10046,
+            10047,
+            10048,
+            10049,
+            10050,
+            10051,
+            10052,
+            10053,
+            10054,
+            10055,
+            10056,
+            10057,
+            10058,
+            10059,
+            10060,
+            10061,
+            10062,
+            10063,
+            10064,
+            10065,
+            10066,
+            10067,
+            10068,
+            10069,
+            10070,
+            10071,
+            10072,
+            10073,
+            10074,
+            10075,
+            10076,
+            10077,
+            10078,
+            10079,
+            10080,
+            10081,
+            10082,
+            10083,
+            10084,
+            10085,
+            10086,
+            10087,
+            10088,
+            10089,
+            10090,
+            10091,
+            10092,
+            10093,
+            10094,
+            10095,
+            10096,
+            10097,
+            10098,
+            10099,
+            10100
+          ],
+          "started_at_utc": "2026-10-03T09:06:09.918988+00:00",
+          "started_monotonic": 266563.958149842
+        }
+      },
+      "application_peak_rss_kib": 272048,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "5109b91abe5ce97627e36970a3067380f14fcecf924009af99e1f73034bb2885",
+      "bytes": 998936,
+      "client_container": "gw-event-export-client-4bd6ab61-buffered-10000-1",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 10000,
+        "actual_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 10000,
+        "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 10000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.10891340899979696,
+      "http_request_started_monotonic": 266563.848026914,
+      "http_transfer_ended_monotonic": 266563.958609227,
+      "latency_seconds": 0.1105823129764758,
+      "mode": "buffered",
+      "performance_eligible": true,
+      "repeat": 1,
+      "startup_login_baseline_rss_kib": 272048,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266563.99175696,
+        "client_started_monotonic": 266563.957308654,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-buffered-10000-2",
+      "application_metrics": {
+        "application_peak_rss_kib": 270960,
+        "baseline": {
+          "captured_monotonic": 266578.736474968,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 270960
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 998936,
+            "end": 266578.825438334,
+            "index": 0,
+            "start": 266578.825122044
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:06:24.822598+00:00",
+        "mode": "buffered",
+        "prepare_spans": [
+          {
+            "end": 266578.824965965,
+            "start": 266578.739263187
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.033420837949961424,
+          "committed_at_utc": "2026-10-03T09:06:24.821647+00:00",
+          "committed_monotonic": 266578.860810079,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:06:24.821658+00:00",
+          "ended_monotonic": 266578.86082165,
+          "ids": [
+            10001,
+            10002,
+            10003,
+            10004,
+            10005,
+            10006,
+            10007,
+            10008,
+            10009,
+            10010,
+            10011,
+            10012,
+            10013,
+            10014,
+            10015,
+            10016,
+            10017,
+            10018,
+            10019,
+            10020,
+            10021,
+            10022,
+            10023,
+            10024,
+            10025,
+            10026,
+            10027,
+            10028,
+            10029,
+            10030,
+            10031,
+            10032,
+            10033,
+            10034,
+            10035,
+            10036,
+            10037,
+            10038,
+            10039,
+            10040,
+            10041,
+            10042,
+            10043,
+            10044,
+            10045,
+            10046,
+            10047,
+            10048,
+            10049,
+            10050,
+            10051,
+            10052,
+            10053,
+            10054,
+            10055,
+            10056,
+            10057,
+            10058,
+            10059,
+            10060,
+            10061,
+            10062,
+            10063,
+            10064,
+            10065,
+            10066,
+            10067,
+            10068,
+            10069,
+            10070,
+            10071,
+            10072,
+            10073,
+            10074,
+            10075,
+            10076,
+            10077,
+            10078,
+            10079,
+            10080,
+            10081,
+            10082,
+            10083,
+            10084,
+            10085,
+            10086,
+            10087,
+            10088,
+            10089,
+            10090,
+            10091,
+            10092,
+            10093,
+            10094,
+            10095,
+            10096,
+            10097,
+            10098,
+            10099,
+            10100
+          ],
+          "started_at_utc": "2026-10-03T09:06:24.788227+00:00",
+          "started_monotonic": 266578.827389241
+        }
+      },
+      "application_peak_rss_kib": 270960,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "5109b91abe5ce97627e36970a3067380f14fcecf924009af99e1f73034bb2885",
+      "bytes": 998936,
+      "client_container": "gw-event-export-client-4bd6ab61-buffered-10000-2",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 10000,
+        "actual_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 10000,
+        "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 10000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.08943270304007456,
+      "http_request_started_monotonic": 266578.736759858,
+      "http_transfer_ended_monotonic": 266578.827784277,
+      "latency_seconds": 0.09102441900176927,
+      "mode": "buffered",
+      "performance_eligible": true,
+      "repeat": 2,
+      "startup_login_baseline_rss_kib": 270960,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266578.861155777,
+        "client_started_monotonic": 266578.826519504,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-streaming-10000-2",
+      "application_metrics": {
+        "application_peak_rss_kib": 272532,
+        "baseline": {
+          "captured_monotonic": 266588.840244769,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 272532
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 49,
+            "end": 266588.849012931,
+            "index": 0,
+            "start": 266588.849011265
+          },
+          {
+            "bytes": 98886,
+            "end": 266588.854864904,
+            "index": 1,
+            "start": 266588.84902991
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.91864812,
+            "index": 2,
+            "start": 266588.854950898
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.926944379,
+            "index": 3,
+            "start": 266588.918720936
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.934925252,
+            "index": 4,
+            "start": 266588.926989231
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.957463295,
+            "index": 5,
+            "start": 266588.934962832
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.965317218,
+            "index": 6,
+            "start": 266588.957520974
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.973146222,
+            "index": 7,
+            "start": 266588.965390998
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.981585241,
+            "index": 8,
+            "start": 266588.973191176
+          },
+          {
+            "bytes": 100000,
+            "end": 266588.98971944,
+            "index": 9,
+            "start": 266588.98162807
+          },
+          {
+            "bytes": 100001,
+            "end": 266588.997913507,
+            "index": 10,
+            "start": 266588.989784912
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:06:34.990735+00:00",
+        "mode": "streaming",
+        "prepare_spans": [
+          {
+            "end": 266588.848889763,
+            "start": 266588.842317244
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.13107972900616005,
+          "committed_at_utc": "2026-10-03T09:06:34.989756+00:00",
+          "committed_monotonic": 266589.028918709,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:06:34.989767+00:00",
+          "ended_monotonic": 266589.02893066,
+          "ids": [
+            10001,
+            10002,
+            10003,
+            10004,
+            10005,
+            10006,
+            10007,
+            10008,
+            10009,
+            10010,
+            10011,
+            10012,
+            10013,
+            10014,
+            10015,
+            10016,
+            10017,
+            10018,
+            10019,
+            10020,
+            10021,
+            10022,
+            10023,
+            10024,
+            10025,
+            10026,
+            10027,
+            10028,
+            10029,
+            10030,
+            10031,
+            10032,
+            10033,
+            10034,
+            10035,
+            10036,
+            10037,
+            10038,
+            10039,
+            10040,
+            10041,
+            10042,
+            10043,
+            10044,
+            10045,
+            10046,
+            10047,
+            10048,
+            10049,
+            10050,
+            10051,
+            10052,
+            10053,
+            10054,
+            10055,
+            10056,
+            10057,
+            10058,
+            10059,
+            10060,
+            10061,
+            10062,
+            10063,
+            10064,
+            10065,
+            10066,
+            10067,
+            10068,
+            10069,
+            10070,
+            10071,
+            10072,
+            10073,
+            10074,
+            10075,
+            10076,
+            10077,
+            10078,
+            10079,
+            10080,
+            10081,
+            10082,
+            10083,
+            10084,
+            10085,
+            10086,
+            10087,
+            10088,
+            10089,
+            10090,
+            10091,
+            10092,
+            10093,
+            10094,
+            10095,
+            10096,
+            10097,
+            10098,
+            10099,
+            10100
+          ],
+          "started_at_utc": "2026-10-03T09:06:34.858680+00:00",
+          "started_monotonic": 266588.89783898
+        }
+      },
+      "application_peak_rss_kib": 272532,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "5109b91abe5ce97627e36970a3067380f14fcecf924009af99e1f73034bb2885",
+      "bytes": 998936,
+      "client_container": "gw-event-export-client-4bd6ab61-streaming-10000-2",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 10000,
+        "actual_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 10000,
+        "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 10000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.01477970601990819,
+      "http_request_started_monotonic": 266588.840425575,
+      "http_transfer_ended_monotonic": 266588.999345622,
+      "latency_seconds": 0.15892004704801366,
+      "mode": "streaming",
+      "performance_eligible": true,
+      "repeat": 2,
+      "startup_login_baseline_rss_kib": 272532,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266589.029281431,
+        "client_started_monotonic": 266588.85547204,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-streaming-10000-3",
+      "application_metrics": {
+        "application_peak_rss_kib": 272364,
+        "baseline": {
+          "captured_monotonic": 266599.286224758,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 272364
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 49,
+            "end": 266599.298951958,
+            "index": 0,
+            "start": 266599.298950294
+          },
+          {
+            "bytes": 98886,
+            "end": 266599.304836618,
+            "index": 1,
+            "start": 266599.298957561
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.312786828,
+            "index": 2,
+            "start": 266599.304933471
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.321976375,
+            "index": 3,
+            "start": 266599.312830149
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.32972989,
+            "index": 4,
+            "start": 266599.322021654
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.352065766,
+            "index": 5,
+            "start": 266599.329767254
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.359891592,
+            "index": 6,
+            "start": 266599.352106646
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.368603507,
+            "index": 7,
+            "start": 266599.359931047
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.376217981,
+            "index": 8,
+            "start": 266599.368643931
+          },
+          {
+            "bytes": 100000,
+            "end": 266599.384286978,
+            "index": 9,
+            "start": 266599.376256076
+          },
+          {
+            "bytes": 100001,
+            "end": 266599.392726968,
+            "index": 10,
+            "start": 266599.384325386
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:06:45.386369+00:00",
+        "mode": "streaming",
+        "prepare_spans": [
+          {
+            "end": 266599.298821948,
+            "start": 266599.290563128
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.11128612799802795,
+          "committed_at_utc": "2026-10-03T09:06:45.385386+00:00",
+          "committed_monotonic": 266599.424548261,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:06:45.385397+00:00",
+          "ended_monotonic": 266599.424561136,
+          "ids": [
+            10001,
+            10002,
+            10003,
+            10004,
+            10005,
+            10006,
+            10007,
+            10008,
+            10009,
+            10010,
+            10011,
+            10012,
+            10013,
+            10014,
+            10015,
+            10016,
+            10017,
+            10018,
+            10019,
+            10020,
+            10021,
+            10022,
+            10023,
+            10024,
+            10025,
+            10026,
+            10027,
+            10028,
+            10029,
+            10030,
+            10031,
+            10032,
+            10033,
+            10034,
+            10035,
+            10036,
+            10037,
+            10038,
+            10039,
+            10040,
+            10041,
+            10042,
+            10043,
+            10044,
+            10045,
+            10046,
+            10047,
+            10048,
+            10049,
+            10050,
+            10051,
+            10052,
+            10053,
+            10054,
+            10055,
+            10056,
+            10057,
+            10058,
+            10059,
+            10060,
+            10061,
+            10062,
+            10063,
+            10064,
+            10065,
+            10066,
+            10067,
+            10068,
+            10069,
+            10070,
+            10071,
+            10072,
+            10073,
+            10074,
+            10075,
+            10076,
+            10077,
+            10078,
+            10079,
+            10080,
+            10081,
+            10082,
+            10083,
+            10084,
+            10085,
+            10086,
+            10087,
+            10088,
+            10089,
+            10090,
+            10091,
+            10092,
+            10093,
+            10094,
+            10095,
+            10096,
+            10097,
+            10098,
+            10099,
+            10100
+          ],
+          "started_at_utc": "2026-10-03T09:06:45.274100+00:00",
+          "started_monotonic": 266599.313262133
+        }
+      },
+      "application_peak_rss_kib": 272364,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "5109b91abe5ce97627e36970a3067380f14fcecf924009af99e1f73034bb2885",
+      "bytes": 998936,
+      "client_container": "gw-event-export-client-4bd6ab61-streaming-10000-3",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 10000,
+        "actual_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 10000,
+        "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 10000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.018632969993632287,
+      "http_request_started_monotonic": 266599.286576772,
+      "http_transfer_ended_monotonic": 266599.394331152,
+      "latency_seconds": 0.10775438003474846,
+      "mode": "streaming",
+      "performance_eligible": true,
+      "repeat": 3,
+      "startup_login_baseline_rss_kib": 272364,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266599.42488961,
+        "client_started_monotonic": 266599.305525263,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-buffered-10000-3",
+      "application_metrics": {
+        "application_peak_rss_kib": 270996,
+        "baseline": {
+          "captured_monotonic": 266611.931468584,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 270996
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 998936,
+            "end": 266612.037010934,
+            "index": 0,
+            "start": 266612.036713639
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:06:58.036953+00:00",
+        "mode": "buffered",
+        "prepare_spans": [
+          {
+            "end": 266612.036549064,
+            "start": 266611.933611306
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.03584473597584292,
+          "committed_at_utc": "2026-10-03T09:06:58.035972+00:00",
+          "committed_monotonic": 266612.075134411,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:06:58.035981+00:00",
+          "ended_monotonic": 266612.075144751,
+          "ids": [
+            10001,
+            10002,
+            10003,
+            10004,
+            10005,
+            10006,
+            10007,
+            10008,
+            10009,
+            10010,
+            10011,
+            10012,
+            10013,
+            10014,
+            10015,
+            10016,
+            10017,
+            10018,
+            10019,
+            10020,
+            10021,
+            10022,
+            10023,
+            10024,
+            10025,
+            10026,
+            10027,
+            10028,
+            10029,
+            10030,
+            10031,
+            10032,
+            10033,
+            10034,
+            10035,
+            10036,
+            10037,
+            10038,
+            10039,
+            10040,
+            10041,
+            10042,
+            10043,
+            10044,
+            10045,
+            10046,
+            10047,
+            10048,
+            10049,
+            10050,
+            10051,
+            10052,
+            10053,
+            10054,
+            10055,
+            10056,
+            10057,
+            10058,
+            10059,
+            10060,
+            10061,
+            10062,
+            10063,
+            10064,
+            10065,
+            10066,
+            10067,
+            10068,
+            10069,
+            10070,
+            10071,
+            10072,
+            10073,
+            10074,
+            10075,
+            10076,
+            10077,
+            10078,
+            10079,
+            10080,
+            10081,
+            10082,
+            10083,
+            10084,
+            10085,
+            10086,
+            10087,
+            10088,
+            10089,
+            10090,
+            10091,
+            10092,
+            10093,
+            10094,
+            10095,
+            10096,
+            10097,
+            10098,
+            10099,
+            10100
+          ],
+          "started_at_utc": "2026-10-03T09:06:58.000127+00:00",
+          "started_monotonic": 266612.039289675
+        }
+      },
+      "application_peak_rss_kib": 270996,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "5109b91abe5ce97627e36970a3067380f14fcecf924009af99e1f73034bb2885",
+      "bytes": 998936,
+      "client_container": "gw-event-export-client-4bd6ab61-buffered-10000-3",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 10000,
+        "actual_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 10000,
+        "expected_ids_sha256": "8060aa0ac20a3e5db2b67325c98a0122f2d09a612574458225dcb9a086f87cc3",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 10000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.10588558402378112,
+      "http_request_started_monotonic": 266611.931665139,
+      "http_transfer_ended_monotonic": 266612.039170969,
+      "latency_seconds": 0.10750583000481129,
+      "mode": "buffered",
+      "performance_eligible": true,
+      "repeat": 3,
+      "startup_login_baseline_rss_kib": 270996,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266612.075449168,
+        "client_started_monotonic": 266612.037831831,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": false,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-streaming-50000-1",
+      "application_metrics": {
+        "application_peak_rss_kib": 271696,
+        "baseline": {
+          "captured_monotonic": 266628.606177431,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 271696
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 49,
+            "end": 266628.615214607,
+            "index": 0,
+            "start": 266628.615212825
+          },
+          {
+            "bytes": 98886,
+            "end": 266628.684712211,
+            "index": 1,
+            "start": 266628.615220563
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.695077209,
+            "index": 2,
+            "start": 266628.685011822
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.70488943,
+            "index": 3,
+            "start": 266628.695124042
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.716622671,
+            "index": 4,
+            "start": 266628.704934559
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.738912968,
+            "index": 5,
+            "start": 266628.716682953
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.746804303,
+            "index": 6,
+            "start": 266628.738958951
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.755122098,
+            "index": 7,
+            "start": 266628.746845746
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.76263334,
+            "index": 8,
+            "start": 266628.755163342
+          },
+          {
+            "bytes": 100000,
+            "end": 266628.77074641,
+            "index": 9,
+            "start": 266628.762678677
+          },
+          {
+            "bytes": 100001,
+            "end": 266628.779273337,
+            "index": 10,
+            "start": 266628.770809002
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.787381795,
+            "index": 11,
+            "start": 266628.779316681
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.795321659,
+            "index": 12,
+            "start": 266628.787420549
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.803301783,
+            "index": 13,
+            "start": 266628.795361018
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.811427235,
+            "index": 14,
+            "start": 266628.803344251
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.819454435,
+            "index": 15,
+            "start": 266628.811465151
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.827418537,
+            "index": 16,
+            "start": 266628.819494223
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.835548435,
+            "index": 17,
+            "start": 266628.827455712
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.84425837,
+            "index": 18,
+            "start": 266628.835628679
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.852335638,
+            "index": 19,
+            "start": 266628.844301544
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.860286332,
+            "index": 20,
+            "start": 266628.852376419
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.868363879,
+            "index": 21,
+            "start": 266628.860325725
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.876613393,
+            "index": 22,
+            "start": 266628.868403567
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.88477813,
+            "index": 23,
+            "start": 266628.876651536
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.892750656,
+            "index": 24,
+            "start": 266628.88483049
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.900713004,
+            "index": 25,
+            "start": 266628.892789086
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.908890804,
+            "index": 26,
+            "start": 266628.900753301
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.958229853,
+            "index": 27,
+            "start": 266628.908930801
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.966598498,
+            "index": 28,
+            "start": 266628.958296182
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.974658419,
+            "index": 29,
+            "start": 266628.966649536
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.98266814,
+            "index": 30,
+            "start": 266628.974698798
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.990731998,
+            "index": 31,
+            "start": 266628.982709844
+          },
+          {
+            "bytes": 101000,
+            "end": 266628.998737519,
+            "index": 32,
+            "start": 266628.990771635
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.007453528,
+            "index": 33,
+            "start": 266628.998776294
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.015810548,
+            "index": 34,
+            "start": 266629.007513649
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.023774317,
+            "index": 35,
+            "start": 266629.015852124
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.031853688,
+            "index": 36,
+            "start": 266629.023813401
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.039941112,
+            "index": 37,
+            "start": 266629.031903085
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.048062954,
+            "index": 38,
+            "start": 266629.03998435
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.055949516,
+            "index": 39,
+            "start": 266629.048110706
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.063888232,
+            "index": 40,
+            "start": 266629.055990696
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.072902039,
+            "index": 41,
+            "start": 266629.063932025
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.082305849,
+            "index": 42,
+            "start": 266629.072990864
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.090992143,
+            "index": 43,
+            "start": 266629.082398058
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.099125131,
+            "index": 44,
+            "start": 266629.091039948
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.107818423,
+            "index": 45,
+            "start": 266629.099166946
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.115729323,
+            "index": 46,
+            "start": 266629.107857092
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.123785843,
+            "index": 47,
+            "start": 266629.115767517
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.131810746,
+            "index": 48,
+            "start": 266629.123826343
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.140067096,
+            "index": 49,
+            "start": 266629.131849639
+          },
+          {
+            "bytes": 101000,
+            "end": 266629.148120287,
+            "index": 50,
+            "start": 266629.140108625
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:07:15.115391+00:00",
+        "mode": "streaming",
+        "prepare_spans": [
+          {
+            "end": 266628.615078598,
+            "start": 266628.608253958
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.45803294697543606,
+          "committed_at_utc": "2026-10-03T09:07:15.114402+00:00",
+          "committed_monotonic": 266629.15356526,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:07:15.114410+00:00",
+          "ended_monotonic": 266629.153573435,
+          "ids": [
+            50001,
+            50002,
+            50003,
+            50004,
+            50005,
+            50006,
+            50007,
+            50008,
+            50009,
+            50010,
+            50011,
+            50012,
+            50013,
+            50014,
+            50015,
+            50016,
+            50017,
+            50018,
+            50019,
+            50020,
+            50021,
+            50022,
+            50023,
+            50024,
+            50025,
+            50026,
+            50027,
+            50028,
+            50029,
+            50030,
+            50031,
+            50032,
+            50033,
+            50034,
+            50035,
+            50036,
+            50037,
+            50038,
+            50039,
+            50040,
+            50041,
+            50042,
+            50043,
+            50044,
+            50045,
+            50046,
+            50047,
+            50048,
+            50049,
+            50050,
+            50051,
+            50052,
+            50053,
+            50054,
+            50055,
+            50056,
+            50057,
+            50058,
+            50059,
+            50060,
+            50061,
+            50062,
+            50063,
+            50064,
+            50065,
+            50066,
+            50067,
+            50068,
+            50069,
+            50070,
+            50071,
+            50072,
+            50073,
+            50074,
+            50075,
+            50076,
+            50077,
+            50078,
+            50079,
+            50080,
+            50081,
+            50082,
+            50083,
+            50084,
+            50085,
+            50086,
+            50087,
+            50088,
+            50089,
+            50090,
+            50091,
+            50092,
+            50093,
+            50094,
+            50095,
+            50096,
+            50097,
+            50098,
+            50099,
+            50100
+          ],
+          "started_at_utc": "2026-10-03T09:07:14.656369+00:00",
+          "started_monotonic": 266628.695532313
+        }
+      },
+      "application_peak_rss_kib": 271696,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "683ecc61d62c2e7a9c025c76cf0cb51b21e71f0f39d3eb68220b6559ab2e278a",
+      "bytes": 5038936,
+      "client_container": "gw-event-export-client-4bd6ab61-streaming-50000-1",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 50000,
+        "actual_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 50000,
+        "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 50000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.07905082998331636,
+      "http_request_started_monotonic": 266628.606374412,
+      "http_transfer_ended_monotonic": 266629.149400668,
+      "latency_seconds": 0.5430262559675612,
+      "mode": "streaming",
+      "performance_eligible": true,
+      "repeat": 1,
+      "startup_login_baseline_rss_kib": 271696,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266629.153883975,
+        "client_started_monotonic": 266628.68608937,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-buffered-50000-1",
+      "application_metrics": {
+        "application_peak_rss_kib": 271608,
+        "baseline": {
+          "captured_monotonic": 266643.036276458,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 271608
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 5038936,
+            "end": 266643.492113853,
+            "index": 0,
+            "start": 266643.490513097
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:07:29.491330+00:00",
+        "mode": "buffered",
+        "prepare_spans": [
+          {
+            "end": 266643.490330238,
+            "start": 266643.038328739
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.034328778041526675,
+          "committed_at_utc": "2026-10-03T09:07:29.490382+00:00",
+          "committed_monotonic": 266643.529545143,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:07:29.490393+00:00",
+          "ended_monotonic": 266643.529556582,
+          "ids": [
+            50001,
+            50002,
+            50003,
+            50004,
+            50005,
+            50006,
+            50007,
+            50008,
+            50009,
+            50010,
+            50011,
+            50012,
+            50013,
+            50014,
+            50015,
+            50016,
+            50017,
+            50018,
+            50019,
+            50020,
+            50021,
+            50022,
+            50023,
+            50024,
+            50025,
+            50026,
+            50027,
+            50028,
+            50029,
+            50030,
+            50031,
+            50032,
+            50033,
+            50034,
+            50035,
+            50036,
+            50037,
+            50038,
+            50039,
+            50040,
+            50041,
+            50042,
+            50043,
+            50044,
+            50045,
+            50046,
+            50047,
+            50048,
+            50049,
+            50050,
+            50051,
+            50052,
+            50053,
+            50054,
+            50055,
+            50056,
+            50057,
+            50058,
+            50059,
+            50060,
+            50061,
+            50062,
+            50063,
+            50064,
+            50065,
+            50066,
+            50067,
+            50068,
+            50069,
+            50070,
+            50071,
+            50072,
+            50073,
+            50074,
+            50075,
+            50076,
+            50077,
+            50078,
+            50079,
+            50080,
+            50081,
+            50082,
+            50083,
+            50084,
+            50085,
+            50086,
+            50087,
+            50088,
+            50089,
+            50090,
+            50091,
+            50092,
+            50093,
+            50094,
+            50095,
+            50096,
+            50097,
+            50098,
+            50099,
+            50100
+          ],
+          "started_at_utc": "2026-10-03T09:07:29.456054+00:00",
+          "started_monotonic": 266643.495216365
+        }
+      },
+      "application_peak_rss_kib": 271608,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "683ecc61d62c2e7a9c025c76cf0cb51b21e71f0f39d3eb68220b6559ab2e278a",
+      "bytes": 5038936,
+      "client_container": "gw-event-export-client-4bd6ab61-buffered-50000-1",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 50000,
+        "actual_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 50000,
+        "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 50000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.45756938599515706,
+      "http_request_started_monotonic": 266643.036458434,
+      "http_transfer_ended_monotonic": 266643.500321679,
+      "latency_seconds": 0.463863244978711,
+      "mode": "buffered",
+      "performance_eligible": true,
+      "repeat": 1,
+      "startup_login_baseline_rss_kib": 271608,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266643.529879177,
+        "client_started_monotonic": 266643.494390396,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-buffered-50000-2",
+      "application_metrics": {
+        "application_peak_rss_kib": 271328,
+        "baseline": {
+          "captured_monotonic": 266655.221917335,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 271328
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 5038936,
+            "end": 266655.679683291,
+            "index": 0,
+            "start": 266655.678109729
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:07:41.679378+00:00",
+        "mode": "buffered",
+        "prepare_spans": [
+          {
+            "end": 266655.677917123,
+            "start": 266655.224044003
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.03474975499557331,
+          "committed_at_utc": "2026-10-03T09:07:41.678428+00:00",
+          "committed_monotonic": 266655.717590542,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:07:41.678439+00:00",
+          "ended_monotonic": 266655.717602759,
+          "ids": [
+            50001,
+            50002,
+            50003,
+            50004,
+            50005,
+            50006,
+            50007,
+            50008,
+            50009,
+            50010,
+            50011,
+            50012,
+            50013,
+            50014,
+            50015,
+            50016,
+            50017,
+            50018,
+            50019,
+            50020,
+            50021,
+            50022,
+            50023,
+            50024,
+            50025,
+            50026,
+            50027,
+            50028,
+            50029,
+            50030,
+            50031,
+            50032,
+            50033,
+            50034,
+            50035,
+            50036,
+            50037,
+            50038,
+            50039,
+            50040,
+            50041,
+            50042,
+            50043,
+            50044,
+            50045,
+            50046,
+            50047,
+            50048,
+            50049,
+            50050,
+            50051,
+            50052,
+            50053,
+            50054,
+            50055,
+            50056,
+            50057,
+            50058,
+            50059,
+            50060,
+            50061,
+            50062,
+            50063,
+            50064,
+            50065,
+            50066,
+            50067,
+            50068,
+            50069,
+            50070,
+            50071,
+            50072,
+            50073,
+            50074,
+            50075,
+            50076,
+            50077,
+            50078,
+            50079,
+            50080,
+            50081,
+            50082,
+            50083,
+            50084,
+            50085,
+            50086,
+            50087,
+            50088,
+            50089,
+            50090,
+            50091,
+            50092,
+            50093,
+            50094,
+            50095,
+            50096,
+            50097,
+            50098,
+            50099,
+            50100
+          ],
+          "started_at_utc": "2026-10-03T09:07:41.643679+00:00",
+          "started_monotonic": 266655.682840787
+        }
+      },
+      "application_peak_rss_kib": 271328,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "683ecc61d62c2e7a9c025c76cf0cb51b21e71f0f39d3eb68220b6559ab2e278a",
+      "bytes": 5038936,
+      "client_container": "gw-event-export-client-4bd6ab61-buffered-50000-2",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 50000,
+        "actual_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 50000,
+        "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 50000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.4596190550364554,
+      "http_request_started_monotonic": 266655.22210122,
+      "http_transfer_ended_monotonic": 266655.687627656,
+      "latency_seconds": 0.4655264359898865,
+      "mode": "buffered",
+      "performance_eligible": true,
+      "repeat": 2,
+      "startup_login_baseline_rss_kib": 271328,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266655.717886922,
+        "client_started_monotonic": 266655.682009966,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-streaming-50000-2",
+      "application_metrics": {
+        "application_peak_rss_kib": 271664,
+        "baseline": {
+          "captured_monotonic": 266667.777225855,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 271664
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 49,
+            "end": 266667.786696787,
+            "index": 0,
+            "start": 266667.786695005
+          },
+          {
+            "bytes": 98886,
+            "end": 266667.792737569,
+            "index": 1,
+            "start": 266667.786703461
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.801010061,
+            "index": 2,
+            "start": 266667.792833412
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.810913777,
+            "index": 3,
+            "start": 266667.801050296
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.818948055,
+            "index": 4,
+            "start": 266667.81095596
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.841417119,
+            "index": 5,
+            "start": 266667.818983769
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.849492854,
+            "index": 6,
+            "start": 266667.841456566
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.857591444,
+            "index": 7,
+            "start": 266667.84952729
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.866177862,
+            "index": 8,
+            "start": 266667.85762957
+          },
+          {
+            "bytes": 100000,
+            "end": 266667.874601707,
+            "index": 9,
+            "start": 266667.866214159
+          },
+          {
+            "bytes": 100001,
+            "end": 266667.883651622,
+            "index": 10,
+            "start": 266667.874644985
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.892662653,
+            "index": 11,
+            "start": 266667.883709682
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.901465966,
+            "index": 12,
+            "start": 266667.892704261
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.909785614,
+            "index": 13,
+            "start": 266667.901515521
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.918336093,
+            "index": 14,
+            "start": 266667.909820436
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.926880894,
+            "index": 15,
+            "start": 266667.918385747
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.935095367,
+            "index": 16,
+            "start": 266667.926922113
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.94349887,
+            "index": 17,
+            "start": 266667.935136132
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.951694347,
+            "index": 18,
+            "start": 266667.943539358
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.960090502,
+            "index": 19,
+            "start": 266667.951732309
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.968508513,
+            "index": 20,
+            "start": 266667.960129568
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.976845029,
+            "index": 21,
+            "start": 266667.968558312
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.985088992,
+            "index": 22,
+            "start": 266667.976885901
+          },
+          {
+            "bytes": 101000,
+            "end": 266667.993736804,
+            "index": 23,
+            "start": 266667.985128283
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.00259291,
+            "index": 24,
+            "start": 266667.993797588
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.011149352,
+            "index": 25,
+            "start": 266668.002647255
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.019539754,
+            "index": 26,
+            "start": 266668.011193835
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.028047856,
+            "index": 27,
+            "start": 266668.019578756
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.077010002,
+            "index": 28,
+            "start": 266668.028089242
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.086058478,
+            "index": 29,
+            "start": 266668.077077383
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.094294541,
+            "index": 30,
+            "start": 266668.086101402
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.102946846,
+            "index": 31,
+            "start": 266668.094333329
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.111220229,
+            "index": 32,
+            "start": 266668.102989939
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.119483954,
+            "index": 33,
+            "start": 266668.111264872
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.127824149,
+            "index": 34,
+            "start": 266668.119528034
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.136336625,
+            "index": 35,
+            "start": 266668.12786442
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.144532297,
+            "index": 36,
+            "start": 266668.136377763
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.152887136,
+            "index": 37,
+            "start": 266668.144581829
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.162178738,
+            "index": 38,
+            "start": 266668.15293979
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.171482403,
+            "index": 39,
+            "start": 266668.162259898
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.180068085,
+            "index": 40,
+            "start": 266668.17153171
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.188450621,
+            "index": 41,
+            "start": 266668.180116471
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.196667287,
+            "index": 42,
+            "start": 266668.188491279
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.204950677,
+            "index": 43,
+            "start": 266668.196707282
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.213140259,
+            "index": 44,
+            "start": 266668.204989016
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.221504407,
+            "index": 45,
+            "start": 266668.213178875
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.23019,
+            "index": 46,
+            "start": 266668.221546968
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.238461166,
+            "index": 47,
+            "start": 266668.23023216
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.246798631,
+            "index": 48,
+            "start": 266668.238501898
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.255005168,
+            "index": 49,
+            "start": 266668.246837591
+          },
+          {
+            "bytes": 101000,
+            "end": 266668.26324763,
+            "index": 50,
+            "start": 266668.255044814
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:07:54.229733+00:00",
+        "mode": "streaming",
+        "prepare_spans": [
+          {
+            "end": 266667.786554788,
+            "start": 266667.77934217
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.4665634259581566,
+          "committed_at_utc": "2026-10-03T09:07:54.228796+00:00",
+          "committed_monotonic": 266668.267959388,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:07:54.228804+00:00",
+          "ended_monotonic": 266668.267967615,
+          "ids": [
+            50001,
+            50002,
+            50003,
+            50004,
+            50005,
+            50006,
+            50007,
+            50008,
+            50009,
+            50010,
+            50011,
+            50012,
+            50013,
+            50014,
+            50015,
+            50016,
+            50017,
+            50018,
+            50019,
+            50020,
+            50021,
+            50022,
+            50023,
+            50024,
+            50025,
+            50026,
+            50027,
+            50028,
+            50029,
+            50030,
+            50031,
+            50032,
+            50033,
+            50034,
+            50035,
+            50036,
+            50037,
+            50038,
+            50039,
+            50040,
+            50041,
+            50042,
+            50043,
+            50044,
+            50045,
+            50046,
+            50047,
+            50048,
+            50049,
+            50050,
+            50051,
+            50052,
+            50053,
+            50054,
+            50055,
+            50056,
+            50057,
+            50058,
+            50059,
+            50060,
+            50061,
+            50062,
+            50063,
+            50064,
+            50065,
+            50066,
+            50067,
+            50068,
+            50069,
+            50070,
+            50071,
+            50072,
+            50073,
+            50074,
+            50075,
+            50076,
+            50077,
+            50078,
+            50079,
+            50080,
+            50081,
+            50082,
+            50083,
+            50084,
+            50085,
+            50086,
+            50087,
+            50088,
+            50089,
+            50090,
+            50091,
+            50092,
+            50093,
+            50094,
+            50095,
+            50096,
+            50097,
+            50098,
+            50099,
+            50100
+          ],
+          "started_at_utc": "2026-10-03T09:07:53.762233+00:00",
+          "started_monotonic": 266667.801395962
+        }
+      },
+      "application_peak_rss_kib": 271664,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "683ecc61d62c2e7a9c025c76cf0cb51b21e71f0f39d3eb68220b6559ab2e278a",
+      "bytes": 5038936,
+      "client_container": "gw-event-export-client-4bd6ab61-streaming-50000-2",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 50000,
+        "actual_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 50000,
+        "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 50000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.015678872994612902,
+      "http_request_started_monotonic": 266667.7774078,
+      "http_transfer_ended_monotonic": 266668.264532862,
+      "latency_seconds": 0.4871250619762577,
+      "mode": "streaming",
+      "performance_eligible": true,
+      "repeat": 2,
+      "startup_login_baseline_rss_kib": 271664,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266668.268270561,
+        "client_started_monotonic": 266667.793351619,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-streaming-50000-3",
+      "application_metrics": {
+        "application_peak_rss_kib": 271980,
+        "baseline": {
+          "captured_monotonic": 266679.899227596,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 271980
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 49,
+            "end": 266679.928852521,
+            "index": 0,
+            "start": 266679.928850572
+          },
+          {
+            "bytes": 98886,
+            "end": 266679.937257438,
+            "index": 1,
+            "start": 266679.928858595
+          },
+          {
+            "bytes": 100000,
+            "end": 266679.946330329,
+            "index": 2,
+            "start": 266679.937367503
+          },
+          {
+            "bytes": 100000,
+            "end": 266679.956150702,
+            "index": 3,
+            "start": 266679.946408901
+          },
+          {
+            "bytes": 100000,
+            "end": 266679.963815647,
+            "index": 4,
+            "start": 266679.956198993
+          },
+          {
+            "bytes": 100000,
+            "end": 266679.986571277,
+            "index": 5,
+            "start": 266679.963855205
+          },
+          {
+            "bytes": 100000,
+            "end": 266679.994505101,
+            "index": 6,
+            "start": 266679.986625023
+          },
+          {
+            "bytes": 100000,
+            "end": 266680.003457147,
+            "index": 7,
+            "start": 266679.994559259
+          },
+          {
+            "bytes": 100000,
+            "end": 266680.011376757,
+            "index": 8,
+            "start": 266680.003523401
+          },
+          {
+            "bytes": 100000,
+            "end": 266680.01906288,
+            "index": 9,
+            "start": 266680.011422782
+          },
+          {
+            "bytes": 100001,
+            "end": 266680.027687026,
+            "index": 10,
+            "start": 266680.019105134
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.035918575,
+            "index": 11,
+            "start": 266680.02772679
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.04419599,
+            "index": 12,
+            "start": 266680.035972019
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.052197768,
+            "index": 13,
+            "start": 266680.04423843
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.060725342,
+            "index": 14,
+            "start": 266680.052238329
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.069155777,
+            "index": 15,
+            "start": 266680.060798285
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.077154321,
+            "index": 16,
+            "start": 266680.069198025
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.085098589,
+            "index": 17,
+            "start": 266680.077194097
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.093248447,
+            "index": 18,
+            "start": 266680.08514013
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.101299438,
+            "index": 19,
+            "start": 266680.093288453
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.109403506,
+            "index": 20,
+            "start": 266680.101343514
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.117310069,
+            "index": 21,
+            "start": 266680.109443887
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.125426288,
+            "index": 22,
+            "start": 266680.117349503
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.133510443,
+            "index": 23,
+            "start": 266680.12546681
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.141720023,
+            "index": 24,
+            "start": 266680.133554198
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.149694589,
+            "index": 25,
+            "start": 266680.141759941
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.157876158,
+            "index": 26,
+            "start": 266680.149733221
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.207356898,
+            "index": 27,
+            "start": 266680.157925189
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.215634703,
+            "index": 28,
+            "start": 266680.20742269
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.223588524,
+            "index": 29,
+            "start": 266680.215675758
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.23167098,
+            "index": 30,
+            "start": 266680.223628376
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.239811017,
+            "index": 31,
+            "start": 266680.231709998
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.247753637,
+            "index": 32,
+            "start": 266680.239856013
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.255675026,
+            "index": 33,
+            "start": 266680.247794775
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.263736398,
+            "index": 34,
+            "start": 266680.255715997
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.271636673,
+            "index": 35,
+            "start": 266680.263773603
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.279592108,
+            "index": 36,
+            "start": 266680.271675842
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.287544464,
+            "index": 37,
+            "start": 266680.27963022
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.295624532,
+            "index": 38,
+            "start": 266680.287585221
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.303529191,
+            "index": 39,
+            "start": 266680.295665128
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.311570469,
+            "index": 40,
+            "start": 266680.303568656
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.32011958,
+            "index": 41,
+            "start": 266680.311609538
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.328300464,
+            "index": 42,
+            "start": 266680.320158674
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.336411938,
+            "index": 43,
+            "start": 266680.328340426
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.344717572,
+            "index": 44,
+            "start": 266680.336451595
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.352865547,
+            "index": 45,
+            "start": 266680.344768764
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.360885749,
+            "index": 46,
+            "start": 266680.352905237
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.36898329,
+            "index": 47,
+            "start": 266680.360925339
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.376912347,
+            "index": 48,
+            "start": 266680.369025653
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.385021639,
+            "index": 49,
+            "start": 266680.376951285
+          },
+          {
+            "bytes": 101000,
+            "end": 266680.393145739,
+            "index": 50,
+            "start": 266680.385073391
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:08:06.361278+00:00",
+        "mode": "streaming",
+        "prepare_spans": [
+          {
+            "end": 266679.928724684,
+            "start": 266679.911466874
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.4524946550372988,
+          "committed_at_utc": "2026-10-03T09:08:06.360352+00:00",
+          "committed_monotonic": 266680.399514881,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:08:06.360360+00:00",
+          "ended_monotonic": 266680.399523643,
+          "ids": [
+            50001,
+            50002,
+            50003,
+            50004,
+            50005,
+            50006,
+            50007,
+            50008,
+            50009,
+            50010,
+            50011,
+            50012,
+            50013,
+            50014,
+            50015,
+            50016,
+            50017,
+            50018,
+            50019,
+            50020,
+            50021,
+            50022,
+            50023,
+            50024,
+            50025,
+            50026,
+            50027,
+            50028,
+            50029,
+            50030,
+            50031,
+            50032,
+            50033,
+            50034,
+            50035,
+            50036,
+            50037,
+            50038,
+            50039,
+            50040,
+            50041,
+            50042,
+            50043,
+            50044,
+            50045,
+            50046,
+            50047,
+            50048,
+            50049,
+            50050,
+            50051,
+            50052,
+            50053,
+            50054,
+            50055,
+            50056,
+            50057,
+            50058,
+            50059,
+            50060,
+            50061,
+            50062,
+            50063,
+            50064,
+            50065,
+            50066,
+            50067,
+            50068,
+            50069,
+            50070,
+            50071,
+            50072,
+            50073,
+            50074,
+            50075,
+            50076,
+            50077,
+            50078,
+            50079,
+            50080,
+            50081,
+            50082,
+            50083,
+            50084,
+            50085,
+            50086,
+            50087,
+            50088,
+            50089,
+            50090,
+            50091,
+            50092,
+            50093,
+            50094,
+            50095,
+            50096,
+            50097,
+            50098,
+            50099,
+            50100
+          ],
+          "started_at_utc": "2026-10-03T09:08:05.907858+00:00",
+          "started_monotonic": 266679.947020226
+        }
+      },
+      "application_peak_rss_kib": 271980,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "683ecc61d62c2e7a9c025c76cf0cb51b21e71f0f39d3eb68220b6559ab2e278a",
+      "bytes": 5038936,
+      "client_container": "gw-event-export-client-4bd6ab61-streaming-50000-3",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 50000,
+        "actual_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 50000,
+        "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 50000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.03726662596454844,
+      "http_request_started_monotonic": 266679.900356481,
+      "http_transfer_ended_monotonic": 266680.394436723,
+      "latency_seconds": 0.4940802420023829,
+      "mode": "streaming",
+      "performance_eligible": true,
+      "repeat": 3,
+      "startup_login_baseline_rss_kib": 271980,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266680.399838983,
+        "client_started_monotonic": 266679.937921505,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": true,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-buffered-50000-3",
+      "application_metrics": {
+        "application_peak_rss_kib": 270852,
+        "baseline": {
+          "captured_monotonic": 266691.844723044,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 270852
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 5038936,
+            "end": 266692.331026681,
+            "index": 0,
+            "start": 266692.32954192
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:08:18.332772+00:00",
+        "mode": "buffered",
+        "prepare_spans": [
+          {
+            "end": 266692.329360705,
+            "start": 266691.846743144
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": {
+          "commit_seconds": 0.03703357698395848,
+          "committed_at_utc": "2026-10-03T09:08:18.331795+00:00",
+          "committed_monotonic": 266692.370958156,
+          "count": 100,
+          "ended_at_utc": "2026-10-03T09:08:18.331806+00:00",
+          "ended_monotonic": 266692.370969989,
+          "ids": [
+            50001,
+            50002,
+            50003,
+            50004,
+            50005,
+            50006,
+            50007,
+            50008,
+            50009,
+            50010,
+            50011,
+            50012,
+            50013,
+            50014,
+            50015,
+            50016,
+            50017,
+            50018,
+            50019,
+            50020,
+            50021,
+            50022,
+            50023,
+            50024,
+            50025,
+            50026,
+            50027,
+            50028,
+            50029,
+            50030,
+            50031,
+            50032,
+            50033,
+            50034,
+            50035,
+            50036,
+            50037,
+            50038,
+            50039,
+            50040,
+            50041,
+            50042,
+            50043,
+            50044,
+            50045,
+            50046,
+            50047,
+            50048,
+            50049,
+            50050,
+            50051,
+            50052,
+            50053,
+            50054,
+            50055,
+            50056,
+            50057,
+            50058,
+            50059,
+            50060,
+            50061,
+            50062,
+            50063,
+            50064,
+            50065,
+            50066,
+            50067,
+            50068,
+            50069,
+            50070,
+            50071,
+            50072,
+            50073,
+            50074,
+            50075,
+            50076,
+            50077,
+            50078,
+            50079,
+            50080,
+            50081,
+            50082,
+            50083,
+            50084,
+            50085,
+            50086,
+            50087,
+            50088,
+            50089,
+            50090,
+            50091,
+            50092,
+            50093,
+            50094,
+            50095,
+            50096,
+            50097,
+            50098,
+            50099,
+            50100
+          ],
+          "started_at_utc": "2026-10-03T09:08:18.294762+00:00",
+          "started_monotonic": 266692.333924579
+        }
+      },
+      "application_peak_rss_kib": 270852,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "683ecc61d62c2e7a9c025c76cf0cb51b21e71f0f39d3eb68220b6559ab2e278a",
+      "bytes": 5038936,
+      "client_container": "gw-event-export-client-4bd6ab61-buffered-50000-3",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 50000,
+        "actual_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 50000,
+        "expected_ids_sha256": "44969d026ed4164dbe77d48d4d359e98ac4057008cafd61723be72bff83e5fd4",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 50000,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.48794975003693253,
+      "http_request_started_monotonic": 266691.844905002,
+      "http_transfer_ended_monotonic": 266692.338575889,
+      "latency_seconds": 0.49367088702274486,
+      "mode": "buffered",
+      "performance_eligible": true,
+      "repeat": 3,
+      "startup_login_baseline_rss_kib": 270852,
+      "writer_commit_inside_http_transfer": false,
+      "writer_correctness": true,
+      "writer_count": 100,
+      "writer_count_expected": 100,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "client_ended_monotonic": 266692.371276562,
+        "client_started_monotonic": 266692.333138391,
+        "http_status": 200,
+        "requested": true,
+        "response_count": 100
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": false,
+      "writer_transaction_activity_overlapped_http_transfer": true,
+      "writer_triggered_after_first_data_row": true
+    }
+  ],
+  "smoke": [
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-streaming-100-0",
+      "application_metrics": {
+        "application_peak_rss_kib": 255964,
+        "baseline": {
+          "captured_monotonic": 266514.544842835,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 255964
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 49,
+            "end": 266514.621182341,
+            "index": 0,
+            "start": 266514.621179578
+          },
+          {
+            "bytes": 9785,
+            "end": 266514.622274196,
+            "index": 1,
+            "start": 266514.621192415
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:05:20.584556+00:00",
+        "mode": "streaming",
+        "prepare_spans": [
+          {
+            "end": 266514.620983235,
+            "start": 266514.606208898
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": null
+      },
+      "application_peak_rss_kib": 255964,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "99a073d10efc1924c7e70a84905a7d902f8bf55ce378556ebbb359f687dfc79d",
+      "bytes": 9834,
+      "category": "smoke",
+      "client_container": "gw-event-export-client-4bd6ab61-streaming-100-0",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 100,
+        "actual_ids_sha256": "93d4e5c77838e0aa5cb6647c385c810a7c2782bf769029e6c420052048ab22bb",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 100,
+        "expected_ids_sha256": "93d4e5c77838e0aa5cb6647c385c810a7c2782bf769029e6c420052048ab22bb",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 100,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.07774529297603294,
+      "http_request_started_monotonic": 266514.545034293,
+      "http_transfer_ended_monotonic": 266514.623012856,
+      "latency_seconds": 0.07797856297111139,
+      "mode": "streaming",
+      "performance_eligible": true,
+      "repeat": 0,
+      "startup_login_baseline_rss_kib": 255964,
+      "writer_correctness": true,
+      "writer_count": 0,
+      "writer_count_expected": 0,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "requested": false
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": null,
+      "writer_triggered_after_first_data_row": false
+    },
+    {
+      "app_container": "gw-event-export-app-4bd6ab61-buffered-100-0",
+      "application_metrics": {
+        "application_peak_rss_kib": 264212,
+        "baseline": {
+          "captured_monotonic": 266530.033407999,
+          "note": "captured after real operator login; ru_maxrss is a process high-water mark",
+          "peak_rss_kib": 264212
+        },
+        "chunk_pull_spans": [
+          {
+            "bytes": 9834,
+            "end": 266530.041677443,
+            "index": 0,
+            "start": 266530.041674797
+          }
+        ],
+        "metrics_captured_at_utc": "2026-10-03T09:05:36.003466+00:00",
+        "mode": "buffered",
+        "prepare_spans": [
+          {
+            "end": 266530.04157392,
+            "start": 266530.036154976
+          }
+        ],
+        "source_paths": {
+          "AuthService": "/work/server/src/gods_watching/auth/service.py",
+          "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+          "EventExportService": "/work/server/src/gods_watching/events/export.py",
+          "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+        },
+        "writer": null
+      },
+      "application_peak_rss_kib": 264212,
+      "application_rss_high_water_delta_kib": 0,
+      "body_sha256": "99a073d10efc1924c7e70a84905a7d902f8bf55ce378556ebbb359f687dfc79d",
+      "bytes": 9834,
+      "category": "smoke",
+      "client_container": "gw-event-export-client-4bd6ab61-buffered-100-0",
+      "correctness": true,
+      "csv_validation": {
+        "actual_count": 100,
+        "actual_ids_sha256": "93d4e5c77838e0aa5cb6647c385c810a7c2782bf769029e6c420052048ab22bb",
+        "correct": true,
+        "duplicate_ids": [],
+        "expected_count": 100,
+        "expected_ids_sha256": "93d4e5c77838e0aa5cb6647c385c810a7c2782bf769029e6c420052048ab22bb",
+        "field_mismatch_count": 0,
+        "ids_in_order": true,
+        "missing_ids": [],
+        "parse_error": null,
+        "performance_eligible": true,
+        "unexpected_ids": []
+      },
+      "dataset_size": 100,
+      "export_correctness": true,
+      "first_byte_latency_seconds": 0.008296042971778661,
+      "http_request_started_monotonic": 266530.033653774,
+      "http_transfer_ended_monotonic": 266530.042130441,
+      "identical_csv_to_other_mode": true,
+      "latency_seconds": 0.008476666989736259,
+      "mode": "buffered",
+      "performance_eligible": true,
+      "repeat": 0,
+      "startup_login_baseline_rss_kib": 264212,
+      "writer_correctness": true,
+      "writer_count": 0,
+      "writer_count_expected": 0,
+      "writer_database_fetch_overlap_status": "not separately observable; app-side stream-pull intervals include fetch and encoding",
+      "writer_http_transfer_overlap": false,
+      "writer_request": {
+        "requested": false
+      },
+      "writer_request_errors": [],
+      "writer_stream_pull_fetch_encode_overlap": null,
+      "writer_triggered_after_first_data_row": false
+    }
+  ],
+  "writer_overlap_summary": {
+    "commit_after_http_transfer_count": 12,
+    "commit_after_http_transfer_gap_seconds_range": [
+      0.0034265259746462107,
+      0.035963442001957446
+    ],
+    "commit_inside_http_transfer_count": 0,
+    "derived_from_retained_monotonic_timestamps": true,
+    "sample_count": 12,
+    "transaction_activity_overlapped_http_transfer_count": 11
+  }
+}
