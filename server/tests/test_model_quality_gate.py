@@ -13,6 +13,7 @@ import pytest
 
 from gods_watching.model_selection.assets import PreparedModelStatus
 from gods_watching.model_selection.imported_manifest import ImportedClipManifest, ImportedFile
+from gods_watching.model_selection.models import ModelNotPreparedError
 from gods_watching.model_selection.quality import QualityEvidence, QualityPolicy, assess_quality
 from gods_watching.model_selection.registry import (
     DEFAULT_CLIP_MODEL,
@@ -22,6 +23,8 @@ from gods_watching.model_selection.registry import (
 from gods_watching.model_selection.service import ModelSelectionService
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from gods_watching.storage import Database
 
 
@@ -319,7 +322,10 @@ async def test_catalog_survives_malformed_imported_report(tmp_path: Path) -> Non
     imported_root = tmp_path / "imported"
     package_dir = imported_root / manifest.package_sha256
     package_dir.mkdir(parents=True)
-    (package_dir / "manifest.json").write_text(json.dumps(manifest.to_dict()), encoding="utf-8")
+    _ = (package_dir / "manifest.json").write_text(
+        json.dumps(manifest.to_dict()),
+        encoding="utf-8",
+    )
     evidence_root = tmp_path / "quality-evidence"
     evidence_root.mkdir()
     (evidence_root / f"{manifest.package_sha256}.json").write_text(
@@ -349,6 +355,51 @@ async def test_catalog_survives_malformed_imported_report(tmp_path: Path) -> Non
         quality_policy_path=policy_path,
         quality_evidence_root=evidence_root,
     )
-    catalog = await service._response(DEFAULT_CLIP_MODEL.model_id, None)
+    catalog = await service._response(  # pyright: ignore[reportPrivateUsage]
+        DEFAULT_CLIP_MODEL.model_id,
+        None,
+    )
     assert catalog.models[0].quality_passed
     assert not catalog.models[1].quality_passed
+
+
+@pytest.mark.anyio
+async def test_cuhk_report_alone_cannot_make_imported_candidate_applicable(
+    tmp_path: Path,
+) -> None:
+    manifest, _evidence, policy = _fixture()
+    imported_root = tmp_path / "imported"
+    package_dir = imported_root / manifest.package_sha256
+    package_dir.mkdir(parents=True)
+    _ = (package_dir / "manifest.json").write_text(
+        json.dumps(manifest.to_dict()),
+        encoding="utf-8",
+    )
+    policy_path = tmp_path / "policy.json"
+    _ = policy_path.write_text(json.dumps(asdict(policy)), encoding="utf-8")
+    package = ClipModelPackage(
+        model_id=manifest.model_id,
+        revision=manifest.revision,
+        snapshot_path=Path("/models/imported") / manifest.package_sha256,
+        dimension=512,
+        processor="CLIPProcessor",
+        runtime="transformers",
+    )
+
+    class Prepared:
+        def status(self, package: ClipModelPackage) -> PreparedModelStatus:
+            del package
+            return PreparedModelStatus(prepared=True)
+
+    service = ModelSelectionService(
+        database=cast("Database", object()),
+        registry=ClipModelRegistry((DEFAULT_CLIP_MODEL, package)),
+        prepared=Prepared(),
+        imported_assets_root=imported_root,
+        quality_policy_path=policy_path,
+        quality_evidence_root=tmp_path / "quality-evidence",
+    )
+    with pytest.raises(ModelNotPreparedError, match="product quality evidence missing") as error:
+        _ = await service.apply(cast("AsyncSession", object()), package.model_id)
+
+    assert error.value.code == "model_quality_ineligible"

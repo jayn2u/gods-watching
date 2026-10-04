@@ -199,6 +199,128 @@ async def test_supervisor_startup_interrupts_a_dead_child_without_new_requests(
 
 
 @pytest.mark.anyio
+async def test_supervisor_recovers_dead_evaluation_child_for_manual_resume(
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    database = Database.connect(database_url)
+    repository = TrainingRepository()
+    supervisor = TrainingSupervisor(
+        database,
+        TrainingSettings(training_root=tmp_path),
+        child_launcher=None,
+        repository=repository,
+    )
+    job = await _create_job(database, repository)
+    try:
+        async with database.transaction() as session:
+            assert await repository.set_child_identity(
+                session,
+                job.id,
+                owner_generation=job.owner_generation,
+                pid=2_147_483_647,
+                start_time=1,
+            )
+            assert await repository.mark_training_started(
+                session,
+                job.id,
+                owner_generation=job.owner_generation,
+                pid=2_147_483_647,
+                start_time=1,
+            )
+            assert await repository.mark_engine_staging(
+                session,
+                job.id,
+                owner_generation=job.owner_generation,
+                pid=2_147_483_647,
+                start_time=1,
+            )
+
+        async with database.transaction() as session:
+            await supervisor._recover_orphan_slot(session)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+        async with database.transaction() as session:
+            interrupted = await repository.get_job(session, job.id)
+            slot = await session.get(TrainingExecutionSlot, True)
+            assert interrupted is not None
+            assert interrupted.phase == TrainingPhase.INTERRUPTED.value
+            assert interrupted.engine_completed_at is not None
+            assert interrupted.child_pid is None
+            assert slot is not None
+            assert slot.active_job_id is None
+    finally:
+        async with database.transaction() as session:
+            slot = await session.get(TrainingExecutionSlot, True)
+            if slot is not None and slot.active_job_id == job.id:
+                slot.active_job_id = None
+            _ = await session.execute(delete(TrainingJob).where(TrainingJob.id == job.id))
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_supervisor_cancels_legacy_evaluation_without_child_identity(
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    database = Database.connect(database_url)
+    repository = TrainingRepository()
+    supervisor = TrainingSupervisor(
+        database,
+        TrainingSettings(training_root=tmp_path),
+        child_launcher=None,
+        repository=repository,
+    )
+    job = await _create_job(database, repository)
+    try:
+        async with database.transaction() as session:
+            assert await repository.set_child_identity(
+                session,
+                job.id,
+                owner_generation=job.owner_generation,
+                pid=2_147_483_647,
+                start_time=1,
+            )
+            assert await repository.mark_training_started(
+                session,
+                job.id,
+                owner_generation=job.owner_generation,
+                pid=2_147_483_647,
+                start_time=1,
+            )
+            assert await repository.mark_engine_staging(
+                session,
+                job.id,
+                owner_generation=job.owner_generation,
+                pid=2_147_483_647,
+                start_time=1,
+            )
+            _ = await repository.request_cancel(session, job.id)
+            current = await repository.get_job(session, job.id, lock=True)
+            assert current is not None
+            current.child_pid = None
+            current.child_start_time = None
+
+        async with database.transaction() as session:
+            await supervisor._recover_orphan_slot(session)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+        async with database.transaction() as session:
+            cancelled = await repository.get_job(session, job.id)
+            slot = await session.get(TrainingExecutionSlot, True)
+            assert cancelled is not None
+            assert cancelled.phase == TrainingPhase.CANCELLED.value
+            assert cancelled.cancel_requested
+            assert slot is not None
+            assert slot.active_job_id is None
+    finally:
+        async with database.transaction() as session:
+            slot = await session.get(TrainingExecutionSlot, True)
+            if slot is not None and slot.active_job_id == job.id:
+                slot.active_job_id = None
+            _ = await session.execute(delete(TrainingJob).where(TrainingJob.id == job.id))
+        await database.close()
+
+
+@pytest.mark.anyio
 async def test_supervisor_startup_reclaims_starting_job_without_recorded_child(
     database_url: str,
     tmp_path: Path,

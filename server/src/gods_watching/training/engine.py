@@ -84,6 +84,7 @@ class TrainingPaths:
     run_directory: Path
     dataset_root: Path
     model_root: Path = Path("/models/clip")
+    model_lock_path: Path = Path("/opt/gods-watching/assets/models.lock.json")
 
     @property
     def last_checkpoint(self) -> Path:

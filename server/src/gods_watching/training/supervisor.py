@@ -562,13 +562,8 @@ class TrainingSupervisor:
             slot.active_job_id = None
             await session.flush()
             return
-        if (
-            job.phase == TrainingPhase.EVALUATING.value
-            and job.engine_completed_at is not None
-        ):
-            return
         if job.child_pid is None or job.child_start_time is None:
-            recovered = await self._repository.interrupt_starting_job_without_child(
+            recovered = await self._repository.recover_job_without_child(
                 session,
                 job.id,
                 expected_generation=job.owner_generation,

@@ -102,6 +102,33 @@ class TrainingActionRequest(ContractModel):
     request_id: UUID
 
 
+class TrainingRetrievalScores(ContractModel):
+    """Macro text-to-image Recall@K on the original held-out test split."""
+
+    recall_at_1: RecallScore
+    recall_at_5: RecallScore
+    recall_at_10: RecallScore
+
+
+class TrainingEvaluationSummary(ContractModel):
+    """Safe baseline/candidate test metrics and immutable provenance for job detail."""
+
+    dataset_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    dataset_split: Literal["test"]
+    protocol: str = Field(min_length=1, max_length=96)
+    baseline_model_id: str = Field(min_length=1, max_length=128)
+    baseline_revision: str = Field(min_length=1, max_length=128)
+    baseline_package_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    training_source_fingerprint: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    evaluation_code_revision: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    metric_definition: str = Field(min_length=1, max_length=128)
+    best_validation_epoch: Annotated[int, Field(strict=True, ge=1)]
+    baseline: TrainingRetrievalScores
+    candidate: TrainingRetrievalScores
+    candidate_weights_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    package_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
 class TrainingJobResponse(ContractModel):
     """Safe durable job view; no run paths, captions, or process credentials."""
 
@@ -128,6 +155,7 @@ class TrainingJobResponse(ContractModel):
     best_metric: RecallScore | None = None
     candidate_model_id: str | None = None
     candidate_revision: str | None = None
+    evaluation: TrainingEvaluationSummary | None = None
     error: BoundedTrainingError | None = None
     created_at: datetime
     updated_at: datetime
@@ -181,6 +209,7 @@ __all__ = [
     "TrainingConfig",
     "TrainingDatasetSnapshot",
     "TrainingDatasetStatus",
+    "TrainingEvaluationSummary",
     "TrainingJobPage",
     "TrainingJobResponse",
     "TrainingJobSubmitRequest",
@@ -190,5 +219,6 @@ __all__ = [
     "TrainingMetricPage",
     "TrainingPreflightRequest",
     "TrainingPreflightResponse",
+    "TrainingRetrievalScores",
     "TrainingSplitCounts",
 ]

@@ -14,6 +14,7 @@ from gods_watching.contracts.training import (
     TrainingConfig,
     TrainingDatasetSnapshot,
     TrainingDatasetStatus,
+    TrainingEvaluationSummary,
     TrainingJobPage,
     TrainingJobResponse,
     TrainingJobSubmitRequest,
@@ -522,6 +523,11 @@ def _job_response(job: TrainingJob) -> TrainingJobResponse:
         best_metric=job.best_metric,
         candidate_model_id=job.candidate_model_id,
         candidate_revision=job.candidate_revision,
+        evaluation=(
+            TrainingEvaluationSummary.model_validate(job.evaluation_report)
+            if job.evaluation_report is not None
+            else None
+        ),
         error=job.error,
         created_at=job.created_at,
         updated_at=job.updated_at,

@@ -31,9 +31,10 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from gods_watching.contracts.training import TrainingConfig
+    from gods_watching.contracts.training import TrainingConfig, TrainingEvaluationSummary
 
 _FINGERPRINT_LENGTH = 64
+_MAX_CANDIDATE_IDENTITY_LENGTH = 255
 
 
 @runtime_checkable
@@ -97,7 +98,12 @@ _ALLOWED_TRANSITIONS: dict[TrainingPhase, frozenset[TrainingPhase]] = {
         }
     ),
     TrainingPhase.PUBLISHING: frozenset(
-        {TrainingPhase.SUCCEEDED, TrainingPhase.FAILED, TrainingPhase.INTERRUPTED}
+        {
+            TrainingPhase.SUCCEEDED,
+            TrainingPhase.CANCELLING,
+            TrainingPhase.FAILED,
+            TrainingPhase.INTERRUPTED,
+        }
     ),
     TrainingPhase.CANCELLING: frozenset(
         {TrainingPhase.CANCELLED, TrainingPhase.FAILED, TrainingPhase.INTERRUPTED}
@@ -399,14 +405,14 @@ class TrainingRepository:
         )
         return result.rowcount == 1
 
-    async def interrupt_starting_job_without_child(
+    async def recover_job_without_child(
         self,
         session: AsyncSession,
         job_id: UUID,
         *,
         expected_generation: int,
     ) -> bool:
-        """Fence a crashed launch before its gated child's identity was committed."""
+        """Recover an active job when no child identity remains to supervise."""
         slot = await session.scalar(
             select(TrainingExecutionSlot)
             .where(TrainingExecutionSlot.singleton.is_(True))
@@ -417,23 +423,31 @@ class TrainingRepository:
         job = await self.get_job(session, job_id, lock=True)
         if (
             job is None
-            or job.phase != TrainingPhase.STARTING.value
             or job.owner_generation != expected_generation
             or job.child_pid is not None
             or job.child_start_time is not None
+            or TrainingPhase(job.phase).terminal
         ):
+            return False
+        phase = TrainingPhase(job.phase)
+        next_phase = (
+            TrainingPhase.CANCELLED
+            if phase == TrainingPhase.CANCELLING
+            else TrainingPhase.INTERRUPTED
+        )
+        if next_phase not in _ALLOWED_TRANSITIONS[phase]:
             return False
         result = await session.execute(
             update(TrainingJob)
             .where(
                 TrainingJob.id == job_id,
-                TrainingJob.phase == TrainingPhase.STARTING.value,
+                TrainingJob.phase == phase.value,
                 TrainingJob.owner_generation == expected_generation,
                 TrainingJob.child_pid.is_(None),
                 TrainingJob.child_start_time.is_(None),
             )
             .values(
-                phase=TrainingPhase.INTERRUPTED.value,
+                phase=next_phase.value,
                 owner_generation=TrainingJob.owner_generation + 1,
                 finished_at=func.now(),
                 updated_at=func.now(),
@@ -513,6 +527,7 @@ class TrainingRepository:
             not in {
                 TrainingPhase.TRAINING.value,
                 TrainingPhase.EVALUATING.value,
+                TrainingPhase.PUBLISHING.value,
                 TrainingPhase.CANCELLING.value,
             }
         ):
@@ -587,6 +602,90 @@ class TrainingRepository:
         ):
             return False
         job.phase = TrainingPhase.EVALUATING.value
+        job.engine_completed_at = datetime.now(UTC)
+        job.updated_at = datetime.now(UTC)
+        await session.flush()
+        return True
+
+    async def mark_publishing(
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        owner_generation: int,
+        pid: int,
+        start_time: int,
+    ) -> bool:
+        """Fence immutable publication to the live child after final evaluation."""
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return False
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.owner_generation != owner_generation
+            or job.child_pid != pid
+            or job.child_start_time != start_time
+            or job.phase != TrainingPhase.EVALUATING.value
+            or job.cancel_requested
+            or job.engine_completed_at is None
+        ):
+            return False
+        job.phase = TrainingPhase.PUBLISHING.value
+        job.updated_at = datetime.now(UTC)
+        await session.flush()
+        return True
+
+    async def record_candidate_publication(  # noqa: PLR0913
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        owner_generation: int,
+        pid: int,
+        start_time: int,
+        candidate_model_id: str,
+        candidate_revision: str,
+        evaluation: TrainingEvaluationSummary,
+    ) -> bool:
+        """Persist a safe report and package identity while the owning child is live."""
+        if (
+            not candidate_model_id
+            or len(candidate_model_id) > _MAX_CANDIDATE_IDENTITY_LENGTH
+        ):
+            raise ValueError("candidate model identity is invalid")
+        if not candidate_revision or len(candidate_revision) > _MAX_CANDIDATE_IDENTITY_LENGTH:
+            raise ValueError("candidate revision is invalid")
+        if candidate_revision != evaluation.package_sha256:
+            raise ValueError("candidate revision must match the reported package digest")
+
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return False
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.owner_generation != owner_generation
+            or job.child_pid != pid
+            or job.child_start_time != start_time
+            or job.phase != TrainingPhase.PUBLISHING.value
+            or job.cancel_requested
+            or evaluation.dataset_sha256 != job.dataset_fingerprint
+            or evaluation.training_source_fingerprint != job.source_fingerprint
+            or evaluation.dataset_split != "test"
+        ):
+            return False
+        job.candidate_model_id = candidate_model_id
+        job.candidate_revision = candidate_revision
+        job.evaluation_report = evaluation.model_dump(mode="json")
         job.updated_at = datetime.now(UTC)
         await session.flush()
         return True
@@ -642,13 +741,33 @@ class TrainingRepository:
             await session.flush()
             return updated
         if phase != TrainingPhase.EVALUATING:
+            if (
+                phase == TrainingPhase.PUBLISHING
+                and job.candidate_model_id is not None
+                and job.candidate_revision is not None
+                and job.evaluation_report is not None
+            ):
+                job.child_pid = None
+                job.child_start_time = None
+                job.engine_completed_at = job.engine_completed_at or finished_at
+                await session.flush()
+                return await self.transition(
+                    session,
+                    job_id,
+                    TrainingPhase.PUBLISHING,
+                    TrainingPhase.SUCCEEDED,
+                )
             updated = await self.transition(
                 session,
                 job_id,
                 phase,
                 TrainingPhase.FAILED,
             )
-            updated.error = "training child exited before evaluation staging"
+            updated.error = (
+                "training child exited before publication completed"
+                if phase == TrainingPhase.PUBLISHING
+                else "training child exited before evaluation staging"
+            )
             await session.flush()
             return updated
         job.engine_completed_at = finished_at
@@ -679,6 +798,7 @@ class TrainingRepository:
             TrainingPhase.STARTING,
             TrainingPhase.TRAINING,
             TrainingPhase.EVALUATING,
+            TrainingPhase.PUBLISHING,
         }:
             raise TrainingPhaseTransitionError("training job cannot be cancelled in this phase")
         job.phase = TrainingPhase.CANCELLING.value
@@ -916,6 +1036,8 @@ class TrainingRepository:
         values: dict[str, object] = {"phase": next_value.value, "updated_at": func.now()}
         if next_value.terminal:
             values["finished_at"] = func.now()
+            values["child_pid"] = None
+            values["child_start_time"] = None
         result = await session.execute(
             update(TrainingJob)
             .where(TrainingJob.id == job_id, TrainingJob.phase == expected.value)

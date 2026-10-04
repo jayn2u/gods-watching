@@ -18,6 +18,7 @@ from uuid import UUID
 
 from gods_watching.contracts.training import TrainingConfig, TrainingMetric
 from gods_watching.storage import Database
+from gods_watching.training.evaluation import EvaluationCancelledError
 from gods_watching.training.metrics import append_log, append_metric
 from gods_watching.training.models import TrainingJob, TrainingPhase
 from gods_watching.training.repository import TrainingRepository, TrainingRequestLeaseLostError
@@ -26,6 +27,8 @@ from gods_watching.training.supervisor import process_start_time
 
 if TYPE_CHECKING:
     from typing import BinaryIO
+
+    from gods_watching.training.publishing import TrainingJobIdentity
 
 _MAX_SAFE_ERROR_CLASS_LENGTH = 80
 
@@ -238,7 +241,8 @@ async def run_training_child(  # noqa: C901, PLR0911, PLR0912, PLR0915
         paths = TrainingPaths(
             run_directory=run_directory,
             dataset_root=dataset_root,
-            model_root=Path("/models/clip"),
+            model_root=Path(os.environ.get("GW_TRAINING_MODEL_ROOT", "/models/clip")),
+            model_lock_path=settings.model_lock_path,
         )
         loop = asyncio.get_running_loop()
         reporter = _RunnerReporter(
@@ -271,33 +275,99 @@ async def run_training_child(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 reporter,
                 cancellation,
             )
+            if result.cancelled:
+                await reporter.log("info", "training cancellation reached an optimizer boundary")
+                return 0
+            if not result.completed:
+                await reporter.log("error", "training engine did not complete")
+                return 1
+            if result.best_checkpoint is None:
+                raise RuntimeError("completed training run has no validation-best checkpoint")
+
+            async with database.transaction() as session:
+                staged = await repository.mark_engine_staging(
+                    session,
+                    job.id,
+                    owner_generation=owner_generation,
+                    pid=pid,
+                    start_time=start_time,
+                )
+            if not staged:
+                return 0 if await _is_cancellation_requested(
+                    database, repository, job.id, owner_generation
+                ) else 1
+            await reporter.log(
+                "info",
+                "training completed; scoring validation-best weights on test",
+            )
+
+            from gods_watching.training.evaluation import evaluate_best_checkpoint  # noqa: PLC0415
+            from gods_watching.training.publishing import publish_candidate  # noqa: PLC0415
+
+            evaluation_report = await asyncio.to_thread(
+                evaluate_best_checkpoint,
+                snapshot,
+                paths,
+                result.best_checkpoint,
+                cancellation=cancellation,
+            )
+            if cancellation.is_set():
+                await reporter.log("info", "final evaluation stopped after cancellation")
+                return 0
+
+            async with database.transaction() as session:
+                publishing = await repository.mark_publishing(
+                    session,
+                    job.id,
+                    owner_generation=owner_generation,
+                    pid=pid,
+                    start_time=start_time,
+                )
+            if not publishing:
+                return 0 if await _is_cancellation_requested(
+                    database, repository, job.id, owner_generation
+                ) else 1
+
+            candidate = await asyncio.to_thread(
+                publish_candidate,
+                cast("TrainingJobIdentity", cast("object", job)),
+                result.best_checkpoint,
+                evaluation_report,
+                settings.model_assets_root,
+            )
+            if cancellation.is_set():
+                await reporter.log(
+                    "info",
+                    "publication completed after cancellation; candidate is uncommitted",
+                )
+                return 0
+            async with database.transaction() as session:
+                recorded = await repository.record_candidate_publication(
+                    session,
+                    job.id,
+                    owner_generation=owner_generation,
+                    pid=pid,
+                    start_time=start_time,
+                    candidate_model_id=candidate.model_id,
+                    candidate_revision=candidate.revision,
+                    evaluation=candidate.evaluation,
+                )
+            if not recorded:
+                return 0 if await _is_cancellation_requested(
+                    database, repository, job.id, owner_generation
+                ) else 1
+            await reporter.log("info", "candidate package and held-out summary committed")
+            return 0
         finally:
             monitor_stop.set()
             _ = monitor.cancel()
             with suppress(asyncio.CancelledError):
                 _ = await monitor
-
-        if result.cancelled:
-            await reporter.log("info", "training cancellation reached an optimizer boundary")
-            return 0
-        if not result.completed:
-            await reporter.log("error", "training engine did not complete")
-            return 1
-        async with database.transaction() as session:
-            staged = await repository.mark_engine_staging(
-                session,
-                job.id,
-                owner_generation=owner_generation,
-                pid=pid,
-                start_time=start_time,
-            )
-        if not staged:
-            await reporter.log("info", "training stage stopped before evaluation handoff")
-            return 0 if cancellation.is_set() else 1
-        await reporter.log(
-            "info",
-            "training engine completed; final evaluation remains pending",
-        )
+    except EvaluationCancelledError:
+        # The evaluator checks the durable cancel flag at bounded batch edges.
+        # Treat that cooperative stop as a clean child exit so confirmed process
+        # exit can finalize the durable job as cancelled.
+        return 0
     except Exception as error:  # noqa: BLE001
         if reporter is not None:
             await reporter.log("error", _safe_error_message(error))
@@ -311,8 +381,6 @@ async def run_training_child(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 error,
             )
         return 1
-    else:
-        return 0
     finally:
         await database.close()
 
@@ -361,6 +429,24 @@ async def _record_child_error(  # noqa: PLR0913
             start_time=start_time,
             error=_safe_error_message(error),
         )
+
+
+async def _is_cancellation_requested(
+    database: Database,
+    repository: TrainingRepository,
+    job_id: UUID,
+    owner_generation: int,
+) -> bool:
+    """Read durable cancellation after a fenced stage transition lost a race."""
+    async with database.transaction() as session:
+        job = await repository.get_job(session, job_id)
+    return (
+        job is None
+        or job.owner_generation != owner_generation
+        or job.cancel_requested
+        or job.phase == TrainingPhase.CANCELLING.value
+        or TrainingPhase(job.phase).terminal
+    )
 
 
 def _safe_error_message(error: Exception) -> str:
