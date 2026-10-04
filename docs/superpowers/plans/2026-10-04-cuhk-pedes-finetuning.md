@@ -117,7 +117,7 @@
 
 **Files:** Create `deploy/Dockerfile.training`, `qa/training/run_smoke.py`; modify `compose.yaml`, `.env.example`(현재 파일 존재 여부 확인 후), `server/src/gods_watching/lifecycle.py`의 설정 준비 경계, `README.md`, `docs/architecture.md`, `docs/remaining-work.md`, 기존 external import spec.
 
-**Interfaces:** supervisor training image에 GPU allocation; dataset read-only, runs writable volume, assets writable publishing mount를 명시한다. API와 inference worker에는 runs 직접 접근 대신 DB API를 사용한다. training root 환경설정은 운영자가 설정; dataset 미설정은 service crash가 아니라 unavailable 기능 상태로 표시한다. 기존 host-network 방식과 포트 노출 범위를 유지한다.
+**Interfaces:** supervisor training image에 GPU allocation; dataset read-only, runs writable volume, assets writable publishing mount를 명시한다. 작업 상태는 DB에 저장하고 metric/log history는 승인된 spec대로 run storage의 JSONL을 기준으로 한다. API에는 인증된 typed history 조회를 위한 runs read-only mount를 제공하고, inference worker에는 runs를 mount하지 않는다. training root 환경설정은 운영자가 설정; dataset 미설정은 service crash가 아니라 unavailable 기능 상태로 표시한다. 기존 host-network 방식과 포트 노출 범위를 유지한다.
 
 - [ ] RED: compose contract tests에서 inference model mounts read-only, dataset read-only, training runs persistence, absence of docker socket/API GPU dependency assert. dataset 없을 때 학습 unavailable 및 기존 서비스 정상 확인.
 - [ ] contract tests 실패 확인 후 Dockerfile/compose/settings/docs 구현.

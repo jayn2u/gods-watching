@@ -399,6 +399,265 @@ class TrainingRepository:
         )
         return result.rowcount == 1
 
+    async def interrupt_starting_job_without_child(
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        expected_generation: int,
+    ) -> bool:
+        """Fence a crashed launch before its gated child's identity was committed."""
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return False
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.phase != TrainingPhase.STARTING.value
+            or job.owner_generation != expected_generation
+            or job.child_pid is not None
+            or job.child_start_time is not None
+        ):
+            return False
+        result = await session.execute(
+            update(TrainingJob)
+            .where(
+                TrainingJob.id == job_id,
+                TrainingJob.phase == TrainingPhase.STARTING.value,
+                TrainingJob.owner_generation == expected_generation,
+                TrainingJob.child_pid.is_(None),
+                TrainingJob.child_start_time.is_(None),
+            )
+            .values(
+                phase=TrainingPhase.INTERRUPTED.value,
+                owner_generation=TrainingJob.owner_generation + 1,
+                finished_at=func.now(),
+                updated_at=func.now(),
+            )
+        )
+        if result.rowcount != 1:
+            return False
+        slot.active_job_id = None
+        await session.flush()
+        return True
+
+    async def mark_training_started(
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        owner_generation: int,
+        pid: int,
+        start_time: int,
+    ) -> bool:
+        """Advance a gated child only if cancellation has not won the slot/job race."""
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return False
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.owner_generation != owner_generation
+            or job.child_pid != pid
+            or job.child_start_time != start_time
+            or job.phase != TrainingPhase.STARTING.value
+            or job.cancel_requested
+        ):
+            return False
+        job.phase = TrainingPhase.TRAINING.value
+        job.started_at = job.started_at or datetime.now(UTC)
+        job.updated_at = datetime.now(UTC)
+        await session.flush()
+        return True
+
+    async def report_training_progress(  # noqa: PLR0913
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        owner_generation: int,
+        pid: int,
+        start_time: int,
+        epoch: int,
+        step: int,
+        checkpoint_path: Path | None = None,
+        best_metric: float | None = None,
+    ) -> bool:
+        """Fence transient progress and completed-checkpoint pointers by child generation."""
+        if epoch < 0 or step < 0 or (
+            best_metric is not None and not 0 <= best_metric <= 1
+        ):
+            raise ValueError("training progress is outside its durable bounds")
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return False
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.owner_generation != owner_generation
+            or job.child_pid != pid
+            or job.child_start_time != start_time
+            or job.phase
+            not in {
+                TrainingPhase.TRAINING.value,
+                TrainingPhase.EVALUATING.value,
+                TrainingPhase.CANCELLING.value,
+            }
+        ):
+            return False
+        job.current_epoch = epoch
+        job.current_step = step
+        if checkpoint_path is not None:
+            job.checkpoint_path = checkpoint_path.as_posix()
+        if best_metric is not None:
+            job.best_metric = best_metric
+        job.updated_at = datetime.now(UTC)
+        await session.flush()
+        return True
+
+    async def report_training_error(  # noqa: PLR0913
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        owner_generation: int,
+        pid: int,
+        start_time: int,
+        error: str,
+    ) -> bool:
+        """Persist a bounded child error without claiming a terminal process outcome."""
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return False
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.owner_generation != owner_generation
+            or job.child_pid != pid
+            or job.child_start_time != start_time
+            or TrainingPhase(job.phase).terminal
+        ):
+            return False
+        job.error = error[:1000]
+        job.updated_at = datetime.now(UTC)
+        await session.flush()
+        return True
+
+    async def mark_engine_staging(
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        owner_generation: int,
+        pid: int,
+        start_time: int,
+    ) -> bool:
+        """Move a trained child to final-evaluation staging without claiming job success."""
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return False
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.owner_generation != owner_generation
+            or job.child_pid != pid
+            or job.child_start_time != start_time
+            or job.phase != TrainingPhase.TRAINING.value
+            or job.cancel_requested
+        ):
+            return False
+        job.phase = TrainingPhase.EVALUATING.value
+        job.updated_at = datetime.now(UTC)
+        await session.flush()
+        return True
+
+    async def finish_child_exit(  # noqa: PLR0911, PLR0913
+        self,
+        session: AsyncSession,
+        job_id: UUID,
+        *,
+        owner_generation: int,
+        pid: int,
+        start_time: int,
+        exit_code: int,
+        now: datetime | None = None,
+    ) -> TrainingJob | None:
+        """Finalize a child outcome only after its supervisor confirmed process exit."""
+        slot = await session.scalar(
+            select(TrainingExecutionSlot)
+            .where(TrainingExecutionSlot.singleton.is_(True))
+            .with_for_update()
+        )
+        if slot is None or slot.active_job_id != job_id:
+            return None
+        job = await self.get_job(session, job_id, lock=True)
+        if (
+            job is None
+            or job.owner_generation != owner_generation
+            or job.child_pid != pid
+            or job.child_start_time != start_time
+        ):
+            return None
+        phase = TrainingPhase(job.phase)
+        if phase.terminal:
+            return job
+        finished_at = now or datetime.now(UTC)
+        if phase == TrainingPhase.CANCELLING:
+            next_phase = (
+                TrainingPhase.CANCELLED if exit_code == 0 else TrainingPhase.FAILED
+            )
+            updated = await self.transition(session, job_id, phase, next_phase)
+            if exit_code != 0:
+                updated.error = f"training child exited with status {exit_code}"
+            await session.flush()
+            return updated
+        if exit_code != 0:
+            updated = await self.transition(
+                session,
+                job_id,
+                phase,
+                TrainingPhase.FAILED,
+            )
+            updated.error = f"training child exited with status {exit_code}"
+            await session.flush()
+            return updated
+        if phase != TrainingPhase.EVALUATING:
+            updated = await self.transition(
+                session,
+                job_id,
+                phase,
+                TrainingPhase.FAILED,
+            )
+            updated.error = "training child exited before evaluation staging"
+            await session.flush()
+            return updated
+        job.engine_completed_at = finished_at
+        job.child_pid = None
+        job.child_start_time = None
+        job.updated_at = finished_at
+        await session.flush()
+        return job
+
     async def request_cancel(self, session: AsyncSession, job_id: UUID) -> TrainingJob:
         """Set cooperative cancellation and move a cancellable active job to cancelling."""
         slot = await session.scalar(
@@ -461,6 +720,7 @@ class TrainingRepository:
                 child_start_time=None,
                 cancel_requested=False,
                 error=None,
+                engine_completed_at=None,
                 finished_at=None,
                 updated_at=func.now(),
             )

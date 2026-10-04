@@ -1,0 +1,28 @@
+[project]
+name = "gods-watching-training"
+version = "0.1.0"
+description = "Isolated CUDA training worker for Gods Watching"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "asyncpg==0.30.0",
+    "cryptography==45.0.7",
+    "numpy==1.26.4",
+    "pillow==11.3.0",
+    "pydantic==2.11.7",
+    "pydantic-settings==2.10.1",
+    "safetensors==0.6.2",
+    "sqlalchemy[asyncio]==2.0.43",
+    "torch==2.7.1+cu128",
+    "transformers==4.56.1",
+]
+
+[dependency-groups]
+dev = ["pytest==8.4.2", "ruff==0.12.12"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }

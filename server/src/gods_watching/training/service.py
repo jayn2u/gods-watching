@@ -26,6 +26,12 @@ from gods_watching.training.dataset import (
     DatasetValidationError,
     validate_cuhk,
 )
+from gods_watching.training.metrics import (
+    MetricCursorError,
+    MetricHistoryError,
+    read_log_page,
+    read_metric_page,
+)
 from gods_watching.training.models import (
     TrainingJob,
     TrainingRequest,
@@ -179,6 +185,16 @@ class TrainingCursorError(TrainingServiceError):
     def __init__(self) -> None:
         """Describe a malformed or stale history cursor."""
         super().__init__("training history cursor is invalid")
+
+
+class TrainingHistoryUnavailableError(TrainingServiceError):
+    """A durable metric/log history file is malformed or unreadable."""
+
+    code: str = "training_history_unavailable"
+
+    def __init__(self) -> None:
+        """Describe a safe history read failure without returning filesystem details."""
+        super().__init__("training metric/log history is unavailable")
 
 
 class TrainingService:
@@ -342,16 +358,26 @@ class TrainingService:
         return await self.get_job(resumed_id)
 
     async def metrics(self, job_id: UUID, *, cursor: str | None, limit: int) -> TrainingMetricPage:
-        """Return the currently stored bounded metric page for a job."""
-        del cursor, limit
-        _ = await self._require_job(job_id)
-        return TrainingMetricPage(items=(), next_cursor=None)
+        """Return a bounded page of durable epoch metrics for a job."""
+        job = await self._require_job(job_id)
+        path = self._settings.training_root / "jobs" / str(job.id) / "metrics.jsonl"
+        try:
+            return read_metric_page(path, cursor=cursor, limit=limit)
+        except MetricHistoryError as error:
+            raise TrainingHistoryUnavailableError from error
+        except MetricCursorError as error:
+            raise TrainingCursorError from error
 
     async def logs(self, job_id: UUID, *, cursor: str | None, limit: int) -> TrainingLogPage:
-        """Return the currently stored bounded, redacted log page for a job."""
-        del cursor, limit
-        _ = await self._require_job(job_id)
-        return TrainingLogPage(items=(), next_cursor=None)
+        """Return a bounded page of safe worker log entries for a job."""
+        job = await self._require_job(job_id)
+        path = self._settings.training_root / "jobs" / str(job.id) / "logs.jsonl"
+        try:
+            return read_log_page(path, cursor=cursor, limit=limit)
+        except MetricHistoryError as error:
+            raise TrainingHistoryUnavailableError from error
+        except MetricCursorError as error:
+            raise TrainingCursorError from error
 
     async def _require_job(self, job_id: UUID) -> TrainingJob:
         async with self._database.transaction() as session:
@@ -510,6 +536,7 @@ def _non_negative_response_int(value: object) -> int:
 __all__ = [
     "TrainingCursorError",
     "TrainingDatasetUnavailableError",
+    "TrainingHistoryUnavailableError",
     "TrainingJobConflictError",
     "TrainingJobNotFoundError",
     "TrainingJobStateError",

@@ -57,6 +57,7 @@ from gods_watching.training.telemetry import current_gpu_snapshot
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,6 +171,10 @@ class TrainingChild(Protocol):
         """Terminate an unreleased child after a failed ownership commit."""
         ...
 
+    def poll(self) -> int | None:
+        """Return an exit code only after the operating system confirms process exit."""
+        ...
+
 
 class TrainingChildLauncher(Protocol):
     """Prepare one fixed runner command behind an ownership gate."""
@@ -219,6 +224,10 @@ class _SubprocessTrainingChild:
                 _ = self._process.kill()
                 _ = self._process.wait(timeout=3)
         self._close_log()
+
+    def poll(self) -> int | None:
+        """Reap and report an exit only after ``Popen`` observes process termination."""
+        return self._process.poll()
 
     def _close_log(self) -> None:
         close = getattr(self._log_stream, "close", None)
@@ -283,6 +292,7 @@ class TrainingSupervisor:
     _memory_profiles_provider: Callable[[], tuple[MemoryProfile, ...]]
     _dataset_validator: Callable[[Path], DatasetManifest]
     _worker_id: str
+    _children: dict[UUID, tuple[TrainingChild, int]]
 
     def __init__(  # noqa: PLR0913
         self,
@@ -307,10 +317,13 @@ class TrainingSupervisor:
         )
         self._dataset_validator = dataset_validator
         self._worker_id = worker_id or f"training-supervisor-{uuid4().hex}"
+        self._children = {}
 
     async def run(self, stop_event: asyncio.Event) -> None:
         """Poll durable requests until shutdown; no request runs from API memory."""
         while not stop_event.is_set():
+            await self._reconcile_children()
+            await self._recover_untracked_slot()
             processed = await self.process_one()
             if processed:
                 continue
@@ -549,7 +562,19 @@ class TrainingSupervisor:
             slot.active_job_id = None
             await session.flush()
             return
+        if (
+            job.phase == TrainingPhase.EVALUATING.value
+            and job.engine_completed_at is not None
+        ):
+            return
         if job.child_pid is None or job.child_start_time is None:
+            recovered = await self._repository.interrupt_starting_job_without_child(
+                session,
+                job.id,
+                expected_generation=job.owner_generation,
+            )
+            if recovered:
+                return
             raise TrainingOrphanProcessError("existing child identity is not yet recorded")
         identity = process_identity_status(job.child_pid, job.child_start_time)
         if identity in {
@@ -583,10 +608,42 @@ class TrainingSupervisor:
                         "child identity lost its owner generation"
                     )
             await asyncio.to_thread(child.release)
+            self._children[job.id] = (child, job.owner_generation)
         except Exception as error:  # noqa: BLE001
             if child is not None:
                 await asyncio.to_thread(child.abort)
             await self._mark_child_start_failed(job, error)
+
+    async def _reconcile_children(self) -> None:
+        for job_id, (child, owner_generation) in tuple(self._children.items()):
+            exit_code = await asyncio.to_thread(child.poll)
+            if exit_code is None:
+                continue
+            _ = self._children.pop(job_id, None)
+            async with self._database.transaction() as session:
+                _ = await self._repository.finish_child_exit(
+                    session,
+                    job_id,
+                    owner_generation=owner_generation,
+                    pid=child.pid,
+                    start_time=child.start_time,
+                    exit_code=exit_code,
+                )
+
+    async def _recover_untracked_slot(self) -> None:
+        async with self._database.transaction() as session:
+            slot = await session.scalar(
+                select(TrainingExecutionSlot)
+                .where(TrainingExecutionSlot.singleton.is_(True))
+                .with_for_update()
+            )
+            if slot is None or slot.active_job_id in self._children:
+                return
+            try:
+                await self._recover_orphan_slot(session)
+            except TrainingOrphanProcessError:
+                # A live or unverifiable external process keeps the slot occupied.
+                return
 
     async def _mark_child_start_failed(self, job: TrainingJob, error: Exception) -> None:
         async with self._database.transaction() as session:

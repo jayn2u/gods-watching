@@ -10,9 +10,14 @@ import pytest
 from PIL import Image
 from sqlalchemy import delete, update
 
-from gods_watching.contracts.training import TrainingConfig, TrainingJobSubmitRequest
+from gods_watching.contracts.training import (
+    TrainingConfig,
+    TrainingJobSubmitRequest,
+    TrainingMetric,
+)
 from gods_watching.storage import Database
 from gods_watching.training.dataset import validate_cuhk
+from gods_watching.training.metrics import append_log, append_metric
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -220,6 +225,57 @@ async def test_real_service_resume_replay_does_not_increment_generation_twice(
         assert first.attempts == replay.attempts == 1
         await _delete_job_and_requests(database, (request_id,), (job_id,))
     finally:
+        await database.close()
+
+
+@pytest.mark.anyio
+async def test_service_reads_durable_epoch_metrics_and_safe_logs(
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    root = _dataset_root(tmp_path)
+    manifest = await asyncio.to_thread(validate_cuhk, root)
+    database = Database.connect(database_url)
+    repository = TrainingRepository()
+    training_root = tmp_path / "runs"
+    service = TrainingService(
+        database,
+        TrainingSettings(dataset_root=root, training_root=training_root),
+    )
+    request_id = uuid4()
+    now = datetime.now(UTC)
+    async with database.transaction() as session:
+        job = await repository.create(
+            session,
+            request_id,
+            TrainingConfig(micro_batch_size=2),
+            manifest.public_snapshot(),
+        )
+        job_id = job.id
+    metric_path = training_root / "jobs" / str(job_id) / "metrics.jsonl"
+    log_path = training_root / "jobs" / str(job_id) / "logs.jsonl"
+
+    try:
+        append_metric(
+            metric_path,
+            TrainingMetric(
+                epoch=1,
+                step=4,
+                training_loss=0.5,
+                validation_recall_at_1=0.75,
+                observed_at=now,
+            ),
+        )
+        append_log(log_path, level="info", message="completed epoch one")
+
+        metrics = await service.metrics(job_id, cursor=None, limit=10)
+        logs = await service.logs(job_id, cursor=None, limit=10)
+
+        assert len(metrics.items) == len(logs.items) == 1
+        assert metrics.items[0].validation_recall_at_1 == 0.75
+        assert logs.items[0].message == "completed epoch one"
+    finally:
+        await _delete_job_and_requests(database, (), (job_id,))
         await database.close()
 
 

@@ -23,6 +23,7 @@ from gods_watching.contracts.training import (
 from gods_watching.training.service import (
     TrainingCursorError,
     TrainingDatasetUnavailableError,
+    TrainingHistoryUnavailableError,
     TrainingJobConflictError,
     TrainingJobNotFoundError,
     TrainingJobStateError,
@@ -231,6 +232,10 @@ class _TrainingHandlers:
             return await self._service.metrics(job_id, cursor=cursor, limit=limit)
         except TrainingJobNotFoundError as error:
             _raise_error(404, error.code, "training job was not found")
+        except TrainingCursorError as error:
+            _raise_error(422, error.code, "training metric cursor is invalid")
+        except TrainingHistoryUnavailableError as error:
+            _raise_error(503, error.code, "training metric history is unavailable")
 
     async def logs(
         self,
@@ -242,6 +247,10 @@ class _TrainingHandlers:
             return await self._service.logs(job_id, cursor=cursor, limit=limit)
         except TrainingJobNotFoundError as error:
             _raise_error(404, error.code, "training job was not found")
+        except TrainingCursorError as error:
+            _raise_error(422, error.code, "training log cursor is invalid")
+        except TrainingHistoryUnavailableError as error:
+            _raise_error(503, error.code, "training log history is unavailable")
 
 
 def build_training_router(
