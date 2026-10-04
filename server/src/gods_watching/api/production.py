@@ -27,6 +27,8 @@ from gods_watching.model_selection.service import ModelSelectionService
 from gods_watching.search import AppearanceLookupService, SearchRepository, SearchService
 from gods_watching.settings import SettingsService
 from gods_watching.storage import CredentialCipher, CropObjectStore, Database, StorageRepository
+from gods_watching.training.service import TrainingService
+from gods_watching.training.settings import TrainingSettings
 
 from .app_settings import ApiSettings
 from .application import create_app
@@ -93,6 +95,7 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
         raise RuntimeError(message)
 
     database = Database.connect(configured.database_url)
+    training = TrainingService(database, TrainingSettings())
     clip_transport = TritonClipTransport(configured.triton_grpc_url)
     storage = StorageRepository(CredentialCipher(configured.camera_cipher_key.encode()))
     registry = load_clip_registry(configured.model_assets_root)
@@ -179,6 +182,7 @@ async def _build_production_app(settings: _ProductionSettings | None = None) -> 
         ),
         clip_lifecycle=clip_transport,
         model_selection=model_selection,
+        training=training,
     )
     application = create_app(dependencies)
     application.mount("/", StaticFiles(directory=configured.web_root, html=True), name="web")
