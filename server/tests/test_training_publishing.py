@@ -102,6 +102,7 @@ def test_publication_refuses_an_incomplete_model_export(
     assets = tmp_path / "assets"
     template = tmp_path / "template"
     exporter = _payload_exporter(template, omit="model.safetensors")
+
     def load_checkpoint(_path: Path, _identity: Mapping[str, object]) -> dict[str, object]:
         return {
             "identity": _job().config_snapshot,
@@ -129,6 +130,7 @@ def test_publication_retry_is_idempotent_and_report_binds_exported_weights(
     _ = checkpoint.write_bytes(b"best-validation-checkpoint")
     assets = tmp_path / "assets"
     template = tmp_path / "template"
+
     def load_checkpoint(_path: Path, _identity: Mapping[str, object]) -> dict[str, object]:
         return {
             "identity": _job().config_snapshot,
@@ -164,6 +166,7 @@ def test_publication_retry_is_idempotent_and_report_binds_exported_weights(
     report_object = cast("object", json.loads(report_bytes))
     assert isinstance(report_object, dict)
     report = cast("dict[str, object]", report_object)
+    assert report["training_job_id"] == str(_job().id)
     weights_sha256 = hashlib.sha256((package_root / "model.safetensors").read_bytes()).hexdigest()
     assert report["candidate_weights_sha256"] == weights_sha256
     assert report["dataset_split"] == "test"
@@ -183,3 +186,115 @@ def test_publication_retry_is_idempotent_and_report_binds_exported_weights(
     assert first.evaluation.best_validation_epoch == 1
     assert first.evaluation.package_sha256 == first.package_sha256
     assert len(list((assets / "imported").glob("*/manifest.json"))) == 1
+
+
+def test_publication_distinguishes_identical_weights_from_different_jobs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoint = tmp_path / "best.pt"
+    _ = checkpoint.write_bytes(b"best-validation-checkpoint")
+    assets = tmp_path / "assets"
+    template = tmp_path / "template"
+    first_job = _job()
+    second_job = _Job(
+        id=UUID("22345678-1234-5678-1234-567812345678"),
+        config_snapshot=first_job.config_snapshot,
+        dataset_fingerprint=first_job.dataset_fingerprint,
+        source_fingerprint=first_job.source_fingerprint,
+    )
+
+    def load_checkpoint(_path: Path, _identity: Mapping[str, object]) -> dict[str, object]:
+        return {
+            "identity": first_job.config_snapshot,
+            "model": {},
+            "training": {"best_epoch": 1},
+        }
+
+    monkeypatch.setattr(
+        "gods_watching.training.publishing.load_checkpoint_verified",
+        load_checkpoint,
+    )
+    monkeypatch.setattr(
+        "gods_watching.training.publishing._export_candidate",
+        _payload_exporter(template),
+    )
+
+    first = publish_candidate(first_job, checkpoint, _report(), assets)
+
+    second = publish_candidate(second_job, checkpoint, _report(), assets)
+
+    assert first.model_id == "local/cuhk-pedes-12345678123456781234567812345678"
+    assert second.model_id == "local/cuhk-pedes-22345678123456781234567812345678"
+    assert second.package_sha256 != first.package_sha256
+    assert second.candidate_weights_sha256 == first.candidate_weights_sha256
+    for candidate, job_id in (
+        (first, first_job.id),
+        (second, second_job.id),
+    ):
+        package_root = assets / "imported" / candidate.package_sha256
+        manifest_value = cast(
+            "object",
+            json.loads((package_root / "manifest.json").read_text(encoding="utf-8")),
+        )
+        assert isinstance(manifest_value, dict)
+        manifest = cast("dict[str, object]", manifest_value)
+        report_name = manifest.get("cuhk_report")
+        assert isinstance(report_name, str)
+        report_object = cast(
+            "object",
+            json.loads((package_root / report_name).read_text(encoding="utf-8")),
+        )
+        assert isinstance(report_object, dict)
+        report = cast("dict[str, object]", report_object)
+        assert report["training_job_id"] == str(job_id)
+
+
+def test_publication_stages_in_job_run_when_catalog_root_is_read_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoint = tmp_path / "best.pt"
+    _ = checkpoint.write_bytes(b"best-validation-checkpoint")
+    assets = tmp_path / "assets"
+    imported = assets / "imported"
+    imported.mkdir(parents=True)
+    template = tmp_path / "template"
+    exporter = _payload_exporter(template)
+    staging_destinations: list[Path] = []
+
+    def record_export(
+        best_checkpoint: Path,
+        destination: Path,
+        model_root: Path,
+        model_state: dict[str, object],
+    ) -> None:
+        staging_destinations.append(destination)
+        exporter(best_checkpoint, destination, model_root, model_state)
+
+    def load_checkpoint(_path: Path, _identity: Mapping[str, object]) -> dict[str, object]:
+        return {
+            "identity": _job().config_snapshot,
+            "model": {},
+            "training": {"best_epoch": 1},
+        }
+
+    monkeypatch.setattr(
+        "gods_watching.training.publishing.load_checkpoint_verified",
+        load_checkpoint,
+    )
+    monkeypatch.setattr("gods_watching.training.publishing._export_candidate", record_export)
+
+    assets.chmod(0o555)
+    try:
+        candidate = publish_candidate(_job(), checkpoint, _report(), assets)
+    finally:
+        assets.chmod(0o755)
+
+    assert isinstance(candidate, CandidateIdentity)
+    assert len(staging_destinations) == 1
+    assert staging_destinations[0].is_relative_to(checkpoint.parent)
+    assert not staging_destinations[0].is_relative_to(assets)
+    package_root = imported / candidate.package_sha256
+    assert (package_root / "manifest.json").is_file()
+    assert (package_root / "model.safetensors").is_file()

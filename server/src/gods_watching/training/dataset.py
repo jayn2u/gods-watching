@@ -116,6 +116,17 @@ class _PendingSample:
     file_signature: tuple[int, int, int, int, int]
 
 
+@dataclass(frozen=True, slots=True)
+class _DatasetSource:
+    root: Path
+    imgs_root: Path
+    annotation_path: Path
+    annotation_signature: tuple[int, int, int, int, int]
+    annotation_bytes: bytes
+    samples: tuple[_PendingSample, ...]
+    cache_key: str
+
+
 _MANIFEST_CACHE: OrderedDict[str, DatasetManifest] = OrderedDict()
 
 
@@ -365,8 +376,8 @@ def _fingerprint(
     return digest.hexdigest()
 
 
-def validate_cuhk(root: Path) -> DatasetManifest:  # noqa: C901
-    """Validate the full base annotation and every referenced CUHK image."""
+def _read_dataset_source(root: Path) -> _DatasetSource:
+    """Parse the fixed annotation and capture all referenced-file signatures."""
     requested_root = Path(root).expanduser()
     if requested_root.is_symlink():
         raise DatasetValidationError("configured dataset root must not be a symlink")
@@ -407,12 +418,44 @@ def validate_cuhk(root: Path) -> DatasetManifest:  # noqa: C901
 
     pending_samples = _parse_annotations(raw, imgs_root)
     key = _cache_key(dataset_root, annotation_bytes, pending_samples)
+    return _DatasetSource(
+        root=dataset_root,
+        imgs_root=imgs_root,
+        annotation_path=annotation_path,
+        annotation_signature=annotation_signature,
+        annotation_bytes=annotation_bytes,
+        samples=pending_samples,
+        cache_key=key,
+    )
+
+
+def validate_cached_cuhk(root: Path) -> DatasetManifest | None:
+    """Recheck every source signature and return only an unchanged cached manifest."""
+    source = _read_dataset_source(root)
+    cached = _MANIFEST_CACHE.get(source.cache_key)
+    _assert_sources_unchanged(
+        source.annotation_path,
+        source.annotation_signature,
+        source.imgs_root,
+        source.samples,
+    )
+    if cached is None:
+        return None
+    _MANIFEST_CACHE.move_to_end(source.cache_key)
+    return cached
+
+
+def validate_cuhk(root: Path) -> DatasetManifest:
+    """Validate the full base annotation and every referenced CUHK image."""
+    source = _read_dataset_source(root)
+    pending_samples = source.samples
+    key = source.cache_key
     cached = _MANIFEST_CACHE.get(key)
     if cached is not None:
         _assert_sources_unchanged(
-            annotation_path,
-            annotation_signature,
-            imgs_root,
+            source.annotation_path,
+            source.annotation_signature,
+            source.imgs_root,
             pending_samples,
         )
         _MANIFEST_CACHE.move_to_end(key)
@@ -433,17 +476,17 @@ def validate_cuhk(root: Path) -> DatasetManifest:  # noqa: C901
         for sha256, width, height in (_hash_and_decode(pending),)
     )
     _assert_sources_unchanged(
-        annotation_path,
-        annotation_signature,
-        imgs_root,
+        source.annotation_path,
+        source.annotation_signature,
+        source.imgs_root,
         pending_samples,
     )
     counts = _build_split_counts(samples)
     manifest = DatasetManifest(
         dataset_id=_DATASET_ID,
-        fingerprint=_fingerprint(annotation_bytes, samples),
+        fingerprint=_fingerprint(source.annotation_bytes, samples),
         protocol=_PROTOCOL,
-        root=dataset_root,
+        root=source.root,
         samples=samples,
         split_counts=counts,
     )
@@ -460,5 +503,6 @@ __all__ = [
     "DatasetSplitCounts",
     "DatasetValidationError",
     "TrainingSample",
+    "validate_cached_cuhk",
     "validate_cuhk",
 ]

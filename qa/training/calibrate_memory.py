@@ -32,6 +32,10 @@ from gods_watching.training.calibration import (
     check_calibration_headroom,
     optimizer_update_succeeded,
 )
+from gods_watching.training.determinism import (
+    configure_torch_determinism,
+    prepare_deterministic_cuda_environment,
+)
 from gods_watching.training.memory import (
     assess_admission,
     estimate_memory,
@@ -168,10 +172,12 @@ def _run_calibration_child(  # noqa: C901, PLR0912, PLR0915
     incoming_gpu: GpuSnapshot,
 ) -> MemoryProfile:
     """Measure actual image/text backward and two AdamW state-initializing steps."""
+    prepare_deterministic_cuda_environment()
     import torch  # noqa: PLC0415
     from PIL import Image  # noqa: PLC0415
     from transformers import CLIPModel, CLIPProcessor  # noqa: PLC0415
 
+    configure_torch_determinism(torch)
     if not torch.cuda.is_available():
         raise CalibrationRefusedError("CUDA is unavailable in the calibration child")
     if torch.__version__ != SUPPORTED_TORCH_VERSION:
@@ -455,6 +461,7 @@ def _run_matrix(args: argparse.Namespace) -> int:
             item for item in (str(SERVER_SOURCE), existing_path) if item
         )
         environment["TOKENIZERS_PARALLELISM"] = "false"
+        environment["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         environment["CUDA_VISIBLE_DEVICES"] = gpu.uuid
         completed = subprocess.run(  # noqa: S603
             command,

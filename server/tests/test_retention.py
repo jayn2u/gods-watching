@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
+from threading import Event
+from typing import TYPE_CHECKING, cast
 
+import anyio
 import pytest
+from anyio.to_thread import run_sync
 
 from gods_watching.retention.filesystem import (
     ManagedFileKind,
@@ -15,7 +20,48 @@ from gods_watching.retention.models import (
     RetentionSettings,
     StorageAccounting,
 )
+from gods_watching.retention.service import RetentionService
 from gods_watching.storage import CropObjectStore
+from gods_watching.storage.physical_usage import PhysicalUsageError
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from gods_watching.storage import Database, StorageRepository
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+class _RetentionSession:
+    async def scalar(self, statement: object) -> None:
+        del statement
+
+    async def scalars(self, statement: object) -> tuple[object, ...]:
+        del statement
+        return ()
+
+
+class _RetentionDatabase:
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[object]:
+        yield _RetentionSession()
+
+
+class _RetentionStorage:
+    async def application_relation_sizes(self, session: object) -> dict[str, int]:
+        del session
+        return {}
+
+
+def _retention_service(tmp_path: Path) -> RetentionService:
+    return RetentionService(
+        database=cast("Database", cast("object", _RetentionDatabase())),
+        storage=cast("StorageRepository", cast("object", _RetentionStorage())),
+        crop_store=CropObjectStore(tmp_path / "crops"),
+    )
 
 
 def test_settings_clamp_malformed_positive_values_to_safe_minimums() -> None:
@@ -43,6 +89,99 @@ def test_managed_bytes_include_pending_gc_and_relation_bloat() -> None:
 
     assert accounting.managed_bytes == 980
     assert accounting.cleanup_required
+
+
+@pytest.mark.anyio
+async def test_retention_loop_stays_alive_without_using_unavailable_crop_totals(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = _retention_service(tmp_path)
+    crop_store = service.crop_store
+    crop = crop_store.write(b"keep-until-accounting-recovers")
+    scan_started = Event()
+    stop_event = anyio.Event()
+    finished = anyio.Event()
+    scan_calls = 0
+    failures: list[str] = []
+
+    def unavailable_scan(_root: Path) -> int:
+        nonlocal scan_calls
+        scan_calls += 1
+        scan_started.set()
+        raise PhysicalUsageError
+
+    async def skip_startup_reconciliation() -> None:
+        return None
+
+    async def run_retention() -> None:
+        try:
+            await service.run_forever(stop_event)
+        except PhysicalUsageError:
+            failures.append("physical_usage_error")
+        finally:
+            finished.set()
+
+    monkeypatch.setattr("gods_watching.retention.service.managed_crop_bytes", unavailable_scan)
+    monkeypatch.setattr(service, "reconcile_startup", skip_startup_reconciliation)
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(run_retention)
+        try:
+            with anyio.fail_after(2):
+                assert await run_sync(scan_started.wait, 2)
+            await anyio.sleep(0.02)
+            assert not finished.is_set(), "crop accounting failure stopped the worker loop"
+            assert scan_calls == 1
+            assert (crop_store.root / crop.object_key).is_file()
+        finally:
+            stop_event.set()
+            with anyio.fail_after(2):
+                await finished.wait()
+
+    assert failures == []
+
+
+@pytest.mark.anyio
+async def test_retention_loop_does_not_swallow_programming_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = _retention_service(tmp_path)
+
+    async def skip_startup_reconciliation() -> None:
+        return None
+
+    async def fail_sweep() -> None:
+        message = "unexpected retention bug"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(service, "reconcile_startup", skip_startup_reconciliation)
+    monkeypatch.setattr(service, "sweep", fail_sweep)
+
+    with pytest.raises(RuntimeError, match="unexpected retention bug"):
+        await service.run_forever(anyio.Event())
+
+
+@pytest.mark.anyio
+async def test_retention_loop_does_not_swallow_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = _retention_service(tmp_path)
+    cancellation_type = anyio.get_cancelled_exc_class()
+
+    async def skip_startup_reconciliation() -> None:
+        return None
+
+    async def cancel_sweep() -> None:
+        raise cancellation_type()
+
+    monkeypatch.setattr(service, "reconcile_startup", skip_startup_reconciliation)
+    monkeypatch.setattr(service, "sweep", cancel_sweep)
+
+    with pytest.raises(cancellation_type):
+        await service.run_forever(anyio.Event())
 
 
 def test_safe_scan_and_unlink_leave_symlinked_outside_data_untouched(tmp_path: Path) -> None:
@@ -119,10 +258,7 @@ def test_safe_scan_ignores_unmanaged_paths_without_per_file_path_resolution(
     monkeypatch.setattr(Path, "relative_to", count_relative_to)
     files = safe_scan(root)
 
-    assert {
-        (item.object_key, item.kind, item.byte_size)
-        for item in files
-    } == {
+    assert {(item.object_key, item.kind, item.byte_size) for item in files} == {
         (crop.object_key, ManagedFileKind.JPEG, crop.byte_size),
         (temporary_key, ManagedFileKind.TEMPORARY, len(b"partial")),
     }

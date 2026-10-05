@@ -174,6 +174,13 @@ async function installTrainingApi(page: Page, options: TrainingApiOptions = {}) 
     valid: true,
     reason: null,
     snapshot: DATASET,
+    supervisor: {
+      state: "ready",
+      reason: null,
+      observed_at: OBSERVED_AT,
+      source_fingerprint: HASH,
+      dataset_fingerprint: HASH,
+    },
   }
   await page.route("**/api/training/**", async (route) => {
     const request = route.request()
@@ -567,6 +574,13 @@ test.describe("training operator screen with mocked API contracts", () => {
         valid: false,
         reason: "dataset_validating",
         snapshot: null,
+        supervisor: {
+          state: "validating",
+          reason: "dataset_validating",
+          observed_at: OBSERVED_AT,
+          source_fingerprint: HASH,
+          dataset_fingerprint: null,
+        },
       },
     })
     await openTraining(page)

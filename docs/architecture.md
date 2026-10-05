@@ -191,3 +191,13 @@ offline proof는 preloaded image와 prepared asset을 가진 `internal:true` iso
 외부 학습 과정의 CUHK-PEDES 원본 데이터는 제품 데이터가 아니다. 로컬 CLI가 검증된 image/text `safetensors` package와 평가 보고서만 content-addressed model cache에 원자적으로 가져온다. API와 worker는 cache의 immutable manifest로 같은 registry를 구성하고, catalog는 model ID·revision·preparation·quality 상태를 노출한다. 배포에 고정된 `assets/retrieval-quality-policy.json`과 package별 product retrieval evidence를 함께 검사한다. 미확인 증거는 적용 불가 상태로 표시한다.
 
 선택기는 `GET /api/settings/models/preflight`에서 보존 crop 수, 예상 누락, 측정된 전체 전환 rate·고정 시간, 예상 초, 900초 허용 여부를 받는다. `POST /api/settings/models/apply`만 상태를 바꾸며 서버는 직전에 preflight를 다시 수행한다. 전환은 기존 durable staging/atomic activation/rollback 경로를 사용한다. 전체 전환 rehearsal 생산자는 `models rehearse-switch`로 오프라인 dump와 crop snapshot에서 분리된 임시 PostgreSQL/Triton을 만들고, 전용 앱 컨테이너에서 실제 전환을 관측한 뒤 성공 기록을 게시한다. 실제 fine-tuned checkpoint와 오프라인 입력이 제공되지 않아 실환경 rehearsal 증거는 아직 없다. embedding-only benchmark는 적용 승인 근거가 아니다.
+
+## 내장 학습 runtime 경계
+
+인증된 API는 `GW_TRAINING_DATASET_ROOT`로 등록한 CUHK-PEDES를 read-only mount에서 검증하고, GPU admission request와 typed 상태를 제공한다. root가 비었으면 dataset 기능을 unavailable로 반환하고 API 프로세스는 계속 동작한다. API lifespan은 전체 검증을 background task 하나로 수행하며, dataset과 별도 training supervisor가 `validating`인 동안 UI는 시작을 비활성화한다.
+
+`training` Compose service는 고정된 Torch/CUDA image의 supervisor와 소유된 child process를 실행한다. Supervisor는 startup에서 기존 child PID와 orphan GPU slot을 먼저 복구한 다음 dataset을 준비한다. 요청을 claim하기 전 매 admission마다 최신 dataset signature/fingerprint를 다시 확인하며 lease는 10초, API request timeout은 20초를 유지한다. calibration과 실제 training은 동일한 `CUBLAS_WORKSPACE_CONFIG=:4096:8`, deterministic-algorithm, cuDNN 정책을 CUDA 초기화 전에 적용한다.
+
+API의 `/runs` mount는 read-only이며 typed metrics/log JSONL과 `supervisor-status.json`만 읽는다. 상태 파일은 15초 freshness, app source fingerprint, dataset fingerprint에 결속되고 supervisor만 atomic update한다. Trainer만 run volume과 `/models/imported` publication path에 쓸 수 있다. API와 inference worker는 `torch`를 설치하지 않으며 worker는 run history/dataset을 mount하지 않는다. Triton의 기존 detector GPU 사용은 유지한다. 새로운 training container는 host network를 공유하지만 listen port를 추가하지 않는다.
+
+Dataset 검증 완료, training job success, candidate quality, model apply는 별개의 상태다. Candidate import가 끝나도 deployment-owned product crop cases, exact model binding, GPU coexistence와 policy evidence가 없으면 selector는 apply를 blocked로 표시한다. CUHK held-out test는 실제 product crop quality의 대체 근거가 아니다.

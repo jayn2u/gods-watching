@@ -900,6 +900,60 @@ class TrainingRepository:
         await session.flush()
         return request
 
+    async def peek_next_request(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+    ) -> TrainingRequest | None:
+        """Read the oldest claimable request without consuming its short lease."""
+        statement = (
+            select(TrainingRequest)
+            .where(
+                TrainingRequest.phase == TrainingRequestPhase.PENDING.value,
+                TrainingRequest.expires_at > now,
+                or_(
+                    TrainingRequest.lease_expires_at.is_(None),
+                    TrainingRequest.lease_expires_at <= now,
+                ),
+            )
+            .order_by(TrainingRequest.created_at, TrainingRequest.id)
+            .limit(1)
+        )
+        return await session.scalar(statement)
+
+    async def claim_request(
+        self,
+        session: AsyncSession,
+        request_id: UUID,
+        *,
+        owner: str,
+        now: datetime,
+        lease_until: datetime,
+    ) -> TrainingRequest | None:
+        """Claim one previously inspected request if it is still live and unleased."""
+        statement = (
+            select(TrainingRequest)
+            .where(
+                TrainingRequest.request_id == request_id,
+                TrainingRequest.phase == TrainingRequestPhase.PENDING.value,
+                TrainingRequest.expires_at > now,
+                or_(
+                    TrainingRequest.lease_expires_at.is_(None),
+                    TrainingRequest.lease_expires_at <= now,
+                ),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        request = await session.scalar(statement)
+        if request is None:
+            return None
+        request.lease_generation += 1
+        request.lease_owner = owner
+        request.lease_expires_at = lease_until
+        await session.flush()
+        return request
+
     async def resolve_request(  # noqa: PLR0913
         self,
         session: AsyncSession,

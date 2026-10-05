@@ -23,10 +23,12 @@ from gods_watching.contracts.training import (
     TrainingLogPage,
     TrainingMetricPage,
     TrainingPreflightResponse,
+    TrainingSupervisorStatus,
 )
 from gods_watching.training.dataset import (
     DatasetManifest,
     DatasetValidationError,
+    validate_cached_cuhk,
     validate_cuhk,
 )
 from gods_watching.training.metrics import (
@@ -41,6 +43,7 @@ from gods_watching.training.models import (
     TrainingRequestKind,
     TrainingRequestPhase,
 )
+from gods_watching.training.readiness import read_supervisor_status
 from gods_watching.training.repository import (
     TrainingJobConflictError as RepositoryJobConflictError,
 )
@@ -220,9 +223,14 @@ class TrainingService:
     _database: Database
     _settings: TrainingSettings
     _dataset_validator: Callable[[Path], DatasetManifest]
+    _dataset_signature_probe: Callable[[Path], DatasetManifest | None]
     _repository: TrainingRepository
     _manifest: DatasetManifest | None
     _manifest_lock: asyncio.Lock
+    _dataset_state: Literal["not_started", "validating", "ready", "unavailable"]
+    _dataset_reason: str | None
+    _dataset_retry_after: float
+    _dataset_warm_task: asyncio.Task[None] | None
 
     def __init__(
         self,
@@ -230,29 +238,92 @@ class TrainingService:
         settings: TrainingSettings,
         *,
         dataset_validator: Callable[[Path], DatasetManifest] = validate_cuhk,
+        dataset_signature_probe: Callable[[Path], DatasetManifest | None] = validate_cached_cuhk,
         repository: TrainingRepository | None = None,
     ) -> None:
         """Build an API service without importing CUDA or reading run directories."""
         self._database = database
         self._settings = settings
         self._dataset_validator = dataset_validator
+        self._dataset_signature_probe = dataset_signature_probe
         self._repository = repository or TrainingRepository()
         self._manifest = None
         self._manifest_lock = asyncio.Lock()
+        self._dataset_state = "not_started"
+        self._dataset_reason = None
+        self._dataset_retry_after = 0.0
+        self._dataset_warm_task = None
+
+    async def warm_dataset(self) -> None:
+        """Warm one full dataset validation outside API request and request-lease paths."""
+        current = asyncio.current_task()
+        existing = self._dataset_warm_task
+        if existing is not None and existing is not current:
+            await existing
+            return
+        if self._dataset_state == "ready" and self._manifest is not None:
+            return
+        if self._settings.dataset_root is None:
+            self._dataset_state = "unavailable"
+            self._dataset_reason = "dataset_not_configured"
+            return
+        if existing is None and current is not None:
+            self._dataset_warm_task = current
+        self._dataset_state = "validating"
+        self._dataset_reason = "dataset_validating"
+        try:
+            async with self._manifest_lock:
+                root = self._settings.require_dataset_root()
+                manifest = await asyncio.to_thread(self._dataset_validator, root)
+            self._manifest = manifest
+            self._dataset_state = "ready"
+            self._dataset_reason = None
+            self._dataset_retry_after = 0.0
+        except (TrainingDatasetNotConfiguredError, DatasetValidationError, OSError):
+            self._manifest = None
+            self._dataset_state = "unavailable"
+            self._dataset_reason = "dataset_invalid_or_unavailable"
+            self._dataset_retry_after = asyncio.get_running_loop().time() + 30.0
+        finally:
+            if self._dataset_warm_task is current:
+                self._dataset_warm_task = None
 
     async def datasets(self) -> TrainingDatasetStatus:
         """Return only public dataset identity/counts, never sample paths or captions."""
-        try:
-            manifest = await self._registered_manifest()
-        except TrainingDatasetUnavailableError:
-            return TrainingDatasetStatus(
-                registered=self._settings.dataset_root is not None,
-                valid=False,
-                reason="dataset_invalid_or_unavailable",
-                snapshot=None,
-            )
-        snapshot = TrainingDatasetSnapshot.model_validate(manifest.public_snapshot())
-        return TrainingDatasetStatus(registered=True, valid=True, snapshot=snapshot)
+        if self._settings.dataset_root is None:
+            self._dataset_state = "unavailable"
+            self._dataset_reason = "dataset_not_configured"
+            manifest = None
+        elif self._dataset_state == "not_started":
+            self._schedule_dataset_warmup()
+            manifest = None
+        elif self._dataset_state == "validating":
+            manifest = None
+        elif self._dataset_state == "unavailable":
+            if asyncio.get_running_loop().time() >= self._dataset_retry_after:
+                self._schedule_dataset_warmup()
+            manifest = None
+        else:
+            try:
+                manifest = await self._registered_manifest()
+            except TrainingDatasetUnavailableError:
+                manifest = None
+
+        valid = manifest is not None
+        snapshot = (
+            TrainingDatasetSnapshot.model_validate(manifest.public_snapshot())
+            if manifest is not None
+            else None
+        )
+        return TrainingDatasetStatus(
+            registered=self._settings.dataset_root is not None,
+            valid=valid,
+            reason=None if valid else self._dataset_reason or "dataset_validating",
+            snapshot=snapshot,
+            supervisor=self._supervisor_status(
+                manifest.fingerprint if manifest is not None else None,
+            ),
+        )
 
     async def config(self) -> TrainingConfig:
         """Return the pinned server config defaults/ranges without GPU imports."""
@@ -261,6 +332,7 @@ class TrainingService:
     async def preflight(self, config: TrainingConfig) -> TrainingPreflightResponse:
         """Commit an idempotent, short-lived supervisor request before waiting."""
         manifest = await self._registered_manifest()
+        self._require_supervisor_ready(manifest)
         self._require_train_batch(config, manifest)
         request_id = uuid4()
         request = await self._create_request(
@@ -290,6 +362,7 @@ class TrainingService:
             return await self.get_job(UUID(str(response["job_id"])))
 
         manifest = await self._registered_manifest()
+        self._require_supervisor_ready(manifest)
         self._require_train_batch(request.config, manifest)
         try:
             durable = await self._create_request(
@@ -359,6 +432,7 @@ class TrainingService:
         manifest = await self._registered_manifest()
         if manifest.fingerprint != job.dataset_fingerprint:
             raise TrainingDatasetUnavailableError("registered dataset fingerprint changed")
+        self._require_supervisor_ready(manifest)
         config = TrainingConfig.model_validate(job.config_snapshot)
         try:
             durable = await self._create_request(
@@ -403,17 +477,78 @@ class TrainingService:
             raise TrainingJobNotFoundError
         return job
 
+    def _dataset_validation_in_progress(self) -> bool:
+        """Read validation state behind a method boundary for each lock check."""
+        return self._dataset_state == "validating"
+
     async def _registered_manifest(self) -> DatasetManifest:
-        # Revalidate the stat/content cache on every decision boundary. This
-        # returns quickly for unchanged read-only data but invalidates changes.
+        # Every decision rechecks all source signatures. A cache miss starts one
+        # background content/hash validation so request lifetime never owns it.
+        if self._dataset_validation_in_progress():
+            raise TrainingDatasetUnavailableError("registered dataset validation is in progress")
         async with self._manifest_lock:
+            if self._dataset_validation_in_progress():
+                raise TrainingDatasetUnavailableError(
+                    "registered dataset validation is in progress"
+                )
+            if self._settings.dataset_root is None:
+                self._dataset_state = "unavailable"
+                self._dataset_reason = "dataset_not_configured"
+                raise TrainingDatasetUnavailableError
+            if self._dataset_state != "ready" or self._manifest is None:
+                self._manifest = None
+                self._schedule_dataset_warmup()
+                raise TrainingDatasetUnavailableError(
+                    "registered dataset validation is in progress"
+                )
             try:
                 root = self._settings.require_dataset_root()
-                manifest = await asyncio.to_thread(self._dataset_validator, root)
+                manifest = await asyncio.to_thread(self._dataset_signature_probe, root)
             except (TrainingDatasetNotConfiguredError, DatasetValidationError, OSError) as error:
+                self._manifest = None
+                self._dataset_state = "validating"
+                self._dataset_reason = "dataset_validating"
+                self._schedule_dataset_warmup()
                 raise TrainingDatasetUnavailableError from error
+            if manifest is None:
+                self._manifest = None
+                self._dataset_state = "validating"
+                self._dataset_reason = "dataset_validating"
+                self._schedule_dataset_warmup()
+                raise TrainingDatasetUnavailableError(
+                    "registered dataset validation is in progress"
+                )
             self._manifest = manifest
+            self._dataset_state = "ready"
+            self._dataset_reason = None
+            self._dataset_retry_after = 0.0
             return manifest
+
+    def _schedule_dataset_warmup(self) -> None:
+        if self._settings.dataset_root is None:
+            self._dataset_state = "unavailable"
+            self._dataset_reason = "dataset_not_configured"
+            return
+        if self._dataset_state == "validating":
+            if self._dataset_warm_task is None:
+                self._dataset_state = "not_started"
+            else:
+                return
+        self._dataset_state = "validating"
+        self._dataset_reason = "dataset_validating"
+        self._dataset_warm_task = asyncio.create_task(self.warm_dataset())
+
+    def _supervisor_status(self, dataset_fingerprint: str | None) -> TrainingSupervisorStatus:
+        return read_supervisor_status(
+            self._settings.training_root,
+            source_fingerprint=self._repository.source_fingerprint,
+            dataset_fingerprint=dataset_fingerprint,
+        )
+
+    def _require_supervisor_ready(self, manifest: DatasetManifest) -> None:
+        status = self._supervisor_status(manifest.fingerprint)
+        if status.state != "ready":
+            raise TrainingSupervisorUnavailableError
 
     @staticmethod
     def _require_train_batch(config: TrainingConfig, manifest: DatasetManifest) -> None:

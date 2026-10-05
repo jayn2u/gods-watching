@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import importlib
-import os
 import random
 from typing import TYPE_CHECKING, Protocol, cast, override
 
 import numpy as np
 
+from gods_watching.training.determinism import (
+    configure_torch_determinism,
+    prepare_deterministic_cuda_environment,
+)
 from gods_watching.training.engine_api import TrainingBackend
 
 if TYPE_CHECKING:
@@ -181,10 +184,9 @@ class TorchTrainingBackend(TrainingBackend):
     def __init__(self) -> None:
         """Import Torch only when a worker is ready to enter training."""
         # Torch is intentionally optional in the API image and exists only in the worker image.
+        prepare_deterministic_cuda_environment()
         self._torch = cast("_TorchApi", cast("object", importlib.import_module("torch")))
-        self._torch.use_deterministic_algorithms(mode=True)
-        self._torch.backends.cudnn.deterministic = True
-        self._torch.backends.cudnn.benchmark = False
+        configure_torch_determinism(self._torch)
 
     @override
     def seed_everything(self, seed: int) -> None:
@@ -361,8 +363,6 @@ class TorchTrainingBackend(TrainingBackend):
 
 def create_torch_training_backend() -> TorchTrainingBackend:
     """Construct the worker-only Torch adapter."""
-    # PyTorch requires this before CUDA initializes its cuBLAS workspace.
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     return TorchTrainingBackend()
 
 

@@ -45,6 +45,7 @@ _EVALUATION_SOURCE_FILES = (
     "memory.py",
     "retrieval.py",
     "torch_backend.py",
+    "determinism.py",
     "checkpoints.py",
     "calibration.py",
 )
@@ -112,9 +113,8 @@ class TrainingEvaluationReport:
 
     def package_report(self, candidate_weights_sha256: str) -> dict[str, object]:
         """Create the exact importer report fields plus safe provenance detail."""
-        if (
-            len(candidate_weights_sha256) != _SHA256_LENGTH
-            or any(character not in "0123456789abcdef" for character in candidate_weights_sha256)
+        if len(candidate_weights_sha256) != _SHA256_LENGTH or any(
+            character not in "0123456789abcdef" for character in candidate_weights_sha256
         ):
             raise EvaluationCacheError("candidate weights hash is malformed")
         return {
@@ -233,10 +233,7 @@ def evaluate_best_checkpoint(
 def evaluation_code_revision() -> str:
     """Hash the full local evaluator dependency bundle used for held-out scores."""
     source_root = Path(__file__).parent
-    sources = {
-        name: (source_root / name).read_bytes()
-        for name in _EVALUATION_SOURCE_FILES
-    }
+    sources = {name: (source_root / name).read_bytes() for name in _EVALUATION_SOURCE_FILES}
     return _evaluator_source_revision(sources)
 
 
@@ -250,9 +247,7 @@ def verify_pinned_baseline_package(model_root: Path, lock_path: Path) -> str:
         if root.is_symlink() or not root.is_dir():
             raise EvaluationCacheError("pinned baseline package is unavailable")
         lock = load_models_lock(Path(lock_path))
-        model = next(
-            item for item in lock.models if item.model_id == DEFAULT_CLIP_MODEL_ID
-        )
+        model = next(item for item in lock.models if item.model_id == DEFAULT_CLIP_MODEL_ID)
     except (OSError, StopIteration, ValueError, TypeError) as error:
         raise EvaluationCacheError("pinned baseline lock is unavailable") from error
     if model.revision != B16_REVISION:
@@ -305,10 +300,9 @@ def verify_pinned_baseline_package(model_root: Path, lock_path: Path) -> str:
         actual_names = {path.name for path in root.iterdir()}
     except OSError as error:
         raise EvaluationCacheError("pinned baseline package listing is unavailable") from error
-    if (
-        expected_names != _BASELINE_PACKAGE_IDENTITY_FILES
-        or actual_names != expected_names | {IDENTITY_MARKER_NAME}
-    ):
+    if expected_names != _BASELINE_PACKAGE_IDENTITY_FILES or actual_names != expected_names | {
+        IDENTITY_MARKER_NAME
+    }:
         raise EvaluationCacheError("pinned baseline package contents do not match the lock")
     marker_path = root / IDENTITY_MARKER_NAME
     try:

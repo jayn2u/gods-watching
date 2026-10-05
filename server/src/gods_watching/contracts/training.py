@@ -60,6 +60,16 @@ class TrainingDatasetSnapshot(ContractModel):
     identity_count: NonNegativeCount
 
 
+class TrainingSupervisorStatus(ContractModel):
+    """Describe the current isolated training supervisor availability."""
+
+    state: Literal["validating", "ready", "unavailable"]
+    reason: str | None = None
+    observed_at: datetime | None = None
+    source_fingerprint: Annotated[str | None, Field(pattern=r"^[0-9a-f]{64}$")] = None
+    dataset_fingerprint: Annotated[str | None, Field(pattern=r"^[0-9a-f]{64}$")] = None
+
+
 class TrainingDatasetStatus(ContractModel):
     """Describe whether the operator-configured dataset is usable."""
 
@@ -67,6 +77,12 @@ class TrainingDatasetStatus(ContractModel):
     valid: bool
     reason: str | None = None
     snapshot: TrainingDatasetSnapshot | None = None
+    supervisor: TrainingSupervisorStatus = Field(
+        default_factory=lambda: TrainingSupervisorStatus(
+            state="unavailable",
+            reason="training_supervisor_unavailable",
+        )
+    )
 
 
 class TrainingPreflightRequest(ContractModel):
@@ -221,4 +237,5 @@ __all__ = [
     "TrainingPreflightResponse",
     "TrainingRetrievalScores",
     "TrainingSplitCounts",
+    "TrainingSupervisorStatus",
 ]

@@ -2,9 +2,9 @@
 
 ## Goal and scope
 
-Train a complete image/text CLIP ViT-B/16 pair outside Gods Watching with CUHK-PEDES. Import only the finished package and its evaluation record into this product. CUHK-PEDES images, captions, identities, and gallery are not product data. The product continues to search its retained person appearances from RTSP camera crops with English descriptions and to offer Find similar.
+Import a complete image/text CLIP ViT-B/16 package and its evaluation record into Gods Watching. The package may come from the built-in isolated CUHK-PEDES training service or a compatible external trainer. CUHK-PEDES images, captions, identities, and gallery are not product data. The product continues to search its retained person appearances from RTSP camera crops with English descriptions and to offer Find similar.
 
-Training scripts, training compute, browser checkpoint upload, Korean search, cross-camera identity, and person ReID are outside this feature.
+Browser checkpoint upload, Korean search, cross-camera identity, and person ReID are outside this feature. Built-in training compute remains separate from the API and inference-worker runtime.
 
 ## Package contract
 
@@ -16,12 +16,20 @@ Training scripts, training compute, browser checkpoint upload, Korean search, cr
 
 ## Quality and operational gates
 
-- CUHK-PEDES uses a fixed identity-disjoint train/validation/test protocol in the external training workflow. The submitted report binds dataset split, source checkpoint ID and revision, candidate `model.safetensors` SHA-256, evaluation code revision, metric definition, and baseline/candidate scores. The deployment-owned policy pins the source revision and exact metric definition. The file manifest binds report bytes and weights into the immutable package revision. Candidate must improve over baseline on the same held-out test protocol.
+- CUHK-PEDES uses a fixed identity-disjoint train/validation/test protocol in both the built-in and compatible external training workflows. The submitted report binds dataset split, source checkpoint ID and revision, candidate `model.safetensors` SHA-256, evaluation code revision, metric definition, and baseline/candidate scores. The deployment-owned policy pins the source revision and exact metric definition. The file manifest binds report bytes and weights into the immutable package revision. Candidate must improve over baseline on the same held-out test protocol.
 - Product evaluation uses the existing planned `qa/retrieval-cases.json` evidence contract: real crops from at least two scenes, at least 40 appearances/distractors, 20 English text queries, and 20 held-out image queries with complete relevance sets fixed before results are viewed. Baseline and candidate run against the same cases. Both text and image macro Recall@5 must be at least 0.8 and improve over the baseline. CUHK-PEDES benchmark results cannot substitute for this product gate.
 - Registration checks structure, file hashes, image/text dimensions, finite unit-normalized outputs, GPU coexistence with the detector, and the model's pinned processor. The candidate is listed but cannot be applied until both quality records and GPU proof pass. Missing proof fails closed.
 - Apply remains a manual global switch. Search and person analysis pause while retained crops are re-embedded. The system counts retained crops and measures target-model throughput on the deployment GPU before queueing. Full-path rehearsal proof must match current retained appearance IDs, crop keys and bytes, and the installed transition source digest. Corpus or runtime changes require a fresh rehearsal; unknown bindings fail closed. It rejects apply if there is no measured rate or estimated transition time exceeds 15 minutes. It shows the estimate, affected crop count, and expected missing/corrupt crops before confirmation.
 - Existing staged vectors, model identity checks, atomic activation, durable progress, missing-crop skip reporting, and rollback behavior are retained. Model spaces are never mixed, including equal-dimensional spaces. Applying the previous model uses the same preflight and switch path.
 - The new model must also meet the existing four-camera performance gate: average accepted detector rate of at least 4.8 fps per camera and first-searchable latency p95 at most 5 seconds on the target GPU, with the existing 15-minute load procedure.
+
+## Built-in training deployment
+
+- An operator may set an absolute host dataset root in `GW_TRAINING_DATASET_ROOT`; the API and training supervisor mount it read-only. An unset or empty value returns typed unavailable state rather than failing API startup. The browser cannot choose or upload a host path.
+- API and supervisor warm the full source validation outside request leases. The dataset API response reports `validating`, `ready`, or `unavailable` supervisor state with source/dataset-bound freshness. A cold full validation can take several minutes; the 10-second supervisor lease and 20-second API request timeout are unchanged.
+- API receives the persistent run volume read-only for typed JSONL history and supervisor status. The isolated training service alone writes run artifacts and the imported-assets publication path. The inference worker receives neither dataset nor run storage.
+- Memory calibration and training use the same deterministic cuBLAS/cuDNN policy before CUDA initialization. Calibration binds profiles to training source, pinned model bytes, GPU UUID, CUDA/Torch runtime, and processor identity.
+- Product crop search quality remains a separate apply gate. Training success and CUHK held-out improvement do not imply product quality or make apply eligible.
 
 ## Product presentation
 

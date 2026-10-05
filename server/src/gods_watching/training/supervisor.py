@@ -10,10 +10,12 @@ import math
 import os
 import subprocess
 import sys
+import time
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -21,11 +23,13 @@ from sqlalchemy import select
 from gods_watching.contracts.training import (
     TrainingConfig,
     TrainingPreflightResponse,
+    TrainingSupervisorStatus,
 )
 from gods_watching.training.calibration import CalibrationRefusedError
 from gods_watching.training.dataset import (
     DatasetManifest,
     DatasetValidationError,
+    validate_cached_cuhk,
     validate_cuhk,
 )
 from gods_watching.training.memory import (
@@ -46,6 +50,7 @@ from gods_watching.training.models import (
     TrainingRequestKind,
     TrainingRequestPhase,
 )
+from gods_watching.training.readiness import write_supervisor_status
 from gods_watching.training.repository import (
     TrainingJobConflictError,
     TrainingPhaseTransitionError,
@@ -290,9 +295,18 @@ class TrainingSupervisor:
     _child_launcher: TrainingChildLauncher | None
     _gpu_snapshot_provider: Callable[[], GpuSnapshot]
     _memory_profiles_provider: Callable[[], tuple[MemoryProfile, ...]]
+    _dataset_signature_probe: Callable[[Path], DatasetManifest | None]
     _dataset_validator: Callable[[Path], DatasetManifest]
     _worker_id: str
     _children: dict[UUID, tuple[TrainingChild, int]]
+    _dataset_manifest: DatasetManifest | None
+    _dataset_state: Literal["validating", "ready", "unavailable"]
+    _dataset_reason: str | None
+    _dataset_retry_after: float
+    _dataset_lock: asyncio.Lock
+    _gpu_telemetry_ready: bool
+    _gpu_retry_after: float
+    _gpu_failure_reason: str | None
 
     def __init__(  # noqa: PLR0913
         self,
@@ -304,6 +318,7 @@ class TrainingSupervisor:
         gpu_snapshot_provider: Callable[[], GpuSnapshot] = current_gpu_snapshot,
         memory_profiles_provider: Callable[[], tuple[MemoryProfile, ...]] | None = None,
         dataset_validator: Callable[[Path], DatasetManifest] = validate_cuhk,
+        dataset_signature_probe: Callable[[Path], DatasetManifest | None] | None = None,
         worker_id: str | None = None,
     ) -> None:
         """Wire CPU request storage to the isolated CUDA telemetry/child boundary."""
@@ -315,48 +330,225 @@ class TrainingSupervisor:
         self._memory_profiles_provider = memory_profiles_provider or (
             lambda: load_memory_profiles(settings.memory_profiles_path)
         )
+        self._dataset_signature_probe = dataset_signature_probe or validate_cached_cuhk
         self._dataset_validator = dataset_validator
         self._worker_id = worker_id or f"training-supervisor-{uuid4().hex}"
         self._children = {}
+        self._dataset_manifest = None
+        self._dataset_state = "unavailable" if settings.dataset_root is None else "validating"
+        self._dataset_reason = (
+            "dataset_not_configured"
+            if settings.dataset_root is None
+            else "training_supervisor_starting"
+        )
+        self._dataset_retry_after = 0.0
+        self._dataset_lock = asyncio.Lock()
+        self._gpu_telemetry_ready = False
+        self._gpu_retry_after = 0.0
+        self._gpu_failure_reason = None
+
+    async def _publish_status_heartbeat(self, stop_event: asyncio.Event) -> None:
+        """Refresh the shared status timestamp while validation or polling is active."""
+        while not stop_event.is_set():
+            try:
+                _ = await asyncio.wait_for(stop_event.wait(), timeout=5.0)
+            except TimeoutError:
+                await asyncio.to_thread(self._write_status)
+
+    def _write_status(self) -> None:
+        state = self._dataset_state
+        reason = self._dataset_reason
+        if state == "ready" and not self._gpu_telemetry_ready:
+            state = "unavailable" if self._gpu_failure_reason is not None else "validating"
+            reason = self._gpu_failure_reason or "training_gpu_warming"
+        status = TrainingSupervisorStatus(
+            state=state,
+            reason=reason,
+            observed_at=datetime.now(UTC),
+            source_fingerprint=self._repository.source_fingerprint,
+            dataset_fingerprint=(
+                self._dataset_manifest.fingerprint if self._dataset_manifest is not None else None
+            ),
+        )
+        write_supervisor_status(self._settings.training_root, status)
+
+    async def _warm_dataset(self) -> DatasetManifest | None:  # noqa: PLR0911
+        """Validate once before any lease; cache the manifest for local admission."""
+        if self._dataset_manifest is not None and self._dataset_state == "ready":
+            return self._dataset_manifest
+        if self._dataset_state == "unavailable" and time.monotonic() < self._dataset_retry_after:
+            return None
+
+        async with self._dataset_lock:
+            if self._dataset_manifest is not None and self._dataset_state == "ready":
+                return self._dataset_manifest
+            if (
+                self._dataset_state == "unavailable"
+                and time.monotonic() < self._dataset_retry_after
+            ):
+                return None
+            try:
+                root = self._settings.require_dataset_root()
+            except TrainingDatasetNotConfiguredError:
+                self._dataset_state = "unavailable"
+                self._dataset_reason = "dataset_not_configured"
+                self._dataset_retry_after = time.monotonic() + 30.0
+                await asyncio.to_thread(self._write_status)
+                return None
+
+            self._dataset_state = "validating"
+            self._dataset_reason = "dataset_validating"
+            await asyncio.to_thread(self._write_status)
+            try:
+                manifest = await asyncio.to_thread(self._dataset_validator, root)
+            except (DatasetValidationError, OSError):
+                self._dataset_manifest = None
+                self._dataset_state = "unavailable"
+                self._dataset_reason = "dataset_invalid_or_unavailable"
+                self._dataset_retry_after = time.monotonic() + 30.0
+                await asyncio.to_thread(self._write_status)
+                return None
+
+            self._dataset_manifest = manifest
+            self._dataset_state = "ready"
+            self._dataset_reason = None
+            self._dataset_retry_after = 0.0
+            await asyncio.to_thread(self._write_status)
+            return manifest
+
+    async def _warm_gpu_telemetry(self) -> bool:
+        """Initialize and verify the GPU sensor before publishing supervisor readiness."""
+        if self._settings.dataset_root is None or self._gpu_telemetry_ready:
+            return True
+        if time.monotonic() < self._gpu_retry_after:
+            return False
+
+        self._gpu_failure_reason = None
+        await asyncio.to_thread(self._write_status)
+        try:
+            _ = await asyncio.to_thread(self._gpu_snapshot_provider)
+        except (
+            CalibrationRefusedError,
+            StaleGpuSnapshotError,
+            ImportError,
+            OSError,
+            RuntimeError,
+            subprocess.SubprocessError,
+        ):
+            self._gpu_retry_after = time.monotonic() + 5.0
+            self._gpu_failure_reason = "training_gpu_unavailable"
+            await asyncio.to_thread(self._write_status)
+            return False
+
+        self._gpu_telemetry_ready = True
+        self._gpu_retry_after = 0.0
+        self._gpu_failure_reason = None
+        await asyncio.to_thread(self._write_status)
+        return True
+
+    async def _validate_request_dataset(self, request: TrainingRequest) -> DatasetManifest:
+        """Recheck a fresh dataset signature before consuming the request lease."""
+        async with self._dataset_lock:
+            root = self._settings.require_dataset_root()
+            current_manifest = self._dataset_manifest
+            cached_manifest: DatasetManifest | None = None
+            if (
+                self._dataset_state == "ready"
+                and current_manifest is not None
+                and self._gpu_telemetry_ready
+            ):
+                try:
+                    cached_manifest = await asyncio.to_thread(
+                        self._dataset_signature_probe,
+                        root,
+                    )
+                except (DatasetValidationError, OSError):
+                    cached_manifest = None
+
+            if (
+                cached_manifest is not None
+                and current_manifest is not None
+                and cached_manifest.fingerprint == current_manifest.fingerprint
+                and self._gpu_telemetry_ready
+                and self._dataset_state == "ready"
+            ):
+                manifest = cached_manifest
+                self._dataset_manifest = manifest
+            else:
+                self._dataset_state = "validating"
+                self._dataset_reason = "dataset_validating"
+                await asyncio.to_thread(self._write_status)
+                try:
+                    manifest = await asyncio.to_thread(self._dataset_validator, root)
+                except (DatasetValidationError, OSError):
+                    self._dataset_manifest = None
+                    self._dataset_state = "unavailable"
+                    self._dataset_reason = "dataset_invalid_or_unavailable"
+                    self._dataset_retry_after = time.monotonic() + 30.0
+                    await asyncio.to_thread(self._write_status)
+                    raise
+                self._dataset_manifest = manifest
+                self._dataset_state = "ready"
+                self._dataset_reason = None
+                self._dataset_retry_after = 0.0
+                await asyncio.to_thread(self._write_status)
+        if request.dataset_fingerprint is not None and (
+            manifest.fingerprint != request.dataset_fingerprint
+        ):
+            raise DatasetValidationError("registered dataset fingerprint changed")
+        return manifest
 
     async def run(self, stop_event: asyncio.Event) -> None:
         """Poll durable requests until shutdown; no request runs from API memory."""
-        while not stop_event.is_set():
-            await self._reconcile_children()
-            await self._recover_untracked_slot()
-            processed = await self.process_one()
-            if processed:
-                continue
-            try:
-                _ = await asyncio.wait_for(
-                    stop_event.wait(),
-                    timeout=self._settings.request_poll_interval_seconds,
-                )
-            except TimeoutError:
-                continue
+        if self._settings.dataset_root is None:
+            self._dataset_state = "unavailable"
+            self._dataset_reason = "dataset_not_configured"
+        else:
+            self._dataset_state = "validating"
+            self._dataset_reason = "training_supervisor_starting"
+        await asyncio.to_thread(self._write_status)
+        heartbeat = asyncio.create_task(self._publish_status_heartbeat(stop_event))
+        try:
+            while not stop_event.is_set():
+                # Recovery remains ahead of potentially slow dataset validation.
+                await self._reconcile_children()
+                await self._recover_untracked_slot()
+                processed = await self.process_one()
+                if processed:
+                    continue
+                try:
+                    _ = await asyncio.wait_for(
+                        stop_event.wait(),
+                        timeout=self._settings.request_poll_interval_seconds,
+                    )
+                except TimeoutError:
+                    continue
+        finally:
+            _ = heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
 
-    async def process_one(self) -> bool:  # noqa: C901, PLR0911, PLR0912
-        """Lease and resolve one request, then launch only a durably accepted job."""
+    async def process_one(self) -> bool:  # noqa: C901, PLR0911, PLR0912, PLR0915
+        """Revalidate before leasing, then launch only a durably accepted job."""
+        if await self._warm_dataset() is None:
+            return False
+        if not await self._warm_gpu_telemetry():
+            return False
+
         now = datetime.now(UTC)
         async with self._database.transaction() as session:
             _ = await self._repository.expire_old_requests(session, now=now)
-            request = await self._repository.claim_next_request(
-                session,
-                owner=self._worker_id,
-                now=now,
-                lease_until=now + timedelta(seconds=self._settings.request_lease_seconds),
-            )
-        if request is None:
+            candidate = await self._repository.peek_next_request(session, now=now)
+        if candidate is None:
             return False
 
         try:
-            config = TrainingConfig.model_validate(request.config_snapshot)
-            manifest = await self._validate_request_dataset(request)
-            gpu = await asyncio.to_thread(self._gpu_snapshot_provider)
-            profiles = await asyncio.to_thread(self._memory_profiles_provider)
-            profile, estimate = _match_profile(config, gpu, profiles)
-            admission = assess_admission(estimate, gpu)
+            config = TrainingConfig.model_validate(candidate.config_snapshot)
+            manifest = await self._validate_request_dataset(candidate)
         except DatasetValidationError:
+            request = await self._claim_request(candidate.request_id)
+            if request is None:
+                return False
             _ = await self._resolve_refusal(
                 request,
                 code="training_dataset_changed",
@@ -364,8 +556,17 @@ class TrainingSupervisor:
             )
             return True
         except (TrainingDatasetNotConfiguredError, OSError):
-            _ = await self._resolve_failure(request, code="training_dataset_unavailable")
-            return True
+            return False
+
+        request = await self._claim_request(candidate.request_id)
+        if request is None:
+            return False
+
+        try:
+            gpu = await asyncio.to_thread(self._gpu_snapshot_provider)
+            profiles = await asyncio.to_thread(self._memory_profiles_provider)
+            profile, estimate = _match_profile(config, gpu, profiles)
+            admission = assess_admission(estimate, gpu)
         except (CalibrationRefusedError, StaleGpuSnapshotError):
             _ = await self._resolve_failure(request, code="training_gpu_unavailable")
             return True
@@ -447,14 +648,16 @@ class TrainingSupervisor:
         await self._launch_owned_child(job)
         return True
 
-    async def _validate_request_dataset(self, request: TrainingRequest) -> DatasetManifest:
-        root = self._settings.require_dataset_root()
-        manifest = await asyncio.to_thread(self._dataset_validator, root)
-        if request.dataset_fingerprint is not None and (
-            manifest.fingerprint != request.dataset_fingerprint
-        ):
-            raise DatasetValidationError("registered dataset fingerprint changed")
-        return manifest
+    async def _claim_request(self, request_id: UUID) -> TrainingRequest | None:
+        now = datetime.now(UTC)
+        async with self._database.transaction() as session:
+            return await self._repository.claim_request(
+                session,
+                request_id,
+                owner=self._worker_id,
+                now=now,
+                lease_until=now + timedelta(seconds=self._settings.request_lease_seconds),
+            )
 
     async def _create_admitted_job(  # noqa: C901
         self,

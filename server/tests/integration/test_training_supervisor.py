@@ -122,6 +122,7 @@ async def test_permission_denied_orphan_identity_blocks_new_job_without_creating
         database,
         TrainingSettings(
             dataset_root=root,
+            training_root=tmp_path / "runs",
             memory_profiles_path=tmp_path / "profiles.json",
             request_lease_seconds=5,
         ),
@@ -255,6 +256,7 @@ async def test_memory_is_rechecked_under_slot_lock_before_job_creation(
         database,
         TrainingSettings(
             dataset_root=root,
+            training_root=tmp_path / "runs",
             memory_profiles_path=tmp_path / "profiles.json",
             request_lease_seconds=5,
         ),

@@ -35,6 +35,8 @@ def build_lifespan(
             async with anyio.create_task_group() as task_group:
                 task_group.start_soon(dependencies.auth.cleanup_loop)
                 task_group.start_soon(_reconcile_loop, dependencies)
+                if dependencies.training is not None:
+                    task_group.start_soon(dependencies.training.warm_dataset)
                 try:
                     yield
                 finally:

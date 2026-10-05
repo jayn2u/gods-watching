@@ -158,7 +158,10 @@ def publish_candidate(
     try:
         assets_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         _require_directory(assets_root)
-        with tempfile.TemporaryDirectory(prefix=".cuhk-candidate-", dir=assets_root) as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix=".cuhk-candidate-",
+            dir=Path(best_checkpoint).parent,
+        ) as temporary:
             stage = Path(temporary)
             _export_candidate(
                 best_checkpoint,
@@ -169,6 +172,7 @@ def publish_candidate(
             weights_path = _validate_export(stage)
             weights_sha256 = _sha256(weights_path)
             report_value = report.package_report(weights_sha256)
+            report_value["training_job_id"] = str(job.id)
             report_path = stage / _REPORT_FILENAME
             _write_durable(
                 report_path,

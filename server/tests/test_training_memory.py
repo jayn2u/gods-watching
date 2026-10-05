@@ -285,3 +285,27 @@ def test_profile_source_fingerprint_must_match(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(UnsupportedMemoryProfileError, match="source fingerprint"):
         _ = estimate_memory(TrainingConfig(), profile, _gpu())
+
+
+def test_profile_source_fingerprint_includes_shared_determinism_leaf(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = tmp_path / "gods_watching"
+    training_root = package_root / "training"
+    training_root.mkdir(parents=True)
+    memory_module_path = training_root / "memory.py"
+    determinism_path = training_root / "determinism.py"
+    _ = memory_module_path.write_text("fingerprint test\n", encoding="utf-8")
+    _ = determinism_path.write_text("CUBLAS_WORKSPACE_CONFIG=:4096:8\n", encoding="utf-8")
+    monkeypatch.setattr(training_memory, "__file__", str(memory_module_path))
+    _ = training_memory.current_source_fingerprint.cache_clear()
+
+    before = training_memory.current_source_fingerprint()
+    _ = determinism_path.write_text(
+        "CUBLAS_WORKSPACE_CONFIG=:4096:8\nchanged\n",
+        encoding="utf-8",
+    )
+    _ = training_memory.current_source_fingerprint.cache_clear()
+
+    assert training_memory.current_source_fingerprint() != before

@@ -1,5 +1,6 @@
 x-application-environment: &application-environment
   MPLCONFIGDIR: /tmp/matplotlib
+  XDG_CACHE_HOME: /tmp/cache
   GW_CAMERA_CIPHER_KEY: ${GW_CAMERA_CIPHER_KEY:?run ./gods-watching prepare first}
   GW_CROPS_ROOT: /var/lib/gods-watching/crops
   GW_DATABASE_URL: postgresql+asyncpg://gods_watching:${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}@127.0.0.1:${GW_POSTGRES_PORT:-15432}/gods_watching
@@ -25,6 +26,12 @@ x-application-image: &application-image
     context: .
     dockerfile: deploy/Dockerfile.app
   image: gods-watching-app:local
+
+x-training-image: &training-image
+  build:
+    context: .
+    dockerfile: deploy/Dockerfile.training
+  image: gods-watching-training:local
 
 services:
   postgres:
@@ -115,6 +122,64 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ./runtime/assets/models/imported
+        target: /models/imported
+        read_only: true
+        bind:
+          create_host_path: false
+    network_mode: host
+
+  training:
+    <<: *training-image
+    command: ["python", "-m", "gods_watching.training.supervisor_cli"]
+    environment:
+      GW_DATABASE_URL: postgresql+asyncpg://gods_watching:${GW_POSTGRES_PASSWORD:?run ./gods-watching prepare first}@127.0.0.1:${GW_POSTGRES_PORT:-15432}/gods_watching
+      GW_TRAINING_DATASET_ROOT: ${GW_TRAINING_DATASET_ROOT:+/dataset}
+      GW_TRAINING_MEMORY_PROFILES_PATH: /runs/training/memory-profiles.json
+      GW_TRAINING_MODEL_ASSETS_ROOT: /models
+      GW_TRAINING_MODEL_LOCK_PATH: /opt/gods-watching/assets/models.lock.json
+      GW_TRAINING_REQUEST_LEASE_SECONDS: 10
+      GW_TRAINING_REQUEST_TIMEOUT_SECONDS: 20
+      GW_TRAINING_ROOT: /runs
+      CUDA_CACHE_PATH: /tmp/cuda
+      HF_HOME: /tmp/huggingface
+      TOKENIZERS_PARALLELISM: "false"
+      TORCH_HOME: /tmp/torch
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    gpus: all
+    init: true
+    read_only: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    tmpfs: [/tmp]
+    volumes:
+      - type: bind
+        source: ${GW_TRAINING_DATASET_ROOT:-./runtime/training/unconfigured-dataset}
+        target: /dataset
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./runtime/training/runs
+        target: /runs
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./runtime/assets/models
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./runtime/assets/models/imported
+        target: /models/imported
+        bind:
+          create_host_path: false
     network_mode: host
 
   api:
@@ -127,7 +192,10 @@ services:
       - --port
       - ${GW_API_PORT:-18000}
       - --no-proxy-headers
-    environment: *application-environment
+    environment:
+      <<: *application-environment
+      GW_TRAINING_DATASET_ROOT: ${GW_TRAINING_DATASET_ROOT:+/dataset}
+      GW_TRAINING_ROOT: /runs
     depends_on:
       media-gateway:
         condition: service_started
@@ -152,6 +220,24 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ./runtime/assets/models/imported
+        target: /models/imported
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${GW_TRAINING_DATASET_ROOT:-./runtime/training/unconfigured-dataset}
+        target: /dataset
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./runtime/training/runs
+        target: /runs
+        read_only: true
+        bind:
+          create_host_path: false
     network_mode: host
 
   worker:
@@ -172,6 +258,12 @@ services:
       - type: bind
         source: ./runtime/assets/models
         target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./runtime/assets/models/imported
+        target: /models/imported
         read_only: true
         bind:
           create_host_path: false

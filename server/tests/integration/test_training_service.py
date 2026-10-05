@@ -14,6 +14,7 @@ from gods_watching.contracts.training import (
     TrainingConfig,
     TrainingJobSubmitRequest,
     TrainingMetric,
+    TrainingSupervisorStatus,
 )
 from gods_watching.storage import Database
 from gods_watching.training.dataset import validate_cuhk
@@ -28,6 +29,7 @@ from gods_watching.training.models import (
     TrainingRequestKind,
     TrainingRequestPhase,
 )
+from gods_watching.training.readiness import write_supervisor_status
 from gods_watching.training.repository import TrainingRepository
 from gods_watching.training.service import TrainingService
 from gods_watching.training.settings import TrainingSettings
@@ -47,6 +49,22 @@ def _dataset_root(tmp_path: Path) -> Path:
         Image.new("RGB", (3, 2), (32, 64, 96)).save(path, format="PNG")
     _ = (root / "reid_raw.json").write_text(json.dumps(records), encoding="utf-8")
     return root
+
+
+def _write_supervisor_ready(
+    training_root: Path,
+    repository: TrainingRepository,
+    dataset_fingerprint: str,
+) -> None:
+    write_supervisor_status(
+        training_root,
+        TrainingSupervisorStatus(
+            state="ready",
+            observed_at=datetime.now(UTC),
+            source_fingerprint=repository.source_fingerprint,
+            dataset_fingerprint=dataset_fingerprint,
+        ),
+    )
 
 
 async def _accept_one_request(
@@ -132,15 +150,21 @@ async def test_real_service_commits_submit_before_supervisor_accepts(
 ) -> None:
     database = Database.connect(database_url)
     repository = TrainingRepository()
+    dataset_root = _dataset_root(tmp_path)
+    manifest = await asyncio.to_thread(validate_cuhk, dataset_root)
+    training_root = tmp_path / "runs"
+    _write_supervisor_ready(training_root, repository, manifest.fingerprint)
     service = TrainingService(
         database,
         TrainingSettings(
-            dataset_root=_dataset_root(tmp_path),
+            dataset_root=dataset_root,
+            training_root=training_root,
             request_timeout_seconds=4,
             request_poll_interval_seconds=0.01,
             request_lease_seconds=5,
         ),
     )
+    await service.warm_dataset()
     request_id = uuid4()
     supervisor = asyncio.create_task(
         _accept_one_request(
@@ -177,10 +201,13 @@ async def test_real_service_resume_replay_does_not_increment_generation_twice(
 ) -> None:
     database = Database.connect(database_url)
     repository = TrainingRepository()
+    dataset_root = _dataset_root(tmp_path)
+    training_root = tmp_path / "runs"
     service = TrainingService(
         database,
         TrainingSettings(
-            dataset_root=_dataset_root(tmp_path),
+            dataset_root=dataset_root,
+            training_root=training_root,
             request_timeout_seconds=4,
             request_poll_interval_seconds=0.01,
             request_lease_seconds=5,
@@ -191,8 +218,10 @@ async def test_real_service_resume_replay_does_not_increment_generation_twice(
     try:
         manifest = await asyncio.to_thread(
             validate_cuhk,
-            _dataset_root(tmp_path),
+            dataset_root,
         )
+        _write_supervisor_ready(training_root, repository, manifest.fingerprint)
+        await service.warm_dataset()
         async with database.transaction() as session:
             job = await repository.create(
                 session,

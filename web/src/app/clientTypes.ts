@@ -104,11 +104,20 @@ export type TrainingDatasetSnapshot = Readonly<{
   identity_count: number
 }>
 
+export type TrainingSupervisorStatus = Readonly<{
+  state: "validating" | "ready" | "unavailable"
+  reason: string | null
+  observed_at: string | null
+  source_fingerprint: string | null
+  dataset_fingerprint: string | null
+}>
+
 export type TrainingDatasetStatus = Readonly<{
   registered: boolean
   valid: boolean
   reason: string | null
   snapshot: TrainingDatasetSnapshot | null
+  supervisor: TrainingSupervisorStatus
 }>
 
 export type TrainingPreflightResponse = Readonly<{

@@ -22,7 +22,7 @@ GPU 기반 RTSP 인물 검색 서버입니다. 브라우저에서 실시간 카�
 ./gods-watching down     # docker compose down
 ```
 
-첫 실행은 애플리케이션과 Triton 이미지를 빌드하고 모델을 내려받기 때문에 시간이 걸립니다. 모든 서비스가 준비되면 <http://localhost:8080>으로 접속합니다.
+첫 실행은 애플리케이션·학습·Triton 이미지를 빌드하고 모델을 내려받기 때문에 시간이 걸립니다. 모든 서비스가 준비되면 <http://localhost:8080>으로 접속합니다.
 
 ## CLIP 모델 준비와 전환
 
@@ -56,6 +56,30 @@ docker compose logs --tail=100 api worker triton
 ```
 
 가져올 디렉터리에는 `package.json`과 그 파일 목록에 선언된 pinned processor/config, `safetensors` 가중치, CUHK 평가 보고서가 필요합니다. CLI는 model ID, immutable revision, package SHA-256을 출력하고 cache의 `imported/<package_sha256>/` 아래에 원자적으로 게시합니다. 같은 내용의 재가져오기는 동일한 package를 반환하고, 같은 ID의 다른 바이트는 거부합니다. CUHK 원본 사진·캡션·identity·gallery는 제품 cache에 두지 않습니다. 배포에 고정된 `assets/retrieval-quality-policy.json`의 `dataset_sha256`과 package 내 CUHK 보고서, 해당 package cache에 결속된 실사용 crop 검색 평가 증거가 모두 필요합니다. 증거가 누락되거나 일치하지 않으면 선택기가 quality blocked 사유를 표시합니다.
+
+## 내장 CUHK-PEDES 학습
+
+별도 GPU 학습 서비스에서 CLIP ViT-B/16 이미지·텍스트 인코더를 학습할 수 있습니다. 원본 CUHK-PEDES 경로는 호스트 절대 경로로 `.env`의 `GW_TRAINING_DATASET_ROOT`에 설정합니다. `imgs/`와 `reid_raw.json`이 있는 데이터셋 루트를 지정하십시오. 비워 두면 학습 기능만 unavailable로 표시되고 API·검색·카메라 서비스는 계속 실행됩니다. 웹 화면은 호스트 경로를 받거나 파일을 업로드하지 않습니다.
+
+```dotenv
+GW_TRAINING_DATASET_ROOT=/srv/datasets/CUHK-PEDES
+```
+
+`./gods-watching prepare` 후 `./gods-watching up`으로 시작하면 API와 학습 supervisor가 각각 전체 annotation/image를 검증합니다. 첫 검사는 원본 전체를 읽으므로 수 분이 걸릴 수 있습니다. 화면에 dataset 및 supervisor 상태가 `validating`으로 표시되고, 두 검사가 끝나기 전에는 preflight나 학습 요청이 lease를 소비하지 않습니다. 제품 crop과 검색 품질 사례는 CUHK 학습·평가 데이터와 분리됩니다.
+
+학습은 API와 분리된 고정 CUDA 이미지에서 실행됩니다. API와 trainer는 dataset을 read-only로 보고, trainer만 `runtime/training/runs/`를 쓰고 게시 대상 `runtime/assets/models/imported/`에 쓸 수 있습니다. API는 run JSONL history와 supervisor 상태를 read-only로 읽으며, inference worker는 dataset과 run history를 마운트하지 않습니다. 학습 중 기존 Triton detector와 live inference는 계속 동작하고 GPU admission은 보존량이 부족하면 작업 생성을 거부합니다.
+
+적용 전에 현재 GPU에서 해당 소스·모델·runtime 조합의 memory profile을 측정해야 합니다. Python 학습 소스가 바뀌면 기존 profile은 자동으로 거부되므로 고정된 training image에서 다시 측정합니다.
+
+```bash
+docker compose run --rm --no-deps training \
+  python /opt/gods-watching/qa/training/calibrate_memory.py \
+  --model-root /models/clip \
+  --model-lock /opt/gods-watching/assets/models.lock.json \
+  --output /runs/training/memory-profiles.json
+```
+
+UI에서 완료된 run의 held-out test와 candidate package 상태를 확인합니다. package가 기존 model selector에 나타나도 model lock·GPU profile·고정된 product crop retrieval cases가 모두 일치하고 품질 gate가 통과하기 전까지 수동 적용은 blocked 상태입니다. CUHK benchmark score만으로 product apply를 승인하지 않습니다.
 
 적용 전에 선택기는 `GET /api/settings/models/preflight?model_id=...`의 현재 보존 crop 수, 예상 누락 수, 전체 전환 측정치를 바탕으로 한 예상 중지 시간을 보여줍니다. 확인 직전 다시 조회하고 값이 바뀌면 새 값을 검토해야 합니다. 서버도 `POST /api/settings/models/apply`에서 다시 검사합니다. 이전 모델로 되돌릴 때에도 이전 package를 선택해 같은 preflight와 전환 절차를 사용합니다. 검색과 분석은 전환 중 중지됩니다. 900초 초과 또는 신뢰할 수 있는 전체 전환 측정치가 없는 경우 적용할 수 없습니다. `benchmark-embedding`은 진단용 embedding 측정만 생성합니다. 전체 전환 증거는 오프라인 PostgreSQL dump, crop snapshot, 준비된 model assets, model lock, 카메라 암호화 키 파일, 정확한 source/target 모델 및 GPU UUID, 최신 앱 이미지를 명시해 `gods-watching-cli models rehearse-switch --help`에 따라 생성합니다. 이 명령은 내부 Docker 네트워크의 임시 PostgreSQL/Triton과 별도 앱 컨테이너에서 실제 전환을 실행하고, 성공한 관측만 원자적으로 기록합니다. 실제 fine-tuned checkpoint·실사용 검색 사례·target GPU 검증은 아직 완료되지 않았으므로 이 gate의 통과를 주장할 수 없습니다.
 

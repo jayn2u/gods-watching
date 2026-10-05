@@ -14,6 +14,7 @@ import type {
   TrainingPreflightResponse,
   TrainingRetrievalScores,
   TrainingSplitCounts,
+  TrainingSupervisorStatus,
 } from "./clientTypes"
 
 const CONFIG_BOUNDS = {
@@ -229,17 +230,45 @@ export function parseTrainingDatasetStatus(value: unknown): TrainingDatasetStatu
   const valid = valueAt(value, "valid")
   const reason = nullableStringAt(value, "reason")
   const snapshotValue = valueAt(value, "snapshot")
+  const supervisorValue = valueAt(value, "supervisor")
   if (
     typeof registered !== "boolean" ||
     typeof valid !== "boolean" ||
     reason === undefined ||
-    (snapshotValue !== null && !isRecord(snapshotValue))
+    (snapshotValue !== null && !isRecord(snapshotValue)) ||
+    !isRecord(supervisorValue)
   ) {
     invalid("training dataset status")
   }
   const snapshot = snapshotValue === null ? null : parseDatasetSnapshot(snapshotValue)
   if (valid && (!registered || snapshot === null)) invalid("training dataset status")
-  return { registered, valid, reason, snapshot }
+  const supervisorState = valueAt(supervisorValue, "state")
+  const supervisorReason = nullableStringAt(supervisorValue, "reason")
+  const supervisorObservedAt = nullableStringAt(supervisorValue, "observed_at")
+  const supervisorSourceFingerprint = nullableStringAt(supervisorValue, "source_fingerprint")
+  const supervisorDatasetFingerprint = nullableStringAt(supervisorValue, "dataset_fingerprint")
+  if (
+    (supervisorState !== "validating" &&
+      supervisorState !== "ready" &&
+      supervisorState !== "unavailable") ||
+    supervisorReason === undefined ||
+    supervisorObservedAt === undefined ||
+    (supervisorObservedAt !== null && !isTimestamp(supervisorObservedAt)) ||
+    supervisorSourceFingerprint === undefined ||
+    (supervisorSourceFingerprint !== null && !isSha256(supervisorSourceFingerprint)) ||
+    supervisorDatasetFingerprint === undefined ||
+    (supervisorDatasetFingerprint !== null && !isSha256(supervisorDatasetFingerprint))
+  ) {
+    invalid("training supervisor status")
+  }
+  const supervisor: TrainingSupervisorStatus = {
+    state: supervisorState,
+    reason: supervisorReason,
+    observed_at: supervisorObservedAt,
+    source_fingerprint: supervisorSourceFingerprint,
+    dataset_fingerprint: supervisorDatasetFingerprint,
+  }
+  return { registered, valid, reason, snapshot, supervisor }
 }
 
 export function parseTrainingPreflightResponse(value: unknown): TrainingPreflightResponse {

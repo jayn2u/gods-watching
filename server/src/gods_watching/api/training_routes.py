@@ -43,6 +43,10 @@ MAX_CURSOR_LENGTH = 160
 class TrainingServiceProvider(Protocol):
     """CPU-only service boundary consumed by authenticated route handlers."""
 
+    async def warm_dataset(self) -> None:
+        """Start or join one background validation outside request lifetimes."""
+        ...
+
     async def datasets(self) -> TrainingDatasetStatus:
         """Return the registered dataset's validated public snapshot."""
         ...

@@ -87,6 +87,9 @@ class _TrainingService:
     async def datasets(self) -> TrainingDatasetStatus:
         return TrainingDatasetStatus(registered=True, valid=True, reason=None, snapshot=_DATASET)
 
+    async def warm_dataset(self) -> None:
+        return None
+
     async def config(self) -> TrainingConfig:
         return TrainingConfig()
 

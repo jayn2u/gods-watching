@@ -113,6 +113,12 @@ function datasetMessage(state: DatasetState): string {
   if (state.kind === "error") return state.message
   const { status } = state
   if (status.valid && status.registered && status.snapshot !== null) {
+    if (status.supervisor.state === "validating") {
+      return "Dataset validation passed. The training supervisor is still validating its local copy; training stays disabled until it is ready."
+    }
+    if (status.supervisor.state === "unavailable") {
+      return "Dataset validation passed, but the training supervisor is unavailable. Training stays disabled until its status is ready."
+    }
     return `${status.snapshot.image_count.toLocaleString()} images, ${status.snapshot.caption_count.toLocaleString()} captions, and ${status.snapshot.identity_count.toLocaleString()} identities passed validation.`
   }
   switch (status.reason) {
@@ -262,7 +268,10 @@ export function TrainingScreen({
 
   const datasetStatus = dataset.kind === "ready" ? dataset.status : null
   const datasetReady =
-    datasetStatus?.registered === true && datasetStatus.valid && datasetStatus.snapshot !== null
+    datasetStatus?.registered === true &&
+    datasetStatus.valid &&
+    datasetStatus.snapshot !== null &&
+    datasetStatus.supervisor.state === "ready"
   const configurationKey = `${JSON.stringify(config)}:${datasetStatus?.snapshot?.fingerprint ?? ""}:${estimateRefreshToken}`
   const currentConfigurationKey = useRef(configurationKey)
   currentConfigurationKey.current = configurationKey

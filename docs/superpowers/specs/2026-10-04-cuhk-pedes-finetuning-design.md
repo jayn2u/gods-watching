@@ -1,6 +1,6 @@
 # 내장 CUHK-PEDES CLIP 파인튜닝
 
-상태: 사용자 승인 완료. Q1~Q12와 구현 계획이 승인되었으며, 전용 브랜치에서 구현·검증을 진행 중이다.
+상태: 승인된 Q1~Q12 구현과 실제 5-epoch browser/runtime smoke를 마쳤다. 제품 crop 품질·prepare gate는 차단 상태다. 최종 server full suite에 baseline 및 Docker timing 실패가 남아 있으며 [전달·검증 보고서](2026-10-04-cuhk-pedes-finetuning-delivery.md)에 정확한 범위와 증거를 기록했다.
 
 ## 목적과 성공 기준
 

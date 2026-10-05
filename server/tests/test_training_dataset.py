@@ -11,7 +11,10 @@ from pydantic import ValidationError
 import gods_watching.training.dataset as training_dataset
 from gods_watching.training.dataset import DatasetValidationError, validate_cuhk
 from gods_watching.training.repository import _json_value
-from gods_watching.training.settings import TrainingSettings
+from gods_watching.training.settings import (
+    TrainingDatasetNotConfiguredError,
+    TrainingSettings,
+)
 
 
 def _write_image(path: Path, color: tuple[int, int, int] = (10, 20, 30)) -> None:
@@ -218,5 +221,23 @@ def test_training_settings_use_only_an_absolute_environment_root(
     settings = TrainingSettings()
 
     assert settings.dataset_root == tmp_path
+    assert settings.request_lease_seconds == 10
+    assert settings.request_timeout_seconds == 20
     with pytest.raises(ValidationError):
         _ = TrainingSettings(dataset_root=Path("relative/dataset"))
+
+
+@pytest.mark.parametrize("configured_value", [None, ""])
+def test_unconfigured_or_empty_training_root_is_a_safe_unavailable_state(
+    configured_value: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GW_TRAINING_DATASET_ROOT", raising=False)
+    if configured_value is not None:
+        monkeypatch.setenv("GW_TRAINING_DATASET_ROOT", configured_value)
+
+    settings = TrainingSettings()
+
+    assert settings.dataset_root is None
+    with pytest.raises(TrainingDatasetNotConfiguredError):
+        _ = settings.require_dataset_root()

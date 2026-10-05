@@ -136,6 +136,7 @@ def test_evaluator_revision_binds_embedding_scoring_and_checkpoint_sources() -> 
         "metrics.py": b"macro R@1/5/10 scoring",
         "memory.py": b"image shape and text truncation policy",
         "torch_backend.py": b"tensor normalization behavior",
+        "determinism.py": b"shared CUDA determinism policy",
         "checkpoints.py": b"best validation checkpoint validation",
         "calibration.py": b"pinned baseline loader options",
     }
@@ -147,6 +148,7 @@ def test_evaluator_revision_binds_embedding_scoring_and_checkpoint_sources() -> 
         "memory.py",
         "metrics.py",
         "torch_backend.py",
+        "determinism.py",
     ):
         changed = dict(sources)
         changed[source_name] += b" changed"

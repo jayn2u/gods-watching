@@ -283,6 +283,12 @@ All final review reports must bind to the exact final commit and evidence
 identity. Any source change after a passing report requires the affected check
 to be rerun.
 
+## 내장 학습 Task 8 runtime evidence
+
+- 내장 training image, API/supervisor readiness, read-only dataset/run-history mounts, trainer-only run/publication writes와 실제 browser smoke driver가 추가됐다.
+- 실제 deployment 검증은 원본 전체 CUHK-PEDES validation, pinned training image/source identity, 동일 deterministic policy로 생성한 GPU memory profiles, browser-visible start/cancel/interrupted restart/manual resume/final test/export/import을 기록해야 한다. Smoke-only dataset이 필요하면 원본 protocol의 test fixture로 분리하고 제품 UI에 subset selector를 추가하지 않는다.
+- 카메라 inference 및 WebRTC playback counters와 제품 crop text/image search를 학습 전·중·후에 확인한다. Product retrieval cases가 없으면 candidate apply는 계속 blocked로 남는다. CUHK-PEDES image/caption은 이 gate를 대신할 수 없다.
+
 ## 학습된 CLIP 가져오기 release gate (2026-09-25)
 
 - 실제 CUHK-PEDES held-out 보고서와 dataset SHA-256에 맞는 deployment policy, 같은 package에 결속된 실사용 crop 검색 증거를 준비하고 두 quality gate 결과를 확인한다. 실제 checkpoint와 검색 사례는 이 작업 공간에 제공되지 않았다.

@@ -18,13 +18,23 @@ class TrainingSettings(BaseSettings):
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_prefix="GW_TRAINING_",
+        env_ignore_empty=True,
         extra="ignore",
         frozen=True,
+        populate_by_name=True,
     )
 
     dataset_root: Path | None = None
     memory_profiles_path: Path = Path("/var/lib/gods-watching/training/memory-profiles.json")
-    training_root: Path = Path("/var/lib/gods-watching/training")
+    training_root: Path = Field(
+        default=Path("/var/lib/gods-watching/training"),
+        validation_alias=AliasChoices("GW_TRAINING_ROOT", "GW_TRAINING_TRAINING_ROOT"),
+    )
+    database_url: str | None = Field(
+        default=None,
+        validation_alias="GW_DATABASE_URL",
+        repr=False,
+    )
     model_assets_root: Path = Field(
         default=Path("/models"),
         validation_alias=AliasChoices(
@@ -48,6 +58,13 @@ class TrainingSettings(BaseSettings):
     def _require_absolute_dataset_root(cls, value: Path | None) -> Path | None:
         if value is not None and not value.is_absolute():
             raise ValueError("configured training dataset root must be an absolute path")
+        return value
+
+    @field_validator("memory_profiles_path", "training_root")
+    @classmethod
+    def _require_absolute_training_paths(cls, value: Path) -> Path:
+        if not value.is_absolute():
+            raise ValueError("configured training paths must be absolute")
         return value
 
     @field_validator("model_assets_root")

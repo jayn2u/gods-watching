@@ -27,6 +27,10 @@ _REPOSITORY_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _ENV_PATH: Path = _REPOSITORY_ROOT / ".env"
 _MODEL_LOCK_PATH: Final[Path] = _REPOSITORY_ROOT / "assets/models.lock.json"
 _MODEL_ASSETS_ROOT: Final[Path] = _REPOSITORY_ROOT / "runtime/assets/models"
+_MODEL_IMPORTED_ROOT: Final[Path] = _MODEL_ASSETS_ROOT / "imported"
+_TRAINING_RUNTIME_ROOT: Final[Path] = _REPOSITORY_ROOT / "runtime/training"
+_TRAINING_RUNS_ROOT: Final[Path] = _TRAINING_RUNTIME_ROOT / "runs"
+_UNCONFIGURED_DATASET_ROOT: Final[Path] = _TRAINING_RUNTIME_ROOT / "unconfigured-dataset"
 _ENV_MODE: Final = 0o600
 _MODE_MASK: Final = 0o777
 _MIN_OPERATOR_PASSWORD_LENGTH: Final = 4
@@ -128,6 +132,7 @@ def execute_lifecycle(action: LifecycleAction) -> None:
         case LifecycleAction.PREPARE:
             _prepare_environment()
             _prepare_model_asset_directory()
+            _prepare_training_directories()
             _run_compose("config", "--quiet")
             _invalidate_model_markers()
             _reuse_existing_yolo_asset()
@@ -165,6 +170,23 @@ def _prepare_model_asset_directory() -> None:
                 exit_code=2,
                 detail=f"cannot create {_MODEL_ASSETS_ROOT}: {error}",
             ) from error
+
+
+def _prepare_training_directories() -> None:
+    """Create only the bind sources used by the isolated training services."""
+    try:
+        for path in (
+            _MODEL_IMPORTED_ROOT,
+            _TRAINING_RUNS_ROOT,
+            _UNCONFIGURED_DATASET_ROOT,
+        ):
+            path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as error:
+        raise LifecycleCommandError(
+            command=("training storage setup",),
+            exit_code=2,
+            detail="cannot create the training data, history, or publication directories",
+        ) from error
 
 
 def _reuse_existing_yolo_asset() -> None:
@@ -235,6 +257,7 @@ def _prepare_environment() -> None:
         f"GW_PUBLIC_PORT={_DEFAULT_PUBLIC_PORT}",
         f"GW_PUBLIC_TLS_PORT={_DEFAULT_PUBLIC_TLS_PORT}",
         "GW_SECURE_COOKIE=false",
+        "GW_TRAINING_DATASET_ROOT=",
         *(
             f"{key}={port}"
             for key, port in _HOST_PORT_DEFAULTS.items()
