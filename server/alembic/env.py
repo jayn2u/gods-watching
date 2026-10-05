@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from gods_watching.storage.models import Base
+from gods_watching.training.models import (  # noqa: F401
+    TrainingExecutionSlot,
+    TrainingJob,
+    TrainingRequest,
+)
 
 config = context.config
 if config.config_file_name is not None:

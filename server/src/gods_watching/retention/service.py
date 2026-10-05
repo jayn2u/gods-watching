@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ from gods_watching.storage import (
     Database,
     StorageRepository,
 )
-from gods_watching.storage.physical_usage import managed_crop_bytes
+from gods_watching.storage.physical_usage import PhysicalUsageError, managed_crop_bytes
 
 from .filesystem import ManagedFileKind, safe_scan, safe_unlink
 from .models import (
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
     from gods_watching.appearances.budget import WriterBudget
 
 _MAX_GC_ITEMS: Final = 1024
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +222,12 @@ class RetentionService:
         _ = await self.reconcile_startup()
         while True:
             settings = await self._settings_snapshot()
-            _ = await self.sweep()
+            try:
+                _ = await self.sweep()
+            except PhysicalUsageError:
+                _LOGGER.warning(
+                    "retention sweep skipped because physical crop accounting is unavailable"
+                )
             with anyio.move_on_after(settings.sweep_interval_seconds) as scope:
                 await stop.wait()
             if not scope.cancelled_caught:
@@ -282,22 +289,19 @@ class RetentionService:
         *,
         first_seen_on_or_before: datetime | None = None,
     ) -> tuple[_Candidate, ...]:
-        statement = (
-            select(
-                Appearance.id,
-                Appearance.crop_object_key,
-                Appearance.first_seen,
-                Appearance.ended_at,
-            )
-            .where(Appearance.tombstoned_at.is_(None))
-        )
+        statement = select(
+            Appearance.id,
+            Appearance.crop_object_key,
+            Appearance.first_seen,
+            Appearance.ended_at,
+        ).where(Appearance.tombstoned_at.is_(None))
         if first_seen_on_or_before is not None:
             statement = statement.where(Appearance.first_seen <= first_seen_on_or_before)
         statement = statement.order_by(Appearance.first_seen.asc(), Appearance.id.asc())
         candidates: list[_Candidate] = []
         for appearance_id, crop_object_key, first_seen, ended_at in (
-            await session.execute(statement)
-        ).tuples().all():
+            (await session.execute(statement)).tuples().all()
+        ):
             candidates.append(
                 _Candidate(
                     appearance_id=appearance_id,

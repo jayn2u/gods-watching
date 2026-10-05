@@ -17,12 +17,28 @@ import {
   type SearchRequest,
   type SearchResponse,
 } from "./clientDomain"
+import {
+  parseTrainingConfig,
+  parseTrainingDatasetStatus,
+  parseTrainingJobPage,
+  parseTrainingJobResponse,
+  parseTrainingLogPage,
+  parseTrainingMetricPageResponse,
+  parseTrainingPreflightResponse,
+} from "./clientTrainingDomain"
 import type {
   CameraResponse,
   ModelSettingsResponse,
   SettingsPatch,
   SettingsResponse,
   SwitchPreflight,
+  TrainingConfig,
+  TrainingDatasetStatus,
+  TrainingJobPage,
+  TrainingJobResponse,
+  TrainingLogPage,
+  TrainingMetricPage,
+  TrainingPreflightResponse,
 } from "./clientTypes"
 
 export type {
@@ -58,6 +74,21 @@ export type {
   SettingsPatch,
   SettingsResponse,
   SwitchPreflight,
+  TrainingConfig,
+  TrainingDatasetSnapshot,
+  TrainingDatasetStatus,
+  TrainingEvaluationSummary,
+  TrainingJobPage,
+  TrainingJobPhase,
+  TrainingJobResponse,
+  TrainingLogEntry,
+  TrainingLogPage,
+  TrainingMemoryRefusal,
+  TrainingMetric,
+  TrainingMetricPage,
+  TrainingPreflightResponse,
+  TrainingRetrievalScores,
+  TrainingSplitCounts,
   WallSlotIds,
 } from "./clientTypes"
 
@@ -74,6 +105,7 @@ export class HttpError extends Error {
     readonly code: string,
     message: string,
     readonly retryAfterSeconds?: number,
+    readonly payload?: unknown,
   ) {
     super(message)
   }
@@ -205,6 +237,7 @@ async function requestJson<T>(
       detail?.code ?? "http_error",
       detail?.message ?? `Request failed with HTTP ${response.status}.`,
       Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
+      payload,
     )
   }
   return parse(payload)
@@ -405,9 +438,124 @@ export class ApiClient {
     )
   }
 
+  getTrainingDatasetStatus(signal: AbortSignal): Promise<TrainingDatasetStatus> {
+    return requestJson(
+      "/api/training/datasets",
+      { method: "GET", signal },
+      parseTrainingDatasetStatus,
+    )
+  }
+
+  getTrainingConfig(signal: AbortSignal): Promise<TrainingConfig> {
+    return requestJson("/api/training/config", { method: "GET", signal }, parseTrainingConfig)
+  }
+
+  preflightTraining(
+    config: TrainingConfig,
+    signal: AbortSignal,
+  ): Promise<TrainingPreflightResponse> {
+    return requestJson(
+      "/api/training/preflight",
+      { method: "POST", body: JSON.stringify({ config }), signal },
+      parseTrainingPreflightResponse,
+    )
+  }
+
+  submitTraining(
+    config: TrainingConfig,
+    requestId: string,
+    signal: AbortSignal,
+  ): Promise<TrainingJobResponse> {
+    return requestJson(
+      "/api/training/jobs",
+      {
+        method: "POST",
+        body: JSON.stringify({ request_id: requestId, dataset_id: "cuhk-pedes", config }),
+        signal,
+      },
+      parseTrainingJobResponse,
+    )
+  }
+
+  listTrainingJobs(
+    limit: number,
+    cursor: string | null,
+    signal: AbortSignal,
+  ): Promise<TrainingJobPage> {
+    return requestJson(
+      `/api/training/jobs?${trainingPageQuery(limit, cursor)}`,
+      { method: "GET", signal },
+      parseTrainingJobPage,
+    )
+  }
+
+  getTrainingJob(jobId: string, signal: AbortSignal): Promise<TrainingJobResponse> {
+    return requestJson(
+      `/api/training/jobs/${pathSegment(jobId)}`,
+      { method: "GET", signal },
+      parseTrainingJobResponse,
+    )
+  }
+
+  cancelTrainingJob(
+    jobId: string,
+    requestId: string,
+    signal: AbortSignal,
+  ): Promise<TrainingJobResponse> {
+    return requestJson(
+      `/api/training/jobs/${pathSegment(jobId)}/cancel`,
+      { method: "POST", body: JSON.stringify({ request_id: requestId }), signal },
+      parseTrainingJobResponse,
+    )
+  }
+
+  resumeTrainingJob(
+    jobId: string,
+    requestId: string,
+    signal: AbortSignal,
+  ): Promise<TrainingJobResponse> {
+    return requestJson(
+      `/api/training/jobs/${pathSegment(jobId)}/resume`,
+      { method: "POST", body: JSON.stringify({ request_id: requestId }), signal },
+      parseTrainingJobResponse,
+    )
+  }
+
+  getTrainingMetrics(
+    jobId: string,
+    limit: number,
+    cursor: string | null,
+    signal: AbortSignal,
+  ): Promise<TrainingMetricPage> {
+    return requestJson(
+      `/api/training/jobs/${pathSegment(jobId)}/metrics?${trainingPageQuery(limit, cursor)}`,
+      { method: "GET", signal },
+      parseTrainingMetricPageResponse,
+    )
+  }
+
+  getTrainingLogs(
+    jobId: string,
+    limit: number,
+    cursor: string | null,
+    signal: AbortSignal,
+  ): Promise<TrainingLogPage> {
+    return requestJson(
+      `/api/training/jobs/${pathSegment(jobId)}/logs?${trainingPageQuery(limit, cursor)}`,
+      { method: "GET", signal },
+      parseTrainingLogPage,
+    )
+  }
+
   logout(signal: AbortSignal): Promise<void> {
     return requestNoContent("/api/session", signal)
   }
+}
+
+function trainingPageQuery(limit: number, cursor: string | null): string {
+  const query = new URLSearchParams({ limit: String(limit) })
+  if (cursor !== null) query.set("cursor", cursor)
+  return query.toString()
 }
 
 export const apiClient = new ApiClient()

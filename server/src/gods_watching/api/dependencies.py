@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .app_settings import ApiSettings
     from .camera_runtime import CameraRuntimePort
     from .model_routes import ModelSelectionProvider
+    from .training_routes import TrainingServiceProvider
 
 
 class ClipTransportLifecycle(Protocol):
@@ -68,6 +69,7 @@ class ApiDependencies:
     appearance: AppearanceLookupProvider
     clip_lifecycle: ClipTransportLifecycle
     model_selection: ModelSelectionProvider | None = None
+    training: TrainingServiceProvider | None = None
 
     def with_whep_revocation(self) -> ApiDependencies:
         """Return dependencies whose auth events close this app's WHEP resources."""

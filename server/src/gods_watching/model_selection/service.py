@@ -149,11 +149,13 @@ class ModelSelectionService:
 
     async def get(self, session: AsyncSession) -> ModelSettingsResponse:
         """Return the durable catalog and current progress/outcome."""
+        await self._refresh_registry()
         active, job = await self.repository.state(session, default=self.registry.default)
         return await self._response(active.model_id, job)
 
     async def apply(self, session: AsyncSession, model_id: str) -> ModelSettingsResponse:
         """Validate and queue one prepared model without downloading weights."""
+        await self._refresh_registry()
         package = self.registry.get(model_id)
         if package is None:
             # Keep unknown identifiers separate from unavailable local assets;
@@ -204,6 +206,7 @@ class ModelSelectionService:
 
     async def preflight(self, session: AsyncSession, model_id: str) -> SwitchPreflight:
         """Recompute the current corpus estimate without changing runtime identity."""
+        await self._refresh_registry()
         package = self.registry.get(model_id)
         if package is None:
             raise ModelNotPreparedError(model_id, code="unknown_model")
@@ -234,6 +237,7 @@ class ModelSelectionService:
         observer: TransitionObserver | None = None,
     ) -> TransitionResult | None:
         """Run the oldest active job through staging and atomic activation."""
+        await self._refresh_registry()
         if observer is not None:
             observer.clear()
         async with self.database.transaction() as session:
@@ -853,6 +857,17 @@ class ModelSelectionService:
             return QualityStatus(passed=False, reason="installed package identity mismatch")
         evidence = load_quality_evidence(self.quality_evidence_root / f"{package.revision}.json")
         return assess_quality(manifest, evidence, load_quality_policy(self.quality_policy_path))
+
+    async def _refresh_registry(self) -> None:
+        """Discover imports in place so every API and worker boundary sees them."""
+        if self.imported_assets_root is None:
+            return
+        # The registry object is shared with PreparedModelCatalog, so an
+        # in-place replacement keeps all consumers bound to the same snapshot.
+        _ = await asyncio.to_thread(
+            self.registry.refresh_from,
+            self.imported_assets_root.parent,
+        )
 
     async def _prepared_status(self, package: ClipModelPackage) -> PreparedModelStatus:
         try:

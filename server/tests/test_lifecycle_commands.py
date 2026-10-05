@@ -4,6 +4,7 @@ import pytest
 from pydantic import TypeAdapter
 from typer.testing import CliRunner
 
+import gods_watching.lifecycle as lifecycle_module
 from gods_watching.cli import app
 
 _RUNNER = CliRunner()
@@ -45,10 +46,30 @@ def fake_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("GW_TEST_COMMAND_LOG", str(log_path))
     monkeypatch.setattr("gods_watching.lifecycle._ENV_PATH", tmp_path / ".env")
     monkeypatch.setattr("gods_watching.lifecycle._prepare_model_asset_directory", lambda: None)
+    monkeypatch.setattr("gods_watching.lifecycle._prepare_training_directories", lambda: None)
     monkeypatch.setattr("gods_watching.lifecycle._invalidate_model_markers", lambda: None)
     monkeypatch.setattr("gods_watching.lifecycle._reuse_existing_yolo_asset", lambda: None)
     monkeypatch.setattr("gods_watching.lifecycle._prepare_model_assets", lambda: None)
     return log_path
+
+
+def test_training_bind_sources_are_created_without_touching_dataset_contents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    imported = tmp_path / "models" / "imported"
+    runs = tmp_path / "training" / "runs"
+    unconfigured = tmp_path / "training" / "unconfigured-dataset"
+    monkeypatch.setattr(lifecycle_module, "_MODEL_IMPORTED_ROOT", imported)
+    monkeypatch.setattr(lifecycle_module, "_TRAINING_RUNS_ROOT", runs)
+    monkeypatch.setattr(lifecycle_module, "_UNCONFIGURED_DATASET_ROOT", unconfigured)
+
+    lifecycle_module._prepare_training_directories()  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+    assert imported.is_dir()
+    assert runs.is_dir()
+    assert unconfigured.is_dir()
+    assert tuple(unconfigured.iterdir()) == ()
 
 
 @pytest.mark.parametrize(

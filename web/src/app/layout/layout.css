@@ -79,6 +79,11 @@
   min-width: var(--gw-shell-nav-cameras-width);
 }
 
+.app-nav__button:nth-child(4) {
+  flex: 0 1 5.5rem;
+  min-width: 4.5rem;
+}
+
 .app-nav__button:hover {
   color: var(--gw-color-text);
   border-color: var(--gw-color-accent);
@@ -182,6 +187,23 @@
 
   .app-nav__button {
     min-height: var(--gw-control-height-touch);
+    padding-inline: var(--gw-space-1);
+    text-align: center;
+    white-space: normal;
+  }
+
+  .app-nav__button:nth-child(-n + 4) {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .training-main {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .training-footer-note {
+    grid-column: 1;
   }
 }
 

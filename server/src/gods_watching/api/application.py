@@ -22,6 +22,7 @@ from .session_routes import build_session_router
 from .sessionguard import AuthenticatedRequest, require_session
 from .settings_routes import build_settings_router
 from .status_routes import build_status_router
+from .training_routes import build_training_router
 from .whep_auth import SessionWhepAuthorizer
 
 if TYPE_CHECKING:
@@ -109,6 +110,13 @@ def _build_api_router(dependencies: ApiDependencies) -> APIRouter:
             require_session=require_camera_session,
         )
     )
+    if dependencies.training is not None:
+        router.include_router(
+            build_training_router(
+                service=dependencies.training,
+                require_session=require_camera_session,
+            )
+        )
     router.include_router(
         build_whep_router(
             dependencies.whep,
