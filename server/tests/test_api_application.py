@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Final, Literal
 
 import pytest
@@ -23,6 +24,8 @@ from gods_watching.media import GatewayResponse, MediaPath, WhepProxyService
 from gods_watching.search import AppearanceLookupService, SearchRepository, SearchService
 from gods_watching.settings import SettingsService
 from gods_watching.storage import CredentialCipher, CropObjectStore, Database, StorageRepository
+from gods_watching.training.service import TrainingService
+from gods_watching.training.settings import TrainingSettings
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -85,6 +88,21 @@ def _dependencies(tmp_path: Path) -> tuple[ApiDependencies, Database, TritonClip
         database,
         transport,
     )
+
+
+@pytest.mark.anyio
+async def test_default_app_registers_event_export_and_training_routes(tmp_path: Path) -> None:
+    dependencies, database, transport = _dependencies(tmp_path)
+    training = TrainingService(database, TrainingSettings())
+    try:
+        app = create_app(replace(dependencies, training=training))
+        paths = {route.path for route in app.routes}
+
+        assert "/api/events/export.csv" in paths
+        assert "/api/training/config" in paths
+    finally:
+        await transport.__aexit__(None, None, None)
+        await database.close()
 
 
 async def _request_status(

@@ -1,0 +1,113 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________________ test_real_manifest_probes_four_prepared_inputs ________________
+
+repository_root = PosixPath('<REPO_ROOT>')
+stream = FixtureStream(stream_id='camera-1', prepared_path='runtime/assets/fixtures/business-plaza.mp4', source_page=HttpUrl('h... reason='Resolved direct candidate probed as 1280x720 and 5.055 seconds, below the required 1920x1080 fixture format'))
+
+    def _fixture_path(repository_root: Path, stream: FixtureStream) -> Path:
+        fixture_root = (repository_root / _FIXTURE_ROOT).resolve()
+        candidate = repository_root / stream.prepared_path
+        if Path(stream.prepared_path).is_absolute() or ".." in Path(stream.prepared_path).parts:
+            raise FixturePreparationError(code="unsafe_fixture_path", detail=stream.stream_id)
+        try:
+>           resolved = candidate.resolve(strict=True)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+server/src/gods_watching/fixtures/probe.py:26: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('<REPO_ROOT>/runtime/assets/fixtures/business-plaza.mp4')
+strict = True
+
+    def resolve(self, strict=False):
+        """
+        Make the path absolute, resolving all symlinks on the way and also
+        normalizing it.
+        """
+    
+        def check_eloop(e):
+            winerror = getattr(e, 'winerror', 0)
+            if e.errno == ELOOP or winerror == _WINERROR_CANT_RESOLVE_FILENAME:
+                raise RuntimeError("Symlink loop from %r" % e.filename)
+    
+        try:
+>           s = self._flavour.realpath(self, strict=strict)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           FileNotFoundError: [Errno 2] No such file or directory: '<REPO_ROOT>/runtime'
+
+/mnt/data/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/lib/python3.12/pathlib.py:1240: FileNotFoundError
+
+The above exception was the direct cause of the following exception:
+
+    def test_real_manifest_probes_four_prepared_inputs() -> None:
+        # Given: the attributed manifest and locally prepared public inputs
+        manifest_path = REPOSITORY_ROOT / "assets/test-streams.json"
+        # When: every input is parsed, checksummed, and inspected by real ffprobe
+>       manifest, probes = anyio.run(load_and_probe_fixtures, manifest_path, REPOSITORY_ROOT)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+server/tests/test_fixtures.py:20: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/mnt/data/gods-watching/.venv/lib/python3.12/site-packages/anyio/_core/_eventloop.py:74: in run
+    return async_backend.run(func, args, {}, backend_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/mnt/data/gods-watching/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2316: in run
+    return runner.run(wrapper())
+           ^^^^^^^^^^^^^^^^^^^^^
+/mnt/data/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/mnt/data/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/lib/python3.12/asyncio/base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+/mnt/data/gods-watching/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py:2304: in wrapper
+    return await func(*args)
+           ^^^^^^^^^^^^^^^^^
+server/src/gods_watching/fixtures/probe.py:105: in load_and_probe_fixtures
+    probe = await _probe(stream, _fixture_path(repository_root, stream))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+repository_root = PosixPath('<REPO_ROOT>')
+stream = FixtureStream(stream_id='camera-1', prepared_path='runtime/assets/fixtures/business-plaza.mp4', source_page=HttpUrl('h... reason='Resolved direct candidate probed as 1280x720 and 5.055 seconds, below the required 1920x1080 fixture format'))
+
+    def _fixture_path(repository_root: Path, stream: FixtureStream) -> Path:
+        fixture_root = (repository_root / _FIXTURE_ROOT).resolve()
+        candidate = repository_root / stream.prepared_path
+        if Path(stream.prepared_path).is_absolute() or ".." in Path(stream.prepared_path).parts:
+            raise FixturePreparationError(code="unsafe_fixture_path", detail=stream.stream_id)
+        try:
+            resolved = candidate.resolve(strict=True)
+        except FileNotFoundError as error:
+>           raise FixturePreparationError(code="missing_fixture", detail=stream.stream_id) from error
+E           gods_watching.fixtures.errors.FixturePreparationError: missing_fixture: camera-1
+
+server/src/gods_watching/fixtures/probe.py:28: FixturePreparationError
+_____________________ test_corrupt_input_fails_preparation _____________________
+
+tmp_path = PosixPath('<PRIVATE_PYTEST_TMP>/pytest-29/test_corrupt_input_fails_prepa0')
+
+    def test_corrupt_input_fails_preparation(tmp_path: Path) -> None:
+        # Given: a manifest whose first in-root input contains non-video bytes
+        manifest = load_fixture_manifest(REPOSITORY_ROOT / "assets/test-streams.json")
+        first_path = tmp_path / manifest.streams[0].prepared_path
+        first_path.parent.mkdir(parents=True)
+        _ = first_path.write_bytes(b"not a video")
+        manifest_path = tmp_path / "assets/test-streams.json"
+        manifest_path.parent.mkdir(exist_ok=True)
+        _ = manifest_path.write_text(manifest.model_dump_json(), encoding="utf-8")
+        # When: preparation runs the real media probe
+        with pytest.raises(FixturePreparationError) as error:
+            _ = anyio.run(load_and_probe_fixtures, manifest_path, tmp_path)
+        # Then: corrupt media remains a binary failure
+>       assert error.value.code in {"checksum_mismatch", "invalid_video"}
+E       AssertionError: assert 'probe_timeout' in {'checksum_mismatch', 'invalid_video'}
+E        +  where 'probe_timeout' = FixturePreparationError('probe_timeout', 'camera-1').code
+E        +    where FixturePreparationError('probe_timeout', 'camera-1') = <ExceptionInfo FixturePreparationError('probe_timeout', 'camera-1') tblen=8>.value
+
+server/tests/test_fixtures.py:60: AssertionError
+=========================== short test summary info ============================
+FAILED server/tests/test_fixtures.py::test_real_manifest_probes_four_prepared_inputs
+FAILED server/tests/test_fixtures.py::test_corrupt_input_fails_preparation - ...
+2 failed in 10.17s

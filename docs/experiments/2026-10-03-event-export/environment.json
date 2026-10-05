@@ -1,0 +1,59 @@
+{
+  "alembic_head": "0008_camera_events",
+  "authentication": "synthetic operator credential; actual HTTP login and cookie guard used",
+  "composition": "real FastAPI session and export routers, real AuthService and Database; no media services",
+  "database": {
+    "container_network": "internal Docker network gw-event-export-4bd6ab61",
+    "data_storage": "task-owned database container tmpfs, capped at 256MiB",
+    "host_publish": "none; migration and seed utilities share the private network",
+    "name": "gw_events_bench_4bd6ab61"
+  },
+  "dependencies": {
+    "SQLAlchemy": "2.0.43",
+    "alembic": "1.16.5",
+    "anyio": "4.10.0",
+    "argon2-cffi": "25.1.0",
+    "asyncpg": "0.30.0",
+    "fastapi": "0.116.1",
+    "uvicorn": "0.35.0"
+  },
+  "docker_server_version": "29.8.1",
+  "download": "stdlib HTTP client streams response to a temporary file; no response.read() for full body",
+  "images": {
+    "gods-watching-app:local": "sha256:d37830285e079b037ad9383eafa3b33ce1a72f36df22083c0c6d652e4512843f",
+    "pgvector/pgvector:0.8.1-pg17": "sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21"
+  },
+  "implementation_source_paths": {
+    "AuthService": "/work/server/src/gods_watching/auth/service.py",
+    "CameraEvent": "/work/server/src/gods_watching/storage/models.py",
+    "EventExportService": "/work/server/src/gods_watching/events/export.py",
+    "EventRepository": "/work/server/src/gods_watching/events/repository.py"
+  },
+  "os": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+  "postgresql_server_version": "PostgreSQL 17.8 (Debian 17.8-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "python": "3.12.11 (main, Oct  7 2025, 15:34:39) [Clang 20.1.4 ]",
+  "python_version_app_image": "Python 3.12.12",
+  "repository_head_at_start": "2dbd97a3362061c75397399db17a936dd37c8b13",
+  "resource_limits": {
+    "aggregate_database_connections": "<=4; setup utility is sequential and app pool caps at three",
+    "application": {
+      "cpus": 1,
+      "memory_mib": 256,
+      "swap_mib": 256
+    },
+    "client": {
+      "cpus": 1,
+      "memory_mib": 256,
+      "swap_mib": 256
+    },
+    "database": {
+      "cpus": 1,
+      "memory_mib": 384,
+      "swap_mib": 384,
+      "tmpfs_mib": 256
+    }
+  },
+  "rss": "application resource.getrusage(RUSAGE_SELF).ru_maxrss in Linux KiB; baseline is marked after login",
+  "run_id": "4bd6ab61",
+  "started_at_utc": "2026-10-03T09:05:00.208650+00:00"
+}

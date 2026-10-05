@@ -1,0 +1,40 @@
+{
+  "events": [
+    {
+      "detail": "/usr/bin/docker run --rm --name gw-camera-probe-3ae80efe0b-media --read-only --security-opt no-new-privileges:true --cap-drop ALL -e MTX_WEBRTCLOCALUDPADDRESS=:58902 -e MTX_WEBRTCADDITIONALHOSTS=127.0.0.1 -p 127.0.0.1::8554 -p 127.0.0.1::8889 -p 127.0.0.1:58902:58902/udp --volume <PRIVATE_PYTEST_TMP>/pytest-45/test_real_rtsp_probe_decodes_o0/runtime/mediamtx.yml:/mediamtx.yml:ro bluenviron/mediamtx@sha256:206139c58377b7544d6ef63f8af86bcf46b9e89262aaa6f7513e1347dbab7d36",
+      "kind": "process",
+      "name": "media-gateway",
+      "state": "registered"
+    },
+    {
+      "detail": "pid=3515288",
+      "kind": "process",
+      "name": "media-gateway",
+      "state": "started"
+    },
+    {
+      "detail": "/usr/bin/ffmpeg -hide_banner -loglevel warning -nostdin -re -protocol_whitelist file -i <REPO_ROOT>/runtime/assets/fixtures/crosswalk.mp4 -map 0:v:0 -an -c:v copy -t 5 -f rtsp -rtsp_transport tcp rtsp://<REDACTED>@127.0.0.1:32768/test-publisher/<REDACTED_TOKEN>",
+      "kind": "process",
+      "name": "camera-probe-publisher",
+      "state": "registered"
+    },
+    {
+      "detail": "pid=3517223",
+      "kind": "process",
+      "name": "camera-probe-publisher",
+      "state": "started"
+    },
+    {
+      "detail": "returncode=254",
+      "kind": "process",
+      "name": "camera-probe-publisher",
+      "state": "cleaned"
+    },
+    {
+      "detail": "returncode=-9",
+      "kind": "process",
+      "name": "media-gateway",
+      "state": "cleaned"
+    }
+  ]
+}

@@ -87,6 +87,18 @@ UI에서 완료된 run의 held-out test와 candidate package 상태를 확인합
 
 `admin`/`admin`은 로컬 확인용 기본값입니다. LAN에 공개할 때는 `.env`의 두 값을 먼저 교체하십시오.
 
+## 카메라 이벤트 CSV 내보내기
+
+카메라를 생성하거나 실제 설정을 변경하거나 삭제하면 `camera.created`, `camera.updated`, `camera.deleted` 이벤트가 변경과 같은 트랜잭션에 기록됩니다. 로그인한 운영자는 `GET /api/events/export.csv`로 CSV를 내려받을 수 있습니다. 응답은 `id,occurred_at,event_type,camera_id,camera_name` 열을 이벤트 ID 오름차순으로 제공하며, RTSP 주소·자격 증명과 임의 payload는 포함하지 않습니다.
+
+`camera_id`로 카메라를 좁히고, 시간 범위는 `since` 포함·`until` 제외로 지정합니다. 두 시간 값은 시간대 오프셋이 있어야 하며, CSV의 `occurred_at`은 UTC로 출력됩니다. 브라우저에서 로그인한 뒤 다음 URL을 열면 해당 구간을 내보냅니다.
+
+```text
+/api/events/export.csv?camera_id=00000000-0000-0000-0000-000000000001&since=2026-10-01T00%3A00%3A00%2B00%3A00&until=2026-10-02T00%3A00%3A00%2B00%3A00
+```
+
+실제 DB·인증 경로를 사용한 비교 측정과 검증 한계는 [이벤트 내보내기 검증 보고서](docs/experiments/2026-10-03-event-export/RESULTS.md)를 확인하십시오.
+
 ## 공개 포트 바꾸기
 
 `8080/tcp`가 이미 사용 중이면 `.env`의 `GW_PUBLIC_PORT`를 바꿉니다. TLS overlay의 HTTPS 포트는 `GW_PUBLIC_TLS_PORT`입니다.

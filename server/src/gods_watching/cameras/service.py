@@ -14,6 +14,7 @@ from gods_watching.contracts.cameras import (
 )
 from gods_watching.contracts.identifiers import CameraId, CameraSessionId
 from gods_watching.contracts.pipeline import GenerationBinding
+from gods_watching.events import EventRepository
 from gods_watching.storage import Camera, CameraSession
 
 from .lifecycle import (
@@ -97,6 +98,12 @@ class CameraService:
             )
             activation = _activation(camera, camera_session, source, CameraActivationReason.CREATED)
         await session.flush()
+        _ = await EventRepository.record(
+            session,
+            event_type="camera.created",
+            camera_id=camera.id,
+            camera_name=camera.name,
+        )
         return CameraMutation(_camera_response(camera), CameraLifecyclePlan(activation, None))
 
     async def update(
@@ -157,6 +164,12 @@ class CameraService:
             ),
         )
         await session.flush()
+        _ = await EventRepository.record(
+            session,
+            event_type="camera.updated",
+            camera_id=camera.id,
+            camera_name=camera.name,
+        )
         return CameraMutation(
             _camera_response(camera),
             lifecycle,
@@ -189,6 +202,12 @@ class CameraService:
         camera.detection_enabled = False
         camera.version += 1
         await session.flush()
+        _ = await EventRepository.record(
+            session,
+            event_type="camera.deleted",
+            camera_id=camera.id,
+            camera_name=camera.name,
+        )
         return CameraMutation(
             _camera_response(camera),
             CameraLifecyclePlan(activation=None, cancellation=cancellation),
